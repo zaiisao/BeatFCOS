@@ -352,7 +352,7 @@ class ResNet(nn.Module):
 
                 return focal_loss, regression_loss
         else:
-            transformed_anchors = self.regressBoxes(anchors, regression_outputs)
+            transformed_anchors = self.regressBoxes(torch.cat(anchors, dim=1), regression_outputs)
             transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
             finalResult = [[], [], []]
@@ -377,7 +377,7 @@ class ResNet(nn.Module):
                 anchorBoxes = torch.squeeze(transformed_anchors)
                 anchorBoxes = anchorBoxes[scores_over_thresh]
                 #anchors_nms_idx = nms(anchorBoxes, scores, 0.5)
-                anchors_nms_idx = nms_2d(anchorBoxes, scores, 0.5)
+                anchors_nms_idx = nms_2d(anchorBoxes, scores, 1)
 
                 finalResult[0].extend(scores[anchors_nms_idx])
                 finalResult[1].extend(torch.tensor([i] * anchors_nms_idx.shape[0]))

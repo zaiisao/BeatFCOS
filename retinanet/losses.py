@@ -121,8 +121,8 @@ class FocalLoss(nn.Module):
         self.fcos = fcos
 
     def forward(self, classifications, anchors, annotations, regress_limits=(0, float('inf'))):
-        alpha = 0.25
-        gamma = 2.0
+        alpha = 0.5#0.25
+        gamma = 1.5#2.0
 
         batch_size = classifications.shape[0]
         classification_losses = []
@@ -195,6 +195,8 @@ class FocalLoss(nn.Module):
 
                 targets = torch.zeros(jth_classification.shape)
                 positive_indices, assigned_annotations = get_atss_positives(bbox_annotation, anchors)
+                print("num of positive indices", positive_indices.sum())
+                print("num of negative indices", (~positive_indices).sum())
 
             if torch.cuda.is_available():
                 targets = targets.cuda()
