@@ -15,6 +15,7 @@ from os.path import join as ospj
 from retinanet import model
 from retinanet.dataloader import BeatDataset, collater
 from retinanet.dstcn import dsTCNModel
+from retinanet.beat_eval import evaluate_beat
 
 class Logger(object):
     """Log stdout messages."""
@@ -306,6 +307,9 @@ if __name__ == '__main__':
                 print(e)
                 traceback.print_exc()
                 continue
+
+            print('Evaluating dataset')
+            evaluate_beat(val_dataloader, retinanet)
 
         scheduler.step(np.mean(epoch_loss))
 

@@ -15,6 +15,10 @@ def collater(data):
     # data = one batch of [audio, annot(, metadata)]
     audios = [s[0] for s in data]
     annots = [s[1] for s in data]
+    metadata = None
+
+    if len(data[0]) > 2:
+        metadata = [s[2] for s in data]
 
     new_audios = torch.stack(audios)
 
@@ -33,6 +37,9 @@ def collater(data):
         new_annots = torch.ones((len(annots), 1, 3)) * -1
 
     #return {'img': padded_imgs, 'annot': annot_padded, 'scale': scales}
+    if metadata is not None:
+        return new_audios, new_annots, metadata
+
     return new_audios, new_annots
 
 class BeatDataset(torch.utils.data.Dataset):
@@ -177,11 +184,12 @@ class BeatDataset(torch.utils.data.Dataset):
                     self.data.append((audio, target, metadata))
 
     def __len__(self):
-        if self.subset in ["test", "val", "full-val", "full-test"]:
-            length = len(self.audio_files)
-        else:
-            length = self.examples_per_epoch
-        return length
+        # if self.subset in ["test", "val", "full-val", "full-test"]:
+        #     length = len(self.audio_files)
+        # else:
+        #     length = self.examples_per_epoch
+        # return length
+        return len(self.audio_files)
 
     def __getitem__(self, idx):
 
