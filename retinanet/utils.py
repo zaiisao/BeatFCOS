@@ -168,7 +168,7 @@ def nms_2d(anchor_boxes, scores, thresh_iou):
         torch.unsqueeze(anchor_boxes[:, 0], dim=1),
         torch.zeros((anchor_boxes.size(dim=0), 1)),
         torch.unsqueeze(anchor_boxes[:, 1], dim=1),
-        torch.zeros((anchor_boxes.size(dim=0), 1))
+        torch.ones((anchor_boxes.size(dim=0), 1))
     ), 1)
 
     return nms(boxes_3d, scores, thresh_iou)

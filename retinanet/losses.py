@@ -71,7 +71,7 @@ def get_atss_positives(bbox_annotation, anchors_list):
     for level, anchors_per_level in enumerate(anchors_list):
         end_idx = star_idx + num_anchors_per_level[level]
         distances_per_level = distances[star_idx:end_idx, :]
-        topk = min(1 * num_anchors_per_loc, num_anchors_per_level[level])
+        topk = min(9 * num_anchors_per_loc, num_anchors_per_level[level])
         _, topk_idxs_per_level = distances_per_level.topk(topk, dim=0, largest=False)
         candidate_idxs.append(topk_idxs_per_level + star_idx)
         star_idx = end_idx
@@ -246,7 +246,6 @@ class FocalLoss(nn.Module):
                 torch.set_printoptions(edgeitems=10000000)
                 #print(f"ORIGINAL: {positive_indices}, {assigned_annotations}")
                 positive_indices2, assigned_annotations2 = run_atss_rough_implementation(bbox_annotation, anchors_list)
-                print((positive_indices != positive_indices2).nonzero())
                 #print(f"REIMPLEMENTATION: {positive_indices2}, {assigned_annotations2}")
                 torch.set_printoptions(edgeitems=3)
 
