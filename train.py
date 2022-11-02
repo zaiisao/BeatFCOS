@@ -15,6 +15,7 @@ from os.path import join as ospj
 from retinanet import model
 from retinanet.dataloader import BeatDataset, collater
 from retinanet.dstcn import dsTCNModel
+from retinanet.beat_eval import evaluate_beat
 
 class Logger(object):
     """Log stdout messages."""
@@ -243,6 +244,9 @@ if __name__ == '__main__':
     if not os.path.exists("./checkpoints"):
         os.makedirs("./checkpoints")
 
+    highest_beat_mean_f_measure = 0
+    highest_downbeat_mean_f_measure = 0
+
     for epoch_num in range(start_epoch, args.epochs):
         retinanet.train()
         retinanet.module.freeze_bn()
@@ -307,9 +311,33 @@ if __name__ == '__main__':
                 traceback.print_exc()
                 continue
 
+        print('Evaluating dataset')
+        # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
+        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat(val_dataloader, retinanet)
+
+        print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+        # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
+        # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+        # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
+        # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
+
         scheduler.step(np.mean(epoch_loss))
 
-        torch.save(retinanet.state_dict(), './checkpoints/retinanet_{}.pt'.format(epoch_num))
+        should_save_checkpoint = False
+        if beat_mean_f_measure > highest_beat_mean_f_measure:
+            should_save_checkpoint = True
+            print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
+            highest_beat_mean_f_measure = beat_mean_f_measure
+
+        if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
+            should_save_checkpoint = True
+            print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
+            highest_downbeat_mean_f_measure = downbeat_mean_f_measure
+
+        if should_save_checkpoint:
+            new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
+            print(f"Saving checkpoint at {new_checkpoint_path}")
+            torch.save(retinanet.state_dict(), new_checkpoint_path)
 
     retinanet.eval()
 

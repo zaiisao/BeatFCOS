@@ -269,9 +269,9 @@ class ResNet(nn.Module):
 
     def forward(self, inputs):
         # inputs = audio, target
-        self.training = len(inputs) == 2
+        # self.training = len(inputs) == 2
 
-        if self.training:
+        if len(inputs) == 2:
             audio_batch, annotations = inputs
         else:
             audio_batch = inputs
@@ -310,49 +310,55 @@ class ResNet(nn.Module):
             classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
             regression_outputs = torch.cat([self.regressionModel(feature_map) for feature_map in feature_maps], dim=1)
 
-        #anchors = self.anchors(audio_batch)
-        anchors = self.anchors(tcn_layers[-3])
+        #anchors_list = self.anchors(audio_batch)
+        anchors_list = self.anchors(tcn_layers[-3])
 
+        #if self.training:
+        if self.fcos:
+            focal_losses, regression_losses, centerness_losses = [], [], []
+            regress_distances = [(0, 64), (64, 128), (128, 256), (256, 512), (512, float("inf"))]
+
+            for feature_index in range(len(feature_maps)):
+                focal_losses.append(self.focalLoss(
+                    classification_outputs[feature_index],
+                    anchors_list[feature_index], # anchors_list[feature_index] refers to pixel locations of feature map at feature index
+                                            # same as (x, y) in formula 2 of FCOS paper
+                    annotations, # annotations has bounding box informations in the input image
+                    regress_distances[feature_index]
+                ))
+
+                regression_losses.append(self.regressionLoss(
+                    regression_outputs[feature_index],
+                    anchors_list[feature_index],
+                    annotations,
+                    regress_distances[feature_index]
+                ))
+
+                centerness_losses.append(self.centernessLoss(
+                    centerness_outputs[feature_index],
+                    anchors_list[feature_index],
+                    annotations,
+                    regress_distances[feature_index]
+                ))
+
+            focal_loss = torch.stack(focal_losses).mean(dim=0, keepdim=True)
+            regression_loss = torch.stack(regression_losses).mean(dim=0, keepdim=True)
+            centerness_loss = torch.stack(centerness_losses).mean(dim=0, keepdim=True)
+
+            #return focal_loss, regression_loss, centerness_loss
+        else:
+            focal_loss = self.focalLoss(classification_outputs, anchors_list, annotations)
+            regression_loss = self.regressionLoss(regression_outputs, anchors_list, annotations)
+
+            #return focal_loss, regression_loss
+            
         if self.training:
             if self.fcos:
-                focal_losses, regression_losses, centerness_losses = [], [], []
-                regress_distances = [(0, 64), (64, 128), (128, 256), (256, 512), (512, float("inf"))]
-
-                for feature_index in range(len(feature_maps)):
-                    focal_losses.append(self.focalLoss(
-                        classification_outputs[feature_index],
-                        anchors[feature_index], # anchors[feature_index] refers to pixel locations of feature map at feature index
-                                                # same as (x, y) in formula 2 of FCOS paper
-                        annotations, # annotations has bounding box informations in the input image
-                        regress_distances[feature_index]
-                    ))
-
-                    regression_losses.append(self.regressionLoss(
-                        regression_outputs[feature_index],
-                        anchors[feature_index],
-                        annotations,
-                        regress_distances[feature_index]
-                    ))
-
-                    centerness_losses.append(self.centernessLoss(
-                        centerness_outputs[feature_index],
-                        anchors[feature_index],
-                        annotations,
-                        regress_distances[feature_index]
-                    ))
-
-                focal_loss = torch.stack(focal_losses).mean(dim=0, keepdim=True)
-                regression_loss = torch.stack(regression_losses).mean(dim=0, keepdim=True)
-                centerness_loss = torch.stack(centerness_losses).mean(dim=0, keepdim=True)
-
                 return focal_loss, regression_loss, centerness_loss
             else:
-                focal_loss = self.focalLoss(classification_outputs, anchors, annotations)
-                regression_loss = self.regressionLoss(regression_outputs, anchors, annotations)
-
                 return focal_loss, regression_loss
         else:
-            transformed_anchors = self.regressBoxes(torch.cat(anchors, dim=1), regression_outputs)
+            transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=1), regression_outputs)
             transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
             finalResult = [[], [], []]
@@ -377,7 +383,7 @@ class ResNet(nn.Module):
                 anchorBoxes = torch.squeeze(transformed_anchors)
                 anchorBoxes = anchorBoxes[scores_over_thresh]
                 #anchors_nms_idx = nms(anchorBoxes, scores, 0.5)
-                anchors_nms_idx = nms_2d(anchorBoxes, scores, 1)
+                anchors_nms_idx = nms_2d(anchorBoxes, scores, 0.1)
 
                 finalResult[0].extend(scores[anchors_nms_idx])
                 finalResult[1].extend(torch.tensor([i] * anchors_nms_idx.shape[0]))
@@ -390,8 +396,18 @@ class ResNet(nn.Module):
 
                 finalAnchorBoxesIndexes = torch.cat((finalAnchorBoxesIndexes, finalAnchorBoxesIndexesValue))
                 finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, anchorBoxes[anchors_nms_idx]))
+                #break
+                # torch.set_printoptions(edgeitems=1000000)
+                # print(finalAnchorBoxesCoordinates)
+                # torch.set_printoptions(edgeitems=3)
 
-            return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates]
+            if self.fcos:
+                losses = (focal_loss, regression_loss, centerness_loss)
+            else:
+                losses = (focal_loss, regression_loss)
+
+            #return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates]
+            return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates, losses]
 
 
 
