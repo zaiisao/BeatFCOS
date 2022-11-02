@@ -310,8 +310,8 @@ class ResNet(nn.Module):
             classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
             regression_outputs = torch.cat([self.regressionModel(feature_map) for feature_map in feature_maps], dim=1)
 
-        #anchors_list = self.anchors(audio_batch)
         anchors_list = self.anchors(tcn_layers[-3])
+        number_of_classes = classification_outputs.size(dim=2)
 
         #if self.training:
         if self.fcos:
@@ -347,11 +347,31 @@ class ResNet(nn.Module):
 
             #return focal_loss, regression_loss, centerness_loss
         else:
-            focal_loss = self.focalLoss(classification_outputs, anchors_list, annotations)
-            regression_loss = self.regressionLoss(regression_outputs, anchors_list, annotations)
+            focal_losses, regression_losses = [], []
 
-            #return focal_loss, regression_loss
-            
+            for class_id in range(number_of_classes):
+                single_class_annotation = annotations[annotations[:, :, 2] == class_id].unsqueeze(dim=0)
+                single_class_annotation[:, :, 2] = 0
+
+                focal_losses.append(self.focalLoss(
+                    classification_outputs[:, :, class_id].unsqueeze(dim=2),
+                    anchors_list,
+                    single_class_annotation
+                ))
+
+                regression_losses.append(self.regressionLoss(
+                    regression_outputs[:, :, class_id].unsqueeze(dim=2),
+                    anchors_list,
+                    single_class_annotation
+                ))
+
+            focal_loss = torch.stack(focal_losses).mean(dim=0, keepdim=True)
+            regression_loss = torch.stack(regression_losses).mean(dim=0, keepdim=True)
+            # focal_loss = self.focalLoss(classification_outputs, anchors_list, annotations)
+            # regression_loss = self.regressionLoss(regression_outputs, anchors_list, annotations)
+
+            return focal_loss, regression_loss
+
         if self.training:
             if self.fcos:
                 return focal_loss, regression_loss, centerness_loss

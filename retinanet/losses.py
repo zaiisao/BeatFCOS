@@ -47,73 +47,78 @@ def get_atss_positives(bbox_annotation, anchors_list):
     all_anchors = torch.cat(anchors_list, dim=0)
     num_gt = bbox_annotation.shape[0]
 
-    num_anchors_per_loc = 3#len(self.cfg.MODEL.ATSS.ASPECT_RATIOS) * self.cfg.MODEL.ATSS.SCALES_PER_OCTAVE
+    num_anchors_per_loc = 3
 
-    num_anchors_per_level = [anchors.size(dim=0) for anchors in anchors_list]#[len(anchors_per_level.bbox) for anchors_per_level in anchors[im_i]]
+    num_anchors_per_level = [anchors.size(dim=0) for anchors in anchors_list]
+    candidate_number_of_positive_anchors_per_level = 9
 
-    ious = calc_iou(all_anchors[:, :], bbox_annotation[:, :2])#boxlist_iou(anchors_per_im, targets_per_im)
+    iou_matrix = calc_iou(all_anchors[:, :], bbox_annotation[:, :2])
 
-    #gt_cx = (bboxes_per_im[:, 2] + bboxes_per_im[:, 0]) / 2.0
-    gt_cx = (bbox_annotation[:, 1] + bbox_annotation[:, 0]) / 2.0
-    gt_cy = torch.ones(gt_cx.shape).to(gt_cx.device)#(bboxes_per_im[:, 3] + bboxes_per_im[:, 1]) / 2.0
-    gt_points = torch.stack((gt_cx, gt_cy), dim=1)
+    gt_centers_x = (bbox_annotation[:, 1] + bbox_annotation[:, 0]) / 2.0
+    gt_centers_y = torch.zeros(gt_centers_x.shape).to(gt_centers_x.device)
+    gt_points = torch.stack((gt_centers_x, gt_centers_y), dim=1)
 
-    #anchors_cx_per_im = (anchors_per_im.bbox[:, 2] + anchors_per_im.bbox[:, 0]) / 2.0
-    anchors_cx_per_im = (all_anchors[:, 1] + all_anchors[:, 0]) / 2.0
-    anchors_cy_per_im = torch.ones(anchors_cx_per_im.shape).to(anchors_cx_per_im.device)#(anchors_per_im.bbox[:, 3] + anchors_per_im.bbox[:, 1]) / 2.0
-    anchor_points = torch.stack((anchors_cx_per_im, anchors_cy_per_im), dim=1)
+    all_anchor_centers_x = (all_anchors[:, 1] + all_anchors[:, 0]) / 2.0
+    all_anchor_centers_y = torch.zeros(all_anchor_centers_x.shape).to(all_anchor_centers_x.device)
+    anchor_points = torch.stack((all_anchor_centers_x, all_anchor_centers_y), dim=1)
 
-    distances = (anchor_points[:, None, :] - gt_points[None, :, :]).pow(2).sum(-1).sqrt()
+    distance_matrix_between_anchors_and_bboxes = (anchor_points[:, None, :] - gt_points[None, :, :]).pow(2).sum(-1).sqrt()
 
     # Selecting candidates based on the center distance between anchor box and object
-    candidate_idxs = []
-    star_idx = 0
+    candidate_anchor_idxs_list = []
+    start_global_idx_to_all_anchors = 0
     for level, anchors_per_level in enumerate(anchors_list):
-        end_idx = star_idx + num_anchors_per_level[level]
-        distances_per_level = distances[star_idx:end_idx, :]
-        topk = min(9 * num_anchors_per_loc, num_anchors_per_level[level])
-        _, topk_idxs_per_level = distances_per_level.topk(topk, dim=0, largest=False)
-        candidate_idxs.append(topk_idxs_per_level + star_idx)
-        star_idx = end_idx
-    candidate_idxs = torch.cat(candidate_idxs, dim=0)
+        end_global_idx_to_all_anchors = start_global_idx_to_all_anchors + num_anchors_per_level[level]
+        distances_from_bbox_to_anchors_per_level = distance_matrix_between_anchors_and_bboxes[start_global_idx_to_all_anchors:end_global_idx_to_all_anchors, :]
+        topk = min(candidate_number_of_positive_anchors_per_level * num_anchors_per_loc, num_anchors_per_level[level])
 
+        # indices_to_k_shortest_anchors has the local indices to the anchors on the level i
+        # they will always have values 0, 2, 4, ... from the total local indices 0, 1, 2, 3, ...
+        _, local_indices_to_k_shortest_anchors = distances_from_bbox_to_anchors_per_level.topk(topk, dim=0, largest=False)
+        candidate_anchor_idxs_list.append(start_global_idx_to_all_anchors + local_indices_to_k_shortest_anchors)
+
+        start_global_idx_to_all_anchors = end_global_idx_to_all_anchors
+
+    all_candidate_anchor_idxs_for_gt_bboxes = torch.cat(candidate_anchor_idxs_list, dim=0)
     # Using the sum of mean and standard deviation as the IoU threshold to select final positive samples
-    candidate_ious = ious[candidate_idxs, torch.arange(num_gt)]
-    iou_mean_per_gt = candidate_ious.mean(0)
-    iou_std_per_gt = candidate_ious.std(0)
+    candidate_ious_between_anchors_and_bboxes = iou_matrix[all_candidate_anchor_idxs_for_gt_bboxes, torch.arange(num_gt)]
+
+    iou_mean_per_gt = candidate_ious_between_anchors_and_bboxes.mean(0)
+    iou_std_per_gt = candidate_ious_between_anchors_and_bboxes.std(0)
     iou_thresh_per_gt = iou_mean_per_gt + iou_std_per_gt
-    is_pos = candidate_ious >= iou_thresh_per_gt[None, :]
+
+    is_positive_anchors = candidate_ious_between_anchors_and_bboxes >= iou_thresh_per_gt[None, :]
 
     # Limiting the final positive samples’ center to object
-    anchor_num = anchors_cx_per_im.shape[0]
+    # Find regression target l, r for each gt bbox
+    anchor_num = all_anchor_centers_x.shape[0]
     for ng in range(num_gt):
-        candidate_idxs[:, ng] += ng * anchor_num
-    e_anchors_cx = anchors_cx_per_im.view(1, -1).expand(num_gt, anchor_num).contiguous().view(-1)
-    #e_anchors_cy = anchors_cy_per_im.view(1, -1).expand(num_gt, anchor_num).contiguous().view(-1)
-    candidate_idxs = candidate_idxs.view(-1)
-    l = e_anchors_cx[candidate_idxs].view(-1, num_gt) - bbox_annotation[:, 0]
-    #t = e_anchors_cy[candidate_idxs].view(-1, num_gt) - bboxes_per_im[:, 1]
-    #r = bbox_annotation[:, 2] - e_anchors_cx[candidate_idxs].view(-1, num_gt)
-    r = bbox_annotation[:, 1] - e_anchors_cx[candidate_idxs].view(-1, num_gt)
-    #b = bboxes_per_im[:, 3] - e_anchors_cy[candidate_idxs].view(-1, num_gt)
-    #is_in_gts = torch.stack([l, t, r, b], dim=1).min(dim=1)[0] > 0.01
-    is_in_gts = torch.stack([l, r], dim=1).min(dim=1)[0] > 0.01
-    is_pos = is_pos & is_in_gts
+        all_candidate_anchor_idxs_for_gt_bboxes[:, ng] += ng * anchor_num
 
-    # if an anchor box is assigned to multiple gts, the one with the highest IoU will be selected.
-    ious_inf = torch.full_like(ious, -100000000).t().contiguous().view(-1)
-    index = candidate_idxs.view(-1)[is_pos.view(-1)]
-    ious_inf[index] = ious.t().contiguous().view(-1)[index]
+    expanded_anchors_cx_for_gt_bboxes = all_anchor_centers_x.view(1, -1).expand(num_gt, anchor_num).contiguous().view(-1)
+    all_candidate_anchor_idxs_for_gt_bboxes = all_candidate_anchor_idxs_for_gt_bboxes.view(-1)
+
+    l_of_candidate_anchors = expanded_anchors_cx_for_gt_bboxes[all_candidate_anchor_idxs_for_gt_bboxes].view(-1, num_gt) - bbox_annotation[:, 0]
+    r_of_candidate_anchors = bbox_annotation[:, 1] - expanded_anchors_cx_for_gt_bboxes[all_candidate_anchor_idxs_for_gt_bboxes].view(-1, num_gt)
+
+    is_anchor_in_bbox = torch.stack([l_of_candidate_anchors, r_of_candidate_anchors], dim=1).min(dim=1)[0] > 0.01
+    is_positive_anchors = is_positive_anchors & is_anchor_in_bbox
+
+    # if an anchor box is assigned to multiple bboxes, the bbox with the highest IoU will be selected
+    # because one anchor should be assigned only one bbox
+    INF = 100000000
+
+    ious_inf = torch.full_like(iou_matrix, -INF).t().contiguous().view(-1)
+    index = all_candidate_anchor_idxs_for_gt_bboxes.view(-1)[is_positive_anchors.view(-1)]
+    ious_inf[index] = iou_matrix.t().contiguous().view(-1)[index]
     ious_inf = ious_inf.view(num_gt, -1).t()
 
     anchors_to_gt_values, anchors_to_gt_indexs = ious_inf.max(dim=1)
-    # cls_labels_per_im = bbox_annotation[anchors_to_gt_indexs]
-    # cls_labels_per_im[anchors_to_gt_values == -100000000] = 0
 
-    positive_indices = anchors_to_gt_values != -100000000
-    assigned_annotations = bbox_annotation[anchors_to_gt_indexs]
+    positive_anchor_indices = anchors_to_gt_values != -INF
+    assigned_annotations_for_anchors = bbox_annotation[anchors_to_gt_indexs]
 
-    return positive_indices, assigned_annotations
+    return positive_anchor_indices, assigned_annotations_for_anchors
 
 class FocalLoss(nn.Module):
     def __init__(self, fcos=False):
@@ -182,17 +187,6 @@ class FocalLoss(nn.Module):
                     regress_limits[1]
                 )
             else:
-                # targets = torch.ones(jth_classification.shape) * -1
-
-                # all_anchors = torch.cat(anchors_list, dim=1)
-                # IoU = calc_iou(all_anchors[0, :, :], bbox_annotation[:, :2])
-                # IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
-
-                # targets[torch.lt(IoU_max, 0.4), :] = 0
-                # positive_indices = torch.ge(IoU_max, 0.5)
-
-                # assigned_annotations = bbox_annotation[IoU_argmax, :]
-
                 targets = torch.zeros(jth_classification.shape)
                 positive_indices, assigned_annotations = get_atss_positives(bbox_annotation, anchors_list)
 
