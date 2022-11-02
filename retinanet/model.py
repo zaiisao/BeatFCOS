@@ -358,7 +358,7 @@ class ResNet(nn.Module):
             else:
                 return focal_loss, regression_loss
         else:
-            transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=1), regression_outputs)
+            transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0), regression_outputs)
             transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
             finalResult = [[], [], []]
