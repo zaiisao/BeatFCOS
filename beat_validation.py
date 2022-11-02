@@ -66,7 +66,7 @@ def main(args=None):
     parser.add_argument('--norm_type', type=str, default='BatchNorm')
     parser.add_argument('--act_type', type=str, default='PReLU')
     parser.add_argument('--fcos', action='store_true')
-    parser.add_argument('--reg_loss_type', type=str, default='f1')
+    parser.add_argument('--reg_loss_type', type=str, default='l1')
 
     args = parser.parse_args()
 

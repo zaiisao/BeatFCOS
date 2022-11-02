@@ -231,7 +231,7 @@ class FocalLoss(nn.Module):
             return torch.stack(classification_losses).mean(dim=0, keepdim=True)
 
 class RegressionLoss(nn.Module):
-    def __init__(self, fcos=False, loss_type="f1", weight=10, num_anchors=3):
+    def __init__(self, fcos=False, loss_type="l1", weight=10, num_anchors=3):
         super(RegressionLoss, self).__init__()
         self.fcos = fcos
         self.loss_type = loss_type
@@ -296,7 +296,7 @@ class RegressionLoss(nn.Module):
                 # clip widths to 1
                 gt_widths  = torch.clamp(gt_widths, min=1)
 
-                if self.loss_type == "f1":
+                if self.loss_type == "l1":
                     targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
                     targets_dw = torch.log(gt_widths / anchor_widths_pi)
 

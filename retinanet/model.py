@@ -170,7 +170,7 @@ class ClassificationModel(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, num_classes, block, layers, fcos=False, reg_loss_type="f1", **kwargs):
+    def __init__(self, num_classes, block, layers, fcos=False, reg_loss_type="l1", **kwargs):
         #self.inplanes = 64
         self.inplanes = 256
         super(ResNet, self).__init__()
