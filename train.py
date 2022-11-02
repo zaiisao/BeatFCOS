@@ -198,15 +198,15 @@ dict_args = vars(args)
 if __name__ == '__main__':
     # Create the model
     if args.depth == 18:
-        retinanet = model.resnet18(num_classes=train_dataloader.num_classes(), **dict_args)
+        retinanet = model.resnet18(num_classes=2, **dict_args)
     elif args.depth == 34:
-        retinanet = model.resnet34(num_classes=train_dataloader.num_classes(), **dict_args)
+        retinanet = model.resnet34(num_classes=2, **dict_args)
     elif args.depth == 50:
-        retinanet = model.resnet50(num_classes=train_dataloader.num_classes(), **dict_args)
+        retinanet = model.resnet50(num_classes=2, **dict_args)
     elif args.depth == 101:
-        retinanet = model.resnet101(num_classes=train_dataloader.num_classes(), **dict_args)
+        retinanet = model.resnet101(num_classes=2, **dict_args)
     elif args.depth == 152:
-        retinanet = model.resnet152(num_classes=train_dataloader.num_classes(), **dict_args)
+        retinanet = model.resnet152(num_classes=2, **dict_args)
     else:
         raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
 

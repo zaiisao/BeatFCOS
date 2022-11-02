@@ -19,26 +19,6 @@
             "downbeat": []
         }
     },
-    "carnatic": {
-        "AMLt": {
-            "beat": [],
-            "dbn beat": [],
-            "dbn downbeat": [],
-            "downbeat": []
-        },
-        "CMLt": {
-            "beat": [],
-            "dbn beat": [],
-            "dbn downbeat": [],
-            "downbeat": []
-        },
-        "F-measure": {
-            "beat": [],
-            "dbn beat": [],
-            "dbn downbeat": [],
-            "downbeat": []
-        }
-    },
     "hainsworth": {
         "AMLt": {
             "beat": [],

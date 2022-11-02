@@ -16,9 +16,10 @@ assert torch.__version__.split('.')[0] == '1'
 print('CUDA available: {}'.format(torch.cuda.is_available()))
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
-datasets = ["ballroom", "hainsworth"]
+#datasets = ["ballroom", "hainsworth"]
+datasets = ["ballroom"]
 results = {}
-threshold = 0.2
+threshold = 0.3
 
 def main(args=None):
     parser = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
@@ -80,7 +81,7 @@ def main(args=None):
     # Create the model
     #retinanet = model.resnet50(num_classes=dataset_val.num_classes(), pretrained=True)
     dict_args = vars(args)
-    retinanet = model.resnet50(**dict_args)
+    retinanet = model.resnet50(num_classes=2, **dict_args)
 
     use_gpu = True
 
@@ -235,6 +236,10 @@ def main(args=None):
 
             target_sample_rate = args.audio_sample_rate // args.target_factor
 
+            np.set_printoptions(edgeitems=10000000)
+            torch.set_printoptions(edgeitems=10000000)
+            print("target count beats", wavebeat_format_target[0, :].sum())
+            print("target count downbeats", wavebeat_format_target[1, :].sum())
             print("AAA", wavebeat_format_pred)
             beat_scores, downbeat_scores = evaluate(wavebeat_format_pred.view(2,-1),  
                                                     wavebeat_format_target.view(2,-1), 
@@ -246,6 +251,8 @@ def main(args=None):
                                                     wavebeat_format_target.view(2,-1), 
                                                     target_sample_rate,
                                                     use_dbn=True)
+            torch.set_printoptions(edgeitems=10000000)
+            np.set_printoptions(edgeitems=3)
 
             print()
             print(f"beat {beat_scores['F-measure']:0.3f} mean: {np.mean(results[dataset]['F-measure']['beat']):0.3f}  ")

@@ -5,6 +5,28 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Current File with my args",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "args": [
+                "--ballroom_audio_dir", "../br_test/data",
+                "--ballroom_annot_dir", "../br_test/label",
+                // "--preload", "--patience", "10",
+                // "--train_length", "2097152",
+                // "--eval_length", "2097152",
+                // "--act_type", "PReLU",
+                // "--norm_type", "BatchNorm",
+                // "--channel_width", "32",
+                // "--channel_growth", "32",
+                // "--augment", "--batch_size", "1",
+                // "--audio_sample_rate", "22050",
+                // "--num_workers", "0"
+                "--checkpoints_dir", "checkpoints"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",

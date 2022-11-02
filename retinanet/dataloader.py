@@ -381,7 +381,10 @@ class BeatDataset(torch.utils.data.Dataset):
         # some audio can miss annotations
         # interval을 만드려면 한 리스트에 2개 이상이 있어야 함
         #if downbeat_locations.size(dim=0) < 2 or non_downbeat_locations.size(dim=0) < 2:
-        if downbeat_locations.size(dim=0) < 2 or beat_locations.size(dim=0) < 2:
+        try:
+            if downbeat_locations.size(dim=0) < 2 or beat_locations.size(dim=0) < 2:
+                return annotations
+        except IndexError:
             return annotations
         
         # parse annotations
