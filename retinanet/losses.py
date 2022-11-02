@@ -125,7 +125,7 @@ class FocalLoss(nn.Module):
         super(FocalLoss, self).__init__()
         self.fcos = fcos
 
-    def forward(self, classifications, anchors_list, annotations, regress_limits=(0, float('inf'))):
+    def forward(self, classifications, anchors_list, annotations, regress_limits=(0, float('inf')), class_id=None):
         alpha = 0.25
         gamma = 2.0
 
@@ -147,7 +147,12 @@ class FocalLoss(nn.Module):
             # get box annotations from the original image
             # (5, 20, 0), (-1, -1, -1), 
             bbox_annotation = annotations[j, :, :]
-            bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1]
+            #bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1]
+
+            if class_id is None:
+                bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1] # bbox_annotation[:, 2] is the classification label
+            else:
+                bbox_annotation = bbox_annotation[bbox_annotation[:, 2] == class_id]
 
             jth_classification = torch.clamp(jth_classification, 1e-4, 1.0 - 1e-4)
 
@@ -196,7 +201,10 @@ class FocalLoss(nn.Module):
             num_positive_anchors = positive_indices.sum()
 
             targets[positive_indices, :] = 0
-            targets[positive_indices, assigned_annotations[positive_indices, 2].long()] = 1
+            if class_id is None:
+                targets[positive_indices, assigned_annotations[positive_indices, 2].long()] = 1
+            else:
+                targets[positive_indices] = 1
 
             if torch.cuda.is_available():
                 alpha_factor = torch.ones(targets.shape).cuda() * alpha
@@ -232,7 +240,7 @@ class RegressionLoss(nn.Module):
         self.weight = weight
         self.num_anchors = num_anchors
 
-    def forward(self, regressions, anchors_list, annotations, regress_limits=(0, float('inf'))):
+    def forward(self, regressions, anchors_list, annotations, regress_limits=(0, float('inf')), class_id=None):
         # regressions is (B, C, W, H), with C = 4*num_anchors = 4*9
         # in our case, regressions is (B, C, W), with C = 2*num_anchors = 2*1
         batch_size = regressions.shape[0] 
@@ -252,7 +260,12 @@ class RegressionLoss(nn.Module):
             jth_regression = regressions[j, :, :] # j'th audio in the current batch
 
             bbox_annotation = annotations[j, :, :]
-            bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1] # bbox_annotation[:, 2] is the classification label
+            #bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1] # bbox_annotation[:, 2] is the classification label
+
+            if class_id is None:
+                bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1] # bbox_annotation[:, 2] is the classification label
+            else:
+                bbox_annotation = bbox_annotation[bbox_annotation[:, 2] == class_id]
 
             if bbox_annotation.shape[0] == 0:
                 if torch.cuda.is_available():

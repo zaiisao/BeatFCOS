@@ -352,8 +352,6 @@ class ResNet(nn.Module):
             focal_losses, regression_losses = [], []
 
             for class_id in range(number_of_classes):
-                single_class_annotation = annotations[annotations[:, :, 2] == class_id].unsqueeze(dim=0)
-                single_class_annotation[:, :, 2] = 0
                 # print(f"classification_outputs[:, :, :, class_id].shape: {classification_outputs[:, :, :, class_id].shape}")
                 # print(f"regression_outputs[:, :, :, class_id].shape: {regression_outputs[:, :, :, class_id].shape}")
                 # # for anchors in anchors_list:
@@ -363,15 +361,15 @@ class ResNet(nn.Module):
                 focal_losses.append(self.focalLoss(
                     classification_outputs[:, :, :, class_id],
                     anchors_list,#[anchors[class_id] for anchors in anchors_list],
-                    single_class_annotation
-                    #class_id
+                    annotations,
+                    class_id=class_id
                 ))
 
                 regression_losses.append(self.regressionLoss(
                     regression_outputs[:, :, :, class_id],
                     anchors_list,#[anchors[class_id] for anchors in anchors_list],
-                    single_class_annotation
-                    #class_id
+                    annotations,
+                    class_id=class_id
                 ))
             # print("focal_losses", focal_losses)
             # print("regression_losses", regression_losses)

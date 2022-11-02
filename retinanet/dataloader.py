@@ -184,12 +184,12 @@ class BeatDataset(torch.utils.data.Dataset):
                     self.data.append((audio, target, metadata))
 
     def __len__(self):
-        # if self.subset in ["test", "val", "full-val", "full-test"]:
-        #     length = len(self.audio_files)
-        # else:
-        #     length = self.examples_per_epoch
-        # return length
-        return len(self.audio_files)
+        if self.subset in ["test", "val", "full-val", "full-test"]:
+            length = len(self.audio_files)
+        else:
+            length = self.examples_per_epoch
+        return length
+        #return len(self.audio_files)
 
     def __getitem__(self, idx):
 
