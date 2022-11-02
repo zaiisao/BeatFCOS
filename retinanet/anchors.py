@@ -37,7 +37,7 @@ class Anchors(nn.Module):
         for idx, p in enumerate(self.pyramid_levels):
             anchors = generate_anchors(base_size=self.sizes[idx], scales=self.scales)
             shifted_anchors = shift(feature_map_shapes[idx], self.strides[idx], anchors)
-            #shifted_anchors_expanded = np.expand_dims(shifted_anchors, axis=0)
+            #shifted_anchors_expanded = np.tile(np.expand_dims(shifted_anchors, axis=0), (2, 1, 1))
 
             if torch.cuda.is_available():
                 #all_anchors.append(torch.from_numpy(shifted_anchors_expanded.astype(np.float32)).cuda())

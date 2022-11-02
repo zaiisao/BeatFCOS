@@ -70,8 +70,10 @@ class PyramidFeatures(nn.Module):
 
 
 class RegressionModel(nn.Module):
-    def __init__(self, num_features_in, num_anchors=3, feature_size=256, fcos=False):
+    def __init__(self, num_features_in, num_anchors=3, num_classes=2, feature_size=256, fcos=False):
         super(RegressionModel, self).__init__()
+
+        self.num_classes = num_classes
 
         self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.act1 = nn.ReLU()
@@ -86,7 +88,7 @@ class RegressionModel(nn.Module):
         self.act4 = nn.ReLU()
 
         #self.output = nn.Conv2d(feature_size, num_anchors * 4, kernel_size=3, padding=1)
-        self.regression = nn.Conv1d(feature_size, num_anchors * 2, kernel_size=3, padding=1)
+        self.regression = nn.Conv1d(feature_size, num_anchors * num_classes * 2, kernel_size=3, padding=1)
         self.centerness = nn.Conv1d(feature_size, 1, kernel_size=3, padding=1)
 
         self.fcos = fcos
@@ -108,7 +110,7 @@ class RegressionModel(nn.Module):
 
         # regression is B x C x L, with C = 2*num_anchors
         regression = regression.permute(0, 2, 1)
-        regression = regression.contiguous().view(regression.shape[0], -1, 2)
+        regression = regression.contiguous().view(regression.shape[0], -1, 2, self.num_classes)
 
         if self.fcos:
             centerness = self.centerness(out)
@@ -166,7 +168,7 @@ class ClassificationModel(nn.Module):
         #out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
         out2 = out1.view(batch_size, length, self.num_anchors, self.num_classes)
 
-        return out2.contiguous().view(x.shape[0], -1, self.num_classes)
+        return out2.contiguous().view(x.shape[0], -1, 1, self.num_classes)
 
 
 class ResNet(nn.Module):
@@ -211,7 +213,7 @@ class ResNet(nn.Module):
             num_anchors = 1
 
         self.classificationModel = ClassificationModel(256, num_anchors=num_anchors, num_classes=num_classes)
-        self.regressionModel = RegressionModel(256, num_anchors=num_anchors, fcos=self.fcos)
+        self.regressionModel = RegressionModel(256, num_anchors=num_anchors, num_classes=num_classes, fcos=self.fcos)
 
         self.anchors = Anchors(base_level=8, fcos=self.fcos)
 
@@ -311,7 +313,7 @@ class ResNet(nn.Module):
             regression_outputs = torch.cat([self.regressionModel(feature_map) for feature_map in feature_maps], dim=1)
 
         anchors_list = self.anchors(tcn_layers[-3])
-        number_of_classes = classification_outputs.size(dim=2)
+        number_of_classes = classification_outputs.size(dim=3)
 
         #if self.training:
         if self.fcos:
@@ -352,25 +354,34 @@ class ResNet(nn.Module):
             for class_id in range(number_of_classes):
                 single_class_annotation = annotations[annotations[:, :, 2] == class_id].unsqueeze(dim=0)
                 single_class_annotation[:, :, 2] = 0
+                # print(f"classification_outputs[:, :, :, class_id].shape: {classification_outputs[:, :, :, class_id].shape}")
+                # print(f"regression_outputs[:, :, :, class_id].shape: {regression_outputs[:, :, :, class_id].shape}")
+                # # for anchors in anchors_list:
+                # #     print(f"anchors.shape: {anchors.shape}")
+                # raise ValueError
 
                 focal_losses.append(self.focalLoss(
-                    classification_outputs[:, :, class_id].unsqueeze(dim=2),
-                    anchors_list,
+                    classification_outputs[:, :, :, class_id],
+                    anchors_list,#[anchors[class_id] for anchors in anchors_list],
                     single_class_annotation
+                    #class_id
                 ))
 
                 regression_losses.append(self.regressionLoss(
-                    regression_outputs[:, :, class_id].unsqueeze(dim=2),
-                    anchors_list,
+                    regression_outputs[:, :, :, class_id],
+                    anchors_list,#[anchors[class_id] for anchors in anchors_list],
                     single_class_annotation
+                    #class_id
                 ))
+            # print("focal_losses", focal_losses)
+            # print("regression_losses", regression_losses)
 
             focal_loss = torch.stack(focal_losses).mean(dim=0, keepdim=True)
             regression_loss = torch.stack(regression_losses).mean(dim=0, keepdim=True)
             # focal_loss = self.focalLoss(classification_outputs, anchors_list, annotations)
             # regression_loss = self.regressionLoss(regression_outputs, anchors_list, annotations)
 
-            return focal_loss, regression_loss
+            #return focal_loss, regression_loss
 
         if self.training:
             if self.fcos:
@@ -378,8 +389,8 @@ class ResNet(nn.Module):
             else:
                 return focal_loss, regression_loss
         else:
-            transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0), regression_outputs)
-            transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
+            # transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_outputs)
+            # transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
             finalResult = [[], [], []]
 
@@ -392,8 +403,15 @@ class ResNet(nn.Module):
                 finalAnchorBoxesIndexes = finalAnchorBoxesIndexes.cuda()
                 finalAnchorBoxesCoordinates = finalAnchorBoxesCoordinates.cuda()
 
-            for i in range(classification_outputs.shape[2]):
-                scores = torch.squeeze(classification_outputs[:, :, i])
+            for i in range(classification_outputs.shape[3]):
+                transformed_anchors = self.regressBoxes(
+                    torch.cat(anchors_list, dim=0).unsqueeze(dim=0),
+                    regression_outputs[:, :, :, i]
+                )
+
+                transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
+
+                scores = torch.squeeze(classification_outputs[:, :, 0, i])
                 scores_over_thresh = (scores > 0.05)
                 if scores_over_thresh.sum() == 0:
                     # no boxes to NMS, just continue

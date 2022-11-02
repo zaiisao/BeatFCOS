@@ -240,8 +240,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
                 dbn_downbeat_scores = { 'F-measure': 0 }
 
             # print(f"{index}/{len(dataset)} {metadata['Filename']} CLS: {losses[0]} | REG: {losses[1]}")
-            # print(f"(PEAK) BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f}")
-            # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores['F-measure']:0.3f}\n")
+            print(f"(PEAK) BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f}")
+            print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores['F-measure']:0.3f}\n")
 
             if boxes.shape[0] > 0:
                 # change to (x, y, w, h) (MS COCO standard)
@@ -276,8 +276,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
                     # append detection to results
                     results.append(image_result)
 
-        if not len(results):
-            return
+        # if not len(results):
+        #     return
 
         beat_mean_f_measure = np.mean([result['beat_scores']['F-measure'] for result in results])
         downbeat_mean_f_measure = np.mean([result['downbeat_scores']['F-measure'] for result in results])
