@@ -4,7 +4,7 @@ import torch
 import math
 import torch.utils.model_zoo as model_zoo
 #from torchvision.ops import nms
-from retinanet.utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes, nms_2d,nms_2d2
+from retinanet.utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes, nms_2d
 from retinanet.anchors import Anchors
 from retinanet import losses
 from retinanet.dstcn import dsTCNModel
@@ -416,7 +416,6 @@ class ResNet(nn.Module):
                 anchorBoxes = torch.squeeze(transformed_anchors)
                 anchorBoxes = anchorBoxes[scores_over_thresh]
                 #anchors_nms_idx = nms(anchorBoxes, scores, 0.5)
-                anchors_nms_idx2 = nms_2d2(anchorBoxes, scores, 0.1)
                 anchors_nms_idx = nms_2d(anchorBoxes, scores, 0.1)
                 print(anchors_nms_idx, anchors_nms_idx2)
 
