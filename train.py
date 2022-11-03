@@ -272,8 +272,8 @@ if __name__ == '__main__':
                     classification_loss, regression_loss = retinanet((audio, target))
                     centerness_loss = torch.zeros(1)
     
-                classification_loss = classification_loss.mean() #* classification_loss_weight
-                regression_loss = regression_loss.mean() #* regression_loss_weight
+                classification_loss = classification_loss.mean() * classification_loss_weight
+                regression_loss = regression_loss.mean() * regression_loss_weight
                 centerness_loss = centerness_loss.mean()
 
                 loss = classification_loss + regression_loss + centerness_loss
