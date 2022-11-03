@@ -44,7 +44,7 @@ def get_fcos_positives(bbox_annotation, anchor, lower_limit, upper_limit):
     return positive_indices, assigned_annotations, left, right
 
 def get_atss_positives(bbox_annotation, anchors_list, class_id):
-    class_bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != class_id]
+    class_bbox_annotation = bbox_annotation[bbox_annotation[:, 2] == class_id]
 
     all_anchors = torch.cat(anchors_list, dim=0)
     num_gt = class_bbox_annotation.shape[0]
