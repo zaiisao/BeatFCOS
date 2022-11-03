@@ -415,7 +415,7 @@ class BeatDataset(torch.utils.data.Dataset):
             annotations,
             make_interval_subset(downbeat_locations, 0),
             #make_interval_subset(non_downbeat_locations, 1)
-            #make_interval_subset(beat_locations, 1)
+            make_interval_subset(beat_locations, 1)
         ), axis=0)
 
         return annotations

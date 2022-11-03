@@ -369,7 +369,7 @@ class ResNet(nn.Module):
                 regression_losses.append(class_regression_loss)
             # END for class_id in range(number_of_classes)
 
-            downbeat_weight = 0.6
+            downbeat_weight = 1
 
             focal_losses[0] *= downbeat_weight
             regression_losses[0] *= downbeat_weight
