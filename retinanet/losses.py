@@ -115,52 +115,6 @@ def get_atss_positives(bbox_annotation, anchors_list):
 
     return positive_indices, assigned_annotations
 
-def run_atss_rough_implementation(bbox_annotation, anchors_list):
-    all_anchors = torch.cat(anchors_list, dim=1)
-    positive_indices = torch.zeros(all_anchors.size(dim=1), dtype=torch.bool)
-    assigned_annotations = torch.zeros(all_anchors.size(dim=1), bbox_annotation.size(dim=1))
-
-    iou_of_item_at_index = torch.zeros(positive_indices.shape) * -1
-    for annotation_index in range(bbox_annotation.size(dim=0)):
-        bbox_center = (bbox_annotation[annotation_index, 0] + bbox_annotation[annotation_index, 1])/2
-        candidate_anchors = torch.zeros(0, 2)
-        candidate_anchor_indices = []
-
-        for level_i, level_anchors in enumerate(anchors_list):
-            all_anchors_index = sum(anchors_list[i].size(dim=1) for i in range(level_i))
-            anchors_center = (level_anchors[0, :, 0] + level_anchors[0, :, 1])/2
-            distances = torch.abs(bbox_center - anchors_center)
-            closest_anchor_distance, closest_anchor_index = torch.topk(distances, 3, largest=False)
-
-            candidate_anchors = torch.cat((candidate_anchors, level_anchors[0, closest_anchor_index, :]), dim=0)
-            candidate_anchor_indices += (closest_anchor_index + all_anchors_index).tolist()
-
-        anchor_and_bbox_ious = calc_iou(candidate_anchors, bbox_annotation[annotation_index, :2].unsqueeze(dim=0))
-        descending_ious, descending_iou_indices = torch.sort(anchor_and_bbox_ious, dim=0, descending=True)
-
-        iou_means = torch.mean(anchor_and_bbox_ious)
-        iou_stdevs = torch.std(anchor_and_bbox_ious)
-
-        iou_threshold = iou_means + iou_stdevs
-
-        for candidate_anchor_index, candidate_anchor in enumerate(candidate_anchors):
-            candidate_and_bbox_iou = calc_iou(
-                candidate_anchor.unsqueeze(dim=0),
-                bbox_annotation[annotation_index, :2].unsqueeze(dim=0)
-            )
-            candidate_center = (candidate_anchor[0] + candidate_anchor[1])/2
-
-            if (candidate_and_bbox_iou >= iou_threshold and
-                candidate_center - bbox_annotation[annotation_index, 0] > 0.01 and
-                bbox_annotation[annotation_index, 1] - candidate_center > 0.01 and
-                candidate_and_bbox_iou > iou_of_item_at_index[candidate_anchor_indices[candidate_anchor_index]]
-            ):
-                positive_indices[candidate_anchor_indices[candidate_anchor_index]] = True
-                assigned_annotations[candidate_anchor_indices[candidate_anchor_index]] = bbox_annotation[annotation_index]
-                iou_of_item_at_index[candidate_anchor_indices[candidate_anchor_index]] = candidate_and_bbox_iou
-
-    return positive_indices, assigned_annotations
-
 class FocalLoss(nn.Module):
     def __init__(self, fcos=False):
         super(FocalLoss, self).__init__()
@@ -241,13 +195,6 @@ class FocalLoss(nn.Module):
 
                 targets = torch.zeros(jth_classification.shape)
                 positive_indices, assigned_annotations = get_atss_positives(bbox_annotation, anchors_list)
-                # print("num of positive indices", positive_indices.sum())
-                # print("num of negative indices", (~positive_indices).sum())
-                torch.set_printoptions(edgeitems=10000000)
-                #print(f"ORIGINAL: {positive_indices}, {assigned_annotations}")
-                positive_indices2, assigned_annotations2 = run_atss_rough_implementation(bbox_annotation, anchors_list)
-                #print(f"REIMPLEMENTATION: {positive_indices2}, {assigned_annotations2}")
-                torch.set_printoptions(edgeitems=3)
 
             if torch.cuda.is_available():
                 targets = targets.cuda()

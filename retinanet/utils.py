@@ -166,9 +166,9 @@ class ClipBoxes(nn.Module):
 def nms_2d(anchor_boxes, scores, thresh_iou):
     boxes_3d = torch.cat((
         torch.unsqueeze(anchor_boxes[:, 0], dim=1),
-        torch.zeros((anchor_boxes.size(dim=0), 1)),
+        torch.zeros((anchor_boxes.size(dim=0), 1)).to(anchor_boxes.device),
         torch.unsqueeze(anchor_boxes[:, 1], dim=1),
-        torch.ones((anchor_boxes.size(dim=0), 1))
+        torch.ones((anchor_boxes.size(dim=0), 1)).to(anchor_boxes.device)
     ), 1)
 
     return nms(boxes_3d, scores, thresh_iou)
