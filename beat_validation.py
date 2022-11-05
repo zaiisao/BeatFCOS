@@ -188,6 +188,8 @@ def main(args=None):
             last_target_beat_index, last_target_downbeat_index = None, None
 
             # construct pred tensor
+            previous_right_position_index = [None, None]
+            previous_right_and_current_left_distance = [[], []]
             for box_id in range(boxes.shape[0]):
                 score = float(scores[box_id])
                 label = int(labels[box_id])
@@ -203,12 +205,21 @@ def main(args=None):
                 left_position_index = int(box[0])
                 right_position_index = int(box[1])
 
+                if previous_right_position_index[label] is None:
+                    previous_right_position_index[label] = right_position_index
+                else:
+                    previous_right_and_current_left_distance[label].append(
+                        left_position_index - previous_right_position_index[label]
+                    )
+
                 wavebeat_format_pred[row, left_position_index] = 1
 
                 if label == 0 and (last_pred_downbeat_index is None or right_position_index > last_pred_downbeat_index):
                     last_pred_downbeat_index = right_position_index
                 elif label == 1 and (last_pred_beat_index is None or right_position_index > last_pred_beat_index):
                     last_pred_beat_index = right_position_index
+
+            print(previous_right_and_current_left_distance)
 
             if last_pred_beat_index is not None:
                 wavebeat_format_pred[0, min(last_pred_beat_index, length - 1)] = 1

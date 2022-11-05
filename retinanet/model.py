@@ -4,7 +4,7 @@ import torch
 import math
 import torch.utils.model_zoo as model_zoo
 #from torchvision.ops import nms
-from retinanet.utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes, nms_2d
+from retinanet.utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes, nms_2d, soft_nms, soft_nms_from_pseudocode
 from retinanet.anchors import Anchors
 from retinanet import losses
 from retinanet.dstcn import dsTCNModel
@@ -403,6 +403,7 @@ class ResNet(nn.Module):
                 finalAnchorBoxesCoordinates = finalAnchorBoxesCoordinates.cuda()
 
             for i in range(classification_outputs.shape[2]):
+                # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
                 transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_outputs)
                 transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
@@ -412,12 +413,31 @@ class ResNet(nn.Module):
                     # no boxes to NMS, just continue
                     continue
 
+                soft_scores = scores
                 scores = scores[scores_over_thresh]
                 anchorBoxes = torch.squeeze(transformed_anchors)
+
+                soft_anchor_boxes = anchorBoxes
                 anchorBoxes = anchorBoxes[scores_over_thresh]
                 #anchors_nms_idx = nms(anchorBoxes, scores, 0.5)
-                anchors_nms_idx = nms_2d(anchorBoxes, scores, 0.1)
-                print(anchors_nms_idx, anchors_nms_idx2)
+
+                # 0.2 is the IoU threshold
+                # anchors_nms_idx is a tensor of anchor indices, sorted by score,
+                # after removal of overlapping boxes with lower score
+                anchors_nms_idx = nms_2d(anchorBoxes, scores, 0.5)
+                #print(f"torchvision nms: {nms_2d(anchorBoxes, scores, 0.5)}")
+                # print(anchorBoxes.shape, scores.unsqueeze(dim=1).shape)
+                #print(f"cat:\n{torch.cat((anchorBoxes, scores.unsqueeze(dim=1)), dim=1).shape}\n{torch.cat((anchorBoxes, scores.unsqueeze(dim=1)), dim=1)}")
+                #print(f"scores:\n{scores}")
+
+                # soft_nms(
+                #     torch.cat((soft_anchor_boxes, soft_scores.unsqueeze(dim=1)), dim=1),
+                #     iou_threshold=0.5, score_threshold=0.05, method=3
+                # )
+
+                print(soft_nms_from_pseudocode(anchorBoxes, scores, 0.5))
+
+                print(f"torchvision nms ({anchorBoxes[anchors_nms_idx].shape}):\n{anchorBoxes[anchors_nms_idx]}")
 
                 finalResult[0].extend(scores[anchors_nms_idx])
                 finalResult[1].extend(torch.tensor([i] * anchors_nms_idx.shape[0]))

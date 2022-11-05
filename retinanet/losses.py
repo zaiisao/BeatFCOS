@@ -1,21 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-
-def calc_iou(a, b):
-    area = b[:, 1] - b[:, 0]
-
-    iw = torch.min(torch.unsqueeze(a[:, 1], dim=1), b[:, 1]) - torch.max(torch.unsqueeze(a[:, 0], 1), b[:, 0])
-    iw = torch.clamp(iw, min=0)
-
-    ua = torch.unsqueeze(a[:, 1] - a[:, 0], dim=1) + area - iw
-    ua = torch.clamp(ua, min=1e-8)
-
-    intersection = iw
-
-    IoU = intersection / ua
-
-    return IoU
+from retinanet.utils import BBoxTransform, calc_iou
 
 def get_fcos_positives(bbox_annotation, anchor, lower_limit, upper_limit):
     # sort from shortest to longest
@@ -240,12 +226,14 @@ class FocalLoss(nn.Module):
             return torch.stack(classification_losses).mean(dim=0, keepdim=True)
 
 class RegressionLoss(nn.Module):
-    def __init__(self, fcos=False, loss_type="l1", weight=10, num_anchors=3):
+    def __init__(self, fcos=False, loss_type="l1", weight=1, num_anchors=3):
         super(RegressionLoss, self).__init__()
         self.fcos = fcos
         self.loss_type = loss_type
         self.weight = weight
         self.num_anchors = num_anchors
+
+        self.regressBoxes = BBoxTransform()
 
     def forward(self, regressions, anchors_list, annotations, class_id, regress_limits=(0, float('inf'))):
         if class_id == -1:
@@ -342,67 +330,25 @@ class RegressionLoss(nn.Module):
 
                     regression_losses.append(regression_loss.mean())
                 elif self.loss_type == "iou" or self.loss_type == "giou":
-                    #num_positive_anchors = positive_indices.sum()
+                    target_left = assigned_annotations[:, 0]
+                    target_right = assigned_annotations[:, 1]
 
-                    # 1. For the predicted line B_p, ensuring  x_p_2 > x_p_1
-                    # bbox_prediction, _ = torch.sort(jth_regression[positive_indices, :])
-                    # bbox_ground = torch.stack((left, right), dim=1)[positive_indices, :].float()#assigned_annotations[:, :2]
-
-                    # # 2. Calculating length of B_g: L_g = x_g_2 − x_g_1 (위에서 이미 정의한 gt_widths)
-                    # bbox_ground_lengths = bbox_ground[:, 1] - bbox_ground[:, 0] #gt_widths
-
-                    # # 3. Calculating length of B_p: L_p = x̂_p_2 − x̂_p_1
-                    # bbox_prediction_lengths = bbox_prediction[:, 1] - bbox_prediction[:, 0]
-
-                    # # 4. Calculating intersection I between B_p and B_g
-                    # intersection_x1 = torch.max(bbox_ground[:, 0], bbox_prediction[:, 0])
-                    # intersection_x2 = torch.min(bbox_ground[:, 1], bbox_prediction[:, 1])
-                    # intersection = torch.where(
-                    #     intersection_x2 > intersection_x1,
-                    #     intersection_x2 - intersection_x1,
-                    #     torch.zeros(bbox_ground.size(dim=0))
-                    # )
-
-                    # # 5. Finding the coordinate of smallest enclosing line B_c:
-                    # coordinate_x1 = torch.min(bbox_ground[:, 0], bbox_prediction[:, 0])
-                    # coordinate_x2 = torch.max(bbox_ground[:, 1], bbox_prediction[:, 1])
-
-                    # # 6. Calculating length of B_c
-                    # bbox_coordinate = coordinate_x2 - coordinate_x1 + 1e-7
-
-                    # # 7. IoU (I / U), where U = L_p + L_g - I
-                    # union = bbox_prediction_lengths + bbox_ground_lengths - intersection
-                    # iou = intersection / union
-
-                    # if self.loss_type == "iou":
-                    #     # 9a. L_IoU = 1 - IoU
-                    #     regression_loss = 1 - iou
-                    # else:
-                    #     # 8. GIoU = IoU - (L_c - U)/L_c
-                    #     giou = iou - (bbox_coordinate - union)/bbox_coordinate
-                    #     print(bbox_prediction, bbox_ground, giou)
-
-                    #     # 9b. L_GIoU = 1 - GIoU
-                    #     regression_loss = 1 - giou
-
-                    # #print(regression_loss.mean(), torch.exp(regression_loss.mean() * self.weight))
-                    # regression_losses.append(regression_loss.mean() * self.weight)
-                    target_left = left[positive_indices]
-                    target_right = right[positive_indices]
-
-                    pred_left = jth_regression[positive_indices, 0]
-                    pred_right = jth_regression[positive_indices, 1]
+                    prediction = self.regressBoxes(all_anchors.unsqueeze(dim=0), jth_regression.unsqueeze(dim=0)).squeeze()
+                    prediction_left = prediction[positive_anchor_indices_per_class, 0]
+                    prediction_right = prediction[positive_anchor_indices_per_class, 1]
 
                     target_area = (target_left + target_right)
-                    pred_area = (pred_left + pred_right)
+                    prediction_area = (prediction_left + prediction_right)
 
-                    w_intersect = torch.min(pred_left, target_left) + torch.min(pred_right, target_right)
-                    g_w_intersect = torch.max(pred_left, target_left) + torch.max(pred_right, target_right)
+                    w_intersect = torch.min(prediction_left, target_left) + torch.min(prediction_right, target_right)
+                    g_w_intersect = torch.max(prediction_left, target_left) + torch.max(prediction_right, target_right)
+
                     ac_uion = g_w_intersect + 1e-7
                     area_intersect = w_intersect
-                    area_union = target_area + pred_area - area_intersect
+                    area_union = target_area + prediction_area - area_intersect
                     ious = (area_intersect + 1.0) / (area_union + 1.0)
                     gious = ious - (ac_uion - area_union) / ac_uion
+
                     if self.loss_type == 'iou':
                         losses = -torch.log(ious)
                     elif self.loss_type == 'linear_iou':
@@ -411,13 +357,6 @@ class RegressionLoss(nn.Module):
                         losses = 1 - gious
                     else:
                         raise NotImplementedError
-                    #print(torch.stack((target_left, target_right), dim=1), torch.stack((pred_left, pred_right), dim=1), losses)
-
-                    # if weight is not None and weight.sum() > 0:
-                    #     return (losses * weight).sum()
-                    # else:
-                    #     assert losses.numel() != 0
-                    #     return losses.sum()
 
                     regression_losses.append(losses.sum() * self.weight)
 
