@@ -87,7 +87,7 @@ class RegressionModel(nn.Module):
 
         #self.output = nn.Conv2d(feature_size, num_anchors * 4, kernel_size=3, padding=1)
         self.regression = nn.Conv1d(feature_size, num_anchors * 2, kernel_size=3, padding=1)
-        self.centerness = nn.Conv1d(feature_size, 1, kernel_size=3, padding=1)
+        self.leftness = nn.Conv1d(feature_size, 1, kernel_size=3, padding=1)
 
         self.fcos = fcos
 
@@ -113,11 +113,11 @@ class RegressionModel(nn.Module):
         # (B, L/2, 2, 2)
 
         if self.fcos:
-            centerness = self.centerness(out)
-            centerness = centerness.permute(0, 2, 1)
-            centerness = centerness.contiguous().view(centerness.shape[0], -1, 1)
+            leftness = self.leftness(out)
+            leftness = leftness.permute(0, 2, 1)
+            leftness = leftness.contiguous().view(leftness.shape[0], -1, 1)
 
-            return regression, centerness
+            return regression, leftness
 
         return regression
 
@@ -222,7 +222,7 @@ class ResNet(nn.Module):
 
         self.focalLoss = losses.FocalLoss(fcos=self.fcos)
         self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, num_anchors=num_anchors)
-        self.centernessLoss = losses.CenternessLoss(fcos=self.fcos)
+        self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
@@ -240,9 +240,9 @@ class ResNet(nn.Module):
         self.regressionModel.regression.weight.data.fill_(0)
         self.regressionModel.regression.bias.data.fill_(0)
 
-        self.regressionModel.centerness.weight.data.fill_(0)
-        # self.regressionModel.centerness.bias.data.fill_(0)
-        self.regressionModel.centerness.bias.data.fill_(-math.log((1.0 - prior) / prior))
+        self.regressionModel.leftness.weight.data.fill_(0)
+        # self.regressionModel.leftness.bias.data.fill_(0)
+        self.regressionModel.leftness.bias.data.fill_(-math.log((1.0 - prior) / prior))
 
         self.freeze_bn()
 
@@ -301,93 +301,111 @@ class ResNet(nn.Module):
         if self.fcos:
             classification_outputs = [self.classificationModel(feature_map) for feature_map in feature_maps]
             regression_outputs = []
-            centerness_outputs = []
+            leftness_outputs = []
 
             for feature_map in feature_maps:
-                bbx_regression_output, centerness_regression_output = self.regressionModel(feature_map)
-                regression_outputs.append(bbx_regression_output)
-                centerness_outputs.append(centerness_regression_output)
-        else:
-            classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
-            regression_outputs = torch.cat([self.regressionModel(feature_map) for feature_map in feature_maps], dim=1)
+                bbx_regression_output, leftness_regression_output = self.regressionModel(feature_map)
 
+                regression_outputs.append(bbx_regression_output)
+                leftness_outputs.append(leftness_regression_output)
+        else:
+            classification_outputs = [self.classificationModel(feature_map) for feature_map in feature_maps]
+            regression_outputs = [self.regressionModel(feature_map) for feature_map in feature_maps]
+
+        # anchors_list is the list of all anchor points on the feature maps if self.fcos is true
         anchors_list = self.anchors(tcn_layers[-3])
         number_of_classes = classification_outputs.size(dim=2)
 
-        #if self.training:
-        if self.fcos:
-            focal_losses, regression_losses, centerness_losses = [], [], []
-            regress_distances = [(0, 64), (64, 128), (128, 256), (256, 512), (512, float("inf"))]
+        if self.training:
+            # Return the loss if training
+            #if self.training:
+            # if self.fcos:
+            #     focal_losses, regression_losses, leftness_losses = [], [], []
+            #     regress_distances = [(0, 64), (64, 128), (128, 256), (256, 512), (512, float("inf"))]
 
-            for feature_index in range(len(feature_maps)):
-                focal_losses.append(self.focalLoss(
-                    classification_outputs[feature_index],
-                    anchors_list[feature_index], # anchors_list[feature_index] refers to pixel locations of feature map at feature index
-                                            # same as (x, y) in formula 2 of FCOS paper
-                    annotations, # annotations has bounding box informations in the input image
-                    regress_distances[feature_index]
-                ))
+            #     for feature_index in range(len(feature_maps)):
+            #         focal_losses.append(self.focalLoss(
+            #             classification_outputs[feature_index],
+            #             anchors_list[feature_index], # anchors_list[feature_index] refers to pixel locations of feature map at feature index
+            #                                     # same as (x, y) in formula 2 of FCOS paper
+            #             annotations, # annotations has bounding box informations in the input image
+            #             regress_distances[feature_index]
+            #         ))
 
-                regression_losses.append(self.regressionLoss(
-                    regression_outputs[feature_index],
-                    anchors_list[feature_index],
-                    annotations,
-                    regress_distances[feature_index]
-                ))
+            #         regression_losses.append(self.regressionLoss(
+            #             regression_outputs[feature_index],
+            #             anchors_list[feature_index],
+            #             annotations,
+            #             regress_distances[feature_index]
+            #         ))
 
-                centerness_losses.append(self.centernessLoss(
-                    centerness_outputs[feature_index],
-                    anchors_list[feature_index],
-                    annotations,
-                    regress_distances[feature_index]
-                ))
+            #         leftness_losses.append(self.leftnessLoss(
+            #             leftness_outputs[feature_index],
+            #             anchors_list[feature_index],
+            #             annotations,
+            #             regress_distances[feature_index]
+            #         ))
 
-            focal_loss = torch.stack(focal_losses).mean(dim=0, keepdim=True)
-            regression_loss = torch.stack(regression_losses).mean(dim=0, keepdim=True)
-            centerness_loss = torch.stack(centerness_losses).mean(dim=0, keepdim=True)
+            #     focal_loss = torch.stack(focal_losses).mean(dim=0, keepdim=True)
+            #     regression_loss = torch.stack(regression_losses).mean(dim=0, keepdim=True)
+            #     leftness_loss = torch.stack(leftness_losses).mean(dim=0, keepdim=True)
 
-            #return focal_loss, regression_loss, centerness_loss
-        else:
-            focal_losses, regression_losses = [], []
+            #     #return focal_loss, regression_loss, leftness_loss
+            # else:
+            focal_losses, regression_losses, leftness_losses = [], [], []
 
             for class_id in range(number_of_classes):
                 class_focal_loss = self.focalLoss(
-                    classification_outputs,
+                    torch.cat(classification_outputs, dim=1),
                     anchors_list,#[anchors[class_id] for anchors in anchors_list],
                     annotations,
                     class_id
                 )
 
                 class_regression_loss = self.regressionLoss(
-                    regression_outputs,
+                    torch.cat(regression_outputs, dim=1),
                     anchors_list,#[anchors[class_id] for anchors in anchors_list],
                     annotations,
                     class_id
                 )
 
+                if self.fcos:
+                    class_leftness_loss = self.leftnessLoss(
+                        torch.cat(leftness_outputs, dim=1),
+                        anchors_list,#[anchors[class_id] for anchors in anchors_list],
+                        annotations,
+                        class_id
+                    )
+
+                    leftness_losses.append(class_leftness_loss)
+
                 focal_losses.append(class_focal_loss)
                 regression_losses.append(class_regression_loss)
-            # END for class_id in range(number_of_classes)
+                # END for class_id in range(number_of_classes)
 
             downbeat_weight = 0.6
 
             focal_losses[0] *= downbeat_weight
             regression_losses[0] *= downbeat_weight
+            leftness_losses[0] *= downbeat_weight
 
             focal_losses[1] *= (1 - downbeat_weight)
             regression_losses[1] *= (1 - downbeat_weight)
+            leftness_losses[1] *= (1 - downbeat_weight)
 
             focal_loss = torch.stack(focal_losses).sum(dim=0)
             regression_loss = torch.stack(regression_losses).sum(dim=0)
+            leftness_loss = torch.stack(leftnesd_losses).sum(dim=0)
 
             #return focal_loss, regression_loss
 
-        if self.training:
             if self.fcos:
-                return focal_loss, regression_loss, centerness_loss
+                return focal_loss, regression_loss, leftness_loss
             else:
                 return focal_loss, regression_loss
         else:
+            # Start of evaluation mode
+
             # transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_outputs)
             # transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
@@ -402,68 +420,50 @@ class ResNet(nn.Module):
                 finalAnchorBoxesIndexes = finalAnchorBoxesIndexes.cuda()
                 finalAnchorBoxesCoordinates = finalAnchorBoxesCoordinates.cuda()
 
-            for i in range(classification_outputs.shape[2]):
-                # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
-                transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_outputs)
-                transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
+            for i, classification_output in enumerate(classification_outputs):
+                regression_output = regression_outputs[i]
+                leftness_output = leftness_outputs[i]
 
-                scores = torch.squeeze(classification_outputs[:, :, i])
-                scores_over_thresh = (scores > 0.05)
-                if scores_over_thresh.sum() == 0:
-                    # no boxes to NMS, just continue
-                    continue
+                for class_id in range(classification_output.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
+                    # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
+                    transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_output)
+                    transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
-                soft_scores = scores
-                scores = scores[scores_over_thresh]
-                anchorBoxes = torch.squeeze(transformed_anchors)
+                    scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, class_id])
+                    scores_over_thresh = (scores > 0.05)
+                    if scores_over_thresh.sum() == 0:
+                        # no boxes to NMS, just continue
+                        continue
 
-                soft_anchor_boxes = anchorBoxes
-                anchorBoxes = anchorBoxes[scores_over_thresh]
-                #anchors_nms_idx = nms(anchorBoxes, scores, 0.5)
+                    scores = scores[scores_over_thresh]
+                    anchorBoxes = torch.squeeze(transformed_anchors)
+                    anchorBoxes = anchorBoxes[scores_over_thresh]
+                    # anchors_nms_idx = nms(anchorBoxes, scores, 0.5)
 
-                # 0.2 is the IoU threshold
-                # anchors_nms_idx is a tensor of anchor indices, sorted by score,
-                # after removal of overlapping boxes with lower score
-                anchors_nms_idx = nms_2d(anchorBoxes, scores, 0.5)
-                #print(f"torchvision nms: {nms_2d(anchorBoxes, scores, 0.5)}")
-                # print(anchorBoxes.shape, scores.unsqueeze(dim=1).shape)
-                #print(f"cat:\n{torch.cat((anchorBoxes, scores.unsqueeze(dim=1)), dim=1).shape}\n{torch.cat((anchorBoxes, scores.unsqueeze(dim=1)), dim=1)}")
-                #print(f"scores:\n{scores}")
+                    # anchors_nms_idx is a tensor of anchor indices, sorted by score,
+                    # after removal of overlapping boxes with lower score
+                    anchors_nms_idx = nms_2d(anchorBoxes, scores, 0.1)
 
-                # soft_nms(
-                #     torch.cat((soft_anchor_boxes, soft_scores.unsqueeze(dim=1)), dim=1),
-                #     iou_threshold=0.5, score_threshold=0.05, method=3
-                # )
+                    # print(f"torchvision indices:\n{anchors_nms_idx}")
+                    # print(f"torchvision boxes:\n{torch.cat((anchorBoxes[anchors_nms_idx], scores[anchors_nms_idx].unsqueeze(dim=1)), dim=1)}")
 
-                print(soft_nms_from_pseudocode(anchorBoxes, scores, 0.5))
+                    #anchors_nms_idx = soft_nms(anchorBoxes, scores, sigma=0.2, use_regular_nms=True)
+                    #print(f"anchors_nms_idx:\n{anchorBoxes[anchors_nms_idx]}")
+                    #print(f"anchors_nms_idx2:\n{anchorBoxes[anchors_nms_idx2]}")
 
-                print(f"torchvision nms ({anchorBoxes[anchors_nms_idx].shape}):\n{anchorBoxes[anchors_nms_idx]}")
+                    finalResult[0].extend(scores[anchors_nms_idx])
+                    finalResult[1].extend(torch.tensor([class_id] * anchors_nms_idx.shape[0]))
+                    finalResult[2].extend(anchorBoxes[anchors_nms_idx])
 
-                finalResult[0].extend(scores[anchors_nms_idx])
-                finalResult[1].extend(torch.tensor([i] * anchors_nms_idx.shape[0]))
-                finalResult[2].extend(anchorBoxes[anchors_nms_idx])
+                    finalScores = torch.cat((finalScores, scores[anchors_nms_idx]))
+                    finalAnchorBoxesIndexesValue = torch.tensor([class_id] * anchors_nms_idx.shape[0])
+                    if torch.cuda.is_available():
+                        finalAnchorBoxesIndexesValue = finalAnchorBoxesIndexesValue.cuda()
 
-                finalScores = torch.cat((finalScores, scores[anchors_nms_idx]))
-                finalAnchorBoxesIndexesValue = torch.tensor([i] * anchors_nms_idx.shape[0])
-                if torch.cuda.is_available():
-                    finalAnchorBoxesIndexesValue = finalAnchorBoxesIndexesValue.cuda()
+                    finalAnchorBoxesIndexes = torch.cat((finalAnchorBoxesIndexes, finalAnchorBoxesIndexesValue))
+                    finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, anchorBoxes[anchors_nms_idx]))
 
-                finalAnchorBoxesIndexes = torch.cat((finalAnchorBoxesIndexes, finalAnchorBoxesIndexesValue))
-                finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, anchorBoxes[anchors_nms_idx]))
-                #break
-                # torch.set_printoptions(edgeitems=1000000)
-                # print(finalAnchorBoxesCoordinates)
-                # torch.set_printoptions(edgeitems=3)
-
-            if self.fcos:
-                losses = (focal_loss, regression_loss, centerness_loss)
-            else:
-                losses = (focal_loss, regression_loss)
-
-            #return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates]
-            return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates, losses]
-
-
+            return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates]
 
 def resnet18(num_classes, **kwargs):
     """Constructs a ResNet-18 model."""

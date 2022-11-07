@@ -1,36 +1,85 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from retinanet.utils import BBoxTransform, calc_iou
+from retinanet.utils import BBoxTransform, calc_iou, calc_giou
 
-def get_fcos_positives(bbox_annotation, anchor, lower_limit, upper_limit):
+def get_fcos_positives(jth_annotations, anchors_list, class_id):
+    class_bbox_annotation = jth_annotations[jth_annotations[:, 2] == class_id]
+
+    audio_target_rate = 22050 / 256
+    distance_ranges = [
+        (0, 0.32537674) * audio_target_rate,
+        (0.32537674, 0.47555801) * audio_target_rate,
+        (0.47555801, 0.64588683) * audio_target_rate,
+        (0.64588683, 1.16883525) * audio_target_rate,
+        (1.16883525, 2.17128976) * audio_target_rate,
+        (2.17128976, float("inf")) * audio_target_rate
+    ]
+    # bbox_sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976, ]]
+
     # sort from shortest to longest
-    bbox_annotation = bbox_annotation[(bbox_annotation[:, 1] - bbox_annotation[:, 0]).argsort()]
+    sorted_bbox_indices = (class_bbox_annotation[:, 1] - class_bbox_annotation[:, 0]).argsort()
+    class_bbox_annotation = class_bbox_annotation[sorted_bbox_indices]
 
-    points_in_lines = torch.logical_and(
-        torch.ge(torch.unsqueeze(anchor, dim=0), torch.unsqueeze(bbox_annotation[:, 0], dim=1)),
-        torch.le(torch.unsqueeze(anchor, dim=0), torch.unsqueeze(bbox_annotation[:, 1], dim=1))
-    )
+    positive_anchor_indices = torch.zeros(0)
+    normalized_annotations_for_anchors = torch.zeros(0, 3)
+    l_star_for_all_anchors = torch.zeros(0)
+    r_star_for_all_anchors = torch.zeros(0)
 
-    left = torch.unsqueeze(anchor, dim=0) - torch.unsqueeze(bbox_annotation[:, 0], dim=1)
-    right = torch.unsqueeze(bbox_annotation[:, 1], dim=1) - torch.unsqueeze(anchor, dim=0)
+    # anchors_list contains the anchor points (x, y) on the base level image corresponding to the feature map
+    for i, anchor_points_per_level in enumerate(anchors_list): # anchor points per level, (anchor locations (x, y) on the base level image)
+        # the shape of anchor_points_per_level is (num of anchors,)
+        # the shape of torch.unsqueeze(anchor_points_per_level, dim=0) is (1, num of anchors)
+        # the shape of class_bbox_annotation[:, 0] is (num of annotations,)
+        # the shape of torch.unsqueeze(class_bbox_annotation[:, 0], dim=1) is (num of annotations, 1)
+        # the shape of anchor_points_in_gt_bboxes is (num of annotations, num_of_anchors)
 
-    points_within_range = torch.logical_and(
-        torch.max(left, right) < upper_limit,
-        torch.max(left, right) >= lower_limit
-    )
+        # check whether anchor points are within gt boxes
+        # anchor_points_in_gt_bboxes is a (N, M) boolean matric where N is the number of anchors and M is the number of annotations
+        anchor_points_in_gt_bboxes = torch.logical_and(
+            torch.ge(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(class_bbox_annotation[:, 0], dim=1)),
+            torch.le(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(class_bbox_annotation[:, 1], dim=1))
+        )
 
-    positive_indices, positive_argmax = torch.logical_and(points_in_lines, points_within_range).max(dim=0)
+        # apply the distance limits criteria
+        # lefts is l*, rights is r* which are all the anchor points on the base image
+        l_star_per_level = torch.unsqueeze(anchor_points_per_level, dim=0) - torch.unsqueeze(class_bbox_annotation[:, 0], dim=1)
+        r_star_per_level = torch.unsqueeze(class_bbox_annotation[:, 1], dim=1) - torch.unsqueeze(anchor_points_per_level, dim=0)
 
-    assigned_annotations = bbox_annotation[positive_argmax, :]
+        # (floor(s/2) + xs, floor(s/2) + ys)
+        # strides = [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
+        # s = 2**i
 
-    left = torch.diagonal(left[positive_argmax], 0)
-    right = torch.diagonal(right[positive_argmax], 0)
+        # xs = anchor_points_per_level
+        # xs_in_input_image = xs // 2 + s*xs
+        # center_xs =
 
-    return positive_indices, assigned_annotations, left, right
+        # when i is 0,
+        points_within_range_per_level = torch.logical_and(
+            torch.max(l_star_per_level, r_star_per_level) < distance_ranges[i][1],
+            torch.max(l_star_per_level, r_star_per_level) >= distance_ranges[i][0]
+        )
 
-def get_atss_positives(bbox_annotation, anchors_list, class_id):
-    class_bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != class_id]
+        # positive_argmax_per_level are the first indices to the positive anchors which are both in gt boxes and satisfy the bbox size limits
+        # If there are multiple maximal values in a reduced row then the indices of the first maximal value are returned.
+        positive_anchor_indices_per_level, positive_argmax_per_level = torch.logical_and(
+            anchor_points_in_gt_bboxes,
+            points_within_range_per_level
+        ).max(dim=0)
+
+        normalized_annotations_for_anchors_per_level = class_bbox_annotation[positive_argmax_per_level, :] / 2**i
+
+        positive_l_star_per_level = torch.diagonal(l_star_per_level[positive_argmax_per_level], 0)
+        positive_r_star_per_level = torch.diagonal(r_star_per_level[positive_argmax_per_level], 0)
+
+        normalized_annotations_for_anchors = torch.cat((normalized_annotations_for_anchors, normalized_annotations_for_anchors_per_level))
+        l_star_for_all_anchors = torch.cat((l_star_for_all_anchors, positive_l_star_per_level))
+        r_star_for_all_anchors = torch.cat((r_star_for_all_anchors, positive_r_star_per_level))
+
+    return positive_anchor_indices, normalized_annotations_for_anchors, l_star_for_all_anchors, r_star_for_all_anchors
+
+def get_atss_positives(jth_annotations, anchors_list, class_id):
+    class_bbox_annotation = jth_annotations[jth_annotations[:, 2] == class_id]
 
     all_anchors = torch.cat(anchors_list, dim=0)
     num_gt = class_bbox_annotation.shape[0]
@@ -123,13 +172,13 @@ class FocalLoss(nn.Module):
         batch_size = classifications.shape[0]
         classification_losses = []
 
-        if self.fcos:
-            anchor = anchors_list[:, :]
+        # if self.fcos:
+        #     anchor = anchors_list[:, :]
 
-            # anchors = (x, y) in feature map
-            # [[x1, y1, x2, y2], [x1, y1, x2, y2], [x1, y1, x2, y2], []]
-            assert torch.all(anchor[:, 0] == anchor[:, 1])
-            anchor = anchor[:, 0]
+        #     # anchors = (x, y) in feature map
+        #     # [[x1, y1, x2, y2], [x1, y1, x2, y2], [x1, y1, x2, y2], []]
+        #     assert torch.all(anchor[:, 0] == anchor[:, 1])
+        #     anchor = anchor[:, 0]
 
         for j in range(batch_size):
             # j refers to an audio sample in batch
@@ -137,14 +186,15 @@ class FocalLoss(nn.Module):
 
             # get box annotations from the original image
             # (5, 20, 0), (-1, -1, -1), 
-            bbox_annotation = annotations[j, :, :]
+            jth_annotations = annotations[j, :, :]
             #bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1]
 
-            bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1] # bbox_annotation[:, 2] is the classification label
+            jth_annotations = jth_annotations[jth_annotations[:, 2] != -1] # jth_annotations[:, 2] is the classification label
 
             jth_classification = torch.clamp(jth_classification, 1e-4, 1.0 - 1e-4)
 
-            if bbox_annotation.shape[0] == 0:
+            if jth_annotations.shape[0] == 0: # if there are no annotation boxes on the jth image
+                # the same focal loss is used by both retinanet and fcos
                 if torch.cuda.is_available():
                     alpha_factor = torch.ones(jth_classification.shape).cuda() * alpha
 
@@ -168,23 +218,18 @@ class FocalLoss(nn.Module):
                     cls_loss = focal_weight * bce
                     classification_losses.append(cls_loss.sum())
 
-                continue
+                continue # go to the next image
 
             if self.fcos:
                 class_targets = torch.zeros(jth_classification.shape)
 
-                positive_anchor_indices, assigned_annotations, _, _ = get_fcos_positives(
-                    bbox_annotation,
-                    anchor,
-                    regress_limits[0],
-                    regress_limits[1]
-                )
+                positive_anchor_indices_per_class, assigned_annotations, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
             else:
                 # initialize the beat/downbeat classifiers of all anchors (positive and negative) to background
                 class_targets = torch.zeros(jth_classification.shape)
 
                 # positive_anchor_indices is class-specific if class_id is not None
-                positive_anchor_indices_per_class, assigned_annotations = get_atss_positives(bbox_annotation, anchors_list, class_id=class_id)
+                positive_anchor_indices_per_class, assigned_annotations = get_atss_positives(jth_annotations, anchors_list, class_id=class_id)
 
             if torch.cuda.is_available():
                 class_targets = class_targets.cuda()
@@ -233,8 +278,6 @@ class RegressionLoss(nn.Module):
         self.weight = weight
         self.num_anchors = num_anchors
 
-        self.regressBoxes = BBoxTransform()
-
     def forward(self, regressions, anchors_list, annotations, class_id, regress_limits=(0, float('inf'))):
         if class_id == -1:
             raise ValueError
@@ -250,19 +293,19 @@ class RegressionLoss(nn.Module):
         anchor_widths  = all_anchors[:, 1] - all_anchors[:, 0] # if fcos is true, anchor_widths = 0
         anchor_ctr_x   = all_anchors[:, 0] + 0.5 * anchor_widths # if fcos is true, anchor_ctr_x = anchor[:, 0]
 
-        if self.fcos:
-            assert torch.all(anchor[:, 0] == anchor[:, 1])
-            anchor = anchor[:, 0] # [5, 10, 15, ...]
+        # if self.fcos:
+        #     assert torch.all(anchor[:, 0] == anchor[:, 1])
+        #     anchor = anchor[:, 0] # [5, 10, 15, ...]
 
         for j in range(batch_size):
             jth_regression = regressions[j, :, :] # j'th audio in the current batch
 
-            bbox_annotation = annotations[j, :, :]
-            #bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1] # bbox_annotation[:, 2] is the classification label
+            jth_annotations = annotations[j, :, :]
+            #jth_annotations = jth_annotations[jth_annotations[:, 2] != -1] # jth_annotations[:, 2] is the classification label
 
-            bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1] # bbox_annotation[:, 2] is the classification label
+            jth_annotations = jth_annotations[jth_annotations[:, 2] != -1] # jth_annotations[:, 2] is the classification label
 
-            if bbox_annotation.shape[0] == 0:
+            if jth_annotations.shape[0] == 0:
                 if torch.cuda.is_available():
                     regression_losses.append(torch.tensor(0).float().cuda())
                 else:
@@ -271,134 +314,186 @@ class RegressionLoss(nn.Module):
                 continue
 
             if self.fcos:
-                positive_indices, assigned_annotations, left, right = get_fcos_positives(
-                    bbox_annotation,
-                    anchor,
-                    regress_limits[0],
-                    regress_limits[1]
-                )
+                positive_anchor_indices_per_class, normalized_annotations_for_anchors, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+
+                # normalized_annotations_for_anchors shape (number of positive anchors, 2)
+                # jth_regression[positive_anchor_indices_per_class, :2] shape (number of positive anchors, 2)
+                regression_losses_for_positive_anchors = 1 - calc_giou(normalized_annotations_for_anchors, jth_regression[positive_anchor_indices_per_class, :2])
+
+                regression_losses.append(regression_losses_for_positive_anchors.sum() * self.weight)
             else:
-                # IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :2]) # num_anchors x num_annotations
+                # IoU = calc_iou(anchors[0, :, :], jth_annotations[:, :2]) # num_anchors x num_annotations
                 # IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
                 # positive_indices = torch.ge(IoU_max, 0.5)
-                # assigned_annotations = bbox_annotation[IoU_argmax, :]
-                positive_anchor_indices_per_class, assigned_annotations = get_atss_positives(bbox_annotation, anchors_list, class_id=class_id)
+                # assigned_annotations = jth_annotations[IoU_argmax, :]
+                positive_anchor_indices_per_class, assigned_annotations_for_anchors = get_atss_positives(jth_annotations, anchors_list, class_id=class_id)
 
-            if positive_anchor_indices_per_class.sum() > 0:
-                assigned_annotations = assigned_annotations[positive_anchor_indices_per_class, :]
+                if positive_anchor_indices_per_class.sum() > 0:
+                    assigned_annotations = assigned_annotations[positive_anchor_indices_per_class, :]
 
-                anchor_widths_pi = anchor_widths[positive_anchor_indices_per_class]
-                anchor_ctr_x_pi = anchor_ctr_x[positive_anchor_indices_per_class]
+                    anchor_widths_pi = anchor_widths[positive_anchor_indices_per_class]
+                    anchor_ctr_x_pi = anchor_ctr_x[positive_anchor_indices_per_class]
 
-                gt_widths  = assigned_annotations[:, 1] - assigned_annotations[:, 0]
-                gt_ctr_x   = assigned_annotations[:, 0] + 0.5 * gt_widths
-                # print("gt", gt_widths)
-                # print("anchor", anchor_widths_pi)
+                    gt_widths  = assigned_annotations[:, 1] - assigned_annotations[:, 0]
+                    gt_ctr_x   = assigned_annotations[:, 0] + 0.5 * gt_widths
+                    # print("gt", gt_widths)
+                    # print("anchor", anchor_widths_pi)
 
-                # clip widths to 1
-                gt_widths  = torch.clamp(gt_widths, min=1)
+                    # clip widths to 1
+                    gt_widths  = torch.clamp(gt_widths, min=1)
 
-                if self.loss_type == "l1":
-                    box_targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
-                    box_targets_dw = torch.log(gt_widths / anchor_widths_pi)
+                    if self.loss_type == "l1":
+                        box_targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
+                        box_targets_dw = torch.log(gt_widths / anchor_widths_pi)
 
-                    box_targets = torch.stack((box_targets_dx, box_targets_dw))
-                    box_targets = box_targets.t()
+                        box_targets = torch.stack((box_targets_dx, box_targets_dw))
+                        box_targets = box_targets.t()
 
-                    if torch.cuda.is_available():
-                        box_targets = box_targets/torch.Tensor([[0.1, 0.2]]).cuda()
-                    else:
-                        box_targets = box_targets/torch.Tensor([[0.1, 0.2]])
+                        if torch.cuda.is_available():
+                            box_targets = box_targets/torch.Tensor([[0.1, 0.2]]).cuda()
+                        else:
+                            box_targets = box_targets/torch.Tensor([[0.1, 0.2]])
 
-                    negative_indices = 1 + (~positive_anchor_indices_per_class)
+                        negative_indices = 1 + (~positive_anchor_indices_per_class)
 
-                    regression_diff = torch.abs(box_targets - jth_regression[positive_anchor_indices_per_class, :])
+                        regression_diff = torch.abs(box_targets - jth_regression[positive_anchor_indices_per_class, :])
 
-                    # regression_loss = torch.where(
-                    #     torch.le(regression_diff, 1.0 / 9.0),
-                    #     0.5 * 9.0 * torch.pow(regression_diff, 2),
-                    #     regression_diff - 0.5 / 9.0
-                    # )
-                    regression_loss = torch.where(
-                        torch.le(regression_diff, 1.0 / self.num_anchors),
-                        0.5 * self.num_anchors * torch.pow(regression_diff, 2),
-                        regression_diff - 0.5 / self.num_anchors
-                    )
-                    # print("regression", jth_regression[positive_anchor_indices_per_class, :])
-                    # print("box_targets", box_targets)
-                    # print("loss", regression_loss)
+                        # regression_loss = torch.where(
+                        #     torch.le(regression_diff, 1.0 / 9.0),
+                        #     0.5 * 9.0 * torch.pow(regression_diff, 2),
+                        #     regression_diff - 0.5 / 9.0
+                        # )
+                        regression_loss = torch.where(
+                            torch.le(regression_diff, 1.0 / self.num_anchors),
+                            0.5 * self.num_anchors * torch.pow(regression_diff, 2),
+                            regression_diff - 0.5 / self.num_anchors
+                        )
+                        # print("regression", jth_regression[positive_anchor_indices_per_class, :])
+                        # print("box_targets", box_targets)
+                        # print("loss", regression_loss)
 
-                    regression_losses.append(regression_loss.mean())
-                elif self.loss_type == "iou" or self.loss_type == "giou":
-                    target_left = assigned_annotations[:, 0]
-                    target_right = assigned_annotations[:, 1]
+                        regression_losses.append(regression_loss.mean())
+                    elif self.loss_type == "iou" or self.loss_type == "giou":
+                        target_left = assigned_annotations[:, 0]
+                        target_right = assigned_annotations[:, 1]
 
-                    prediction = self.regressBoxes(all_anchors.unsqueeze(dim=0), jth_regression.unsqueeze(dim=0)).squeeze()
-                    prediction_left = prediction[positive_anchor_indices_per_class, 0]
-                    prediction_right = prediction[positive_anchor_indices_per_class, 1]
+                        #prediction = self.regressBoxes(all_anchors.unsqueeze(dim=0), jth_regression.unsqueeze(dim=0)).squeeze()
+                        prediction_left = prediction[positive_anchor_indices_per_class, 0]
+                        prediction_right = prediction[positive_anchor_indices_per_class, 1]
 
-                    target_area = (target_left + target_right)
-                    prediction_area = (prediction_left + prediction_right)
+                        target_area = (target_left + target_right)
+                        prediction_area = (prediction_left + prediction_right)
 
-                    w_intersect = torch.min(prediction_left, target_left) + torch.min(prediction_right, target_right)
-                    g_w_intersect = torch.max(prediction_left, target_left) + torch.max(prediction_right, target_right)
+                        w_intersect = torch.min(prediction_left, target_left) + torch.min(prediction_right, target_right)
+                        g_w_intersect = torch.max(prediction_left, target_left) + torch.max(prediction_right, target_right)
 
-                    ac_uion = g_w_intersect + 1e-7
-                    area_intersect = w_intersect
-                    area_union = target_area + prediction_area - area_intersect
-                    ious = (area_intersect + 1.0) / (area_union + 1.0)
-                    gious = ious - (ac_uion - area_union) / ac_uion
+                        ac_uion = g_w_intersect + 1e-7
+                        area_intersect = w_intersect
+                        area_union = target_area + prediction_area - area_intersect
+                        ious = (area_intersect + 1.0) / (area_union + 1.0)
+                        gious = ious - (ac_uion - area_union) / ac_uion
 
-                    if self.loss_type == 'iou':
-                        losses = -torch.log(ious)
-                    elif self.loss_type == 'linear_iou':
-                        losses = 1 - ious
-                    elif self.loss_type == 'giou':
-                        losses = 1 - gious
-                    else:
-                        raise NotImplementedError
+                        if self.loss_type == 'iou':
+                            losses = -torch.log(ious)
+                        elif self.loss_type == 'linear_iou':
+                            losses = 1 - ious
+                        elif self.loss_type == 'giou':
+                            losses = 1 - gious
+                        else:
+                            raise NotImplementedError
 
-                    regression_losses.append(losses.sum() * self.weight)
+                        regression_losses.append(losses.sum() * self.weight)
 
-            else:
-                if torch.cuda.is_available():
-                    regression_losses.append(torch.tensor(0).float().cuda())
                 else:
-                    regression_losses.append(torch.tensor(0).float())
+                    if torch.cuda.is_available():
+                        regression_losses.append(torch.tensor(0).float().cuda())
+                    else:
+                        regression_losses.append(torch.tensor(0).float())
 
         if self.fcos:
             return torch.stack(regression_losses).sum(dim=0)
         else:
             return torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
-class CenternessLoss(nn.Module):
+# class CenternessLoss(nn.Module):
+#     def __init__(self, fcos=False):
+#         super(CenternessLoss, self).__init__()
+#         self.fcos = fcos
+
+#     def forward(self, centernesses, anchors, annotations, regress_limits=(0, float('inf'))):
+#         if not self.fcos:
+#             raise NotImplementedError
+
+#         batch_size = centernesses.shape[0]
+#         centerness_losses = []
+
+#         anchor = anchors[:, :]
+
+#         assert torch.all(anchor[:, 0] == anchor[:, 1])
+#         anchor = anchor[:, 0]
+
+#         for j in range(batch_size):
+#             jth_centerness = centernesses[j, :, :]
+
+#             jth_annotations = annotations[j, :, :]
+#             jth_annotations = jth_annotations[jth_annotations[:, 2] != -1]
+
+#             #jth_centerness = torch.clamp(jth_centerness, 1e-4, 1.0 - 1e-4)
+#             jth_centerness = torch.sigmoid(jth_centerness)
+
+#             positive_indices, assigned_annotations, left, right = get_fcos_positives(
+#                 jth_annotations,
+#                 anchor,
+#                 regress_limits[0],
+#                 regress_limits[1]
+#             )
+
+#             num_positive_anchors = positive_indices.sum()
+
+#             targets = torch.where(
+#                 positive_indices,
+#                 torch.sqrt(torch.min(left, right) / torch.max(left, right)).float(),
+#                 torch.zeros(positive_indices.shape)
+#             ).unsqueeze(dim=1)
+
+#             bce = -(targets * torch.log(jth_centerness) + (1.0 - targets) * torch.log(1.0 - jth_centerness))
+
+#             if torch.cuda.is_available():
+#                 ctr_loss = torch.where(positive_indices, bce, torch.zeros(bce.shape).cuda())
+#             else:
+#                 ctr_loss = torch.where(positive_indices, bce, torch.zeros(bce.shape))
+
+#             #print(ctr_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
+#             centerness_losses.append(ctr_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
+
+#         if self.fcos:
+#             return torch.stack(centerness_losses).sum(dim=0)
+#         else:
+#             return torch.stack(centerness_losses).mean(dim=0, keepdim=True)
+
+class LeftnessLoss(nn.Module):
     def __init__(self, fcos=False):
-        super(CenternessLoss, self).__init__()
+        super(LeftnessLoss, self).__init__()
         self.fcos = fcos
 
-    def forward(self, centernesses, anchors, annotations, regress_limits=(0, float('inf'))):
+    def forward(self, leftnesses, anchors, annotations, regress_limits=(0, float('inf'))):
         if not self.fcos:
             raise NotImplementedError
 
-        batch_size = centernesses.shape[0]
-        centerness_losses = []
-
-        anchor = anchors[:, :]
-
-        assert torch.all(anchor[:, 0] == anchor[:, 1])
-        anchor = anchor[:, 0]
+        batch_size = leftnesses.shape[0]
+        leftness_losses = []
 
         for j in range(batch_size):
-            jth_centerness = centernesses[j, :, :]
+            jth_leftness = leftnesses[j, :, :]
 
-            bbox_annotation = annotations[j, :, :]
-            bbox_annotation = bbox_annotation[bbox_annotation[:, 2] != -1]
+            jth_annotations = annotations[j, :, :]
+            jth_annotations = jth_annotations[jth_annotations[:, 2] != -1]
 
-            #jth_centerness = torch.clamp(jth_centerness, 1e-4, 1.0 - 1e-4)
-            jth_centerness = torch.sigmoid(jth_centerness)
+            #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
+            jth_leftness = torch.sigmoid(jth_leftness)
 
             positive_indices, assigned_annotations, left, right = get_fcos_positives(
-                bbox_annotation,
+                jth_annotations,
                 anchor,
                 regress_limits[0],
                 regress_limits[1]
@@ -412,7 +507,7 @@ class CenternessLoss(nn.Module):
                 torch.zeros(positive_indices.shape)
             ).unsqueeze(dim=1)
 
-            bce = -(targets * torch.log(jth_centerness) + (1.0 - targets) * torch.log(1.0 - jth_centerness))
+            bce = -(targets * torch.log(jth_leftness) + (1.0 - targets) * torch.log(1.0 - jth_leftness))
 
             if torch.cuda.is_available():
                 ctr_loss = torch.where(positive_indices, bce, torch.zeros(bce.shape).cuda())
@@ -420,9 +515,9 @@ class CenternessLoss(nn.Module):
                 ctr_loss = torch.where(positive_indices, bce, torch.zeros(bce.shape))
 
             #print(ctr_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
-            centerness_losses.append(ctr_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
+            leftness_losses.append(ctr_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
 
         if self.fcos:
-            return torch.stack(centerness_losses).sum(dim=0)
+            return torch.stack(leftness_losses).sum(dim=0)
         else:
-            return torch.stack(centerness_losses).mean(dim=0, keepdim=True)
+            return torch.stack(leftness_losses).mean(dim=0, keepdim=True)

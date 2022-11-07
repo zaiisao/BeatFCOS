@@ -233,28 +233,28 @@ def evaluate_beat(dataset, model, threshold=0.05):
             box_scores_left = torch.nn.functional.pad(box_scores_left[box_scores_left != 0], (1, 1), "constant", 1)
             box_scores_right = torch.nn.functional.pad(box_scores_right[box_scores_right != 0], (1, 1), "constant", 1)
 
-            positive_bbox_indices_left = wavebeat_format_pred_left.nonzero()
-            positive_bbox_indices_right = wavebeat_format_pred_right.nonzero()
+            # positive_bbox_indices_left = wavebeat_format_pred_left.nonzero()
+            # positive_bbox_indices_right = wavebeat_format_pred_right.nonzero()
 
-            left_weights = torch.clamp(positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] / (
-                positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] +
-                positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()]
-            ), min=0.0, max=0.5)
+            # left_weights = torch.clamp(positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] / (
+            #     positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] +
+            #     positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()]
+            # ), min=0.0, max=0.5)
 
-            right_weights = torch.clamp(positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()] / (
-                positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] +
-                positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()]
-            ), min=0.0, max=0.5)
+            # right_weights = torch.clamp(positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()] / (
+            #     positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] +
+            #     positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()]
+            # ), min=0.0, max=0.5)
 
-            average_indices = torch.round(positive_bbox_indices_left * 0.5 + positive_bbox_indices_right * 0.5)
-            for index_pair in average_indices:
-                wavebeat_format_pred_average[index_pair[0].long(), index_pair[1].long()] = 1
+            # average_indices = torch.round(positive_bbox_indices_left * 0.5 + positive_bbox_indices_right * 0.5)
+            # for index_pair in average_indices:
+            #     wavebeat_format_pred_average[index_pair[0].long(), index_pair[1].long()] = 1
 
-            weighted_indices = torch.round(positive_bbox_indices_left * left_weights + positive_bbox_indices_right * right_weights)
-            for index_pair in weighted_indices:
-                index_pair[0] = 0 if torch.isnan(index_pair[0]) else 1
-                index_pair[1] = torch.nan_to_num(index_pair[1], nan=0.5)
-                wavebeat_format_pred_weighted[index_pair[0].long(), index_pair[1].long()] = 1
+            # weighted_indices = torch.round(positive_bbox_indices_left * left_weights + positive_bbox_indices_right * right_weights)
+            # for index_pair in weighted_indices:
+            #     index_pair[0] = 0 if torch.isnan(index_pair[0]) else 1
+            #     index_pair[1] = torch.nan_to_num(index_pair[1], nan=0.5)
+            #     wavebeat_format_pred_weighted[index_pair[0].long(), index_pair[1].long()] = 1
 
             # construct target tensor
             for beat_interval in target[0]:
@@ -304,33 +304,33 @@ def evaluate_beat(dataset, model, threshold=0.05):
                 dbn_beat_scores_right = { 'F-measure': 0 }
                 dbn_downbeat_scores_right = { 'F-measure': 0 }
 
-            beat_scores_average, downbeat_scores_average = evaluate(wavebeat_format_pred_average.view(2,-1),  
-                                                    wavebeat_format_target.view(2,-1), 
-                                                    target_sample_rate,
-                                                    use_dbn=False)
+            # beat_scores_average, downbeat_scores_average = evaluate(wavebeat_format_pred_average.view(2,-1),  
+            #                                         wavebeat_format_target.view(2,-1), 
+            #                                         target_sample_rate,
+            #                                         use_dbn=False)
 
-            try:
-                dbn_beat_scores_average, dbn_downbeat_scores_average = evaluate(wavebeat_format_pred_average.view(2,-1), 
-                                                        wavebeat_format_target.view(2,-1), 
-                                                        target_sample_rate,
-                                                        use_dbn=True)
-            except:
-                dbn_beat_scores_average = { 'F-measure': 0 }
-                dbn_downbeat_scores_average = { 'F-measure': 0 }
+            # try:
+            #     dbn_beat_scores_average, dbn_downbeat_scores_average = evaluate(wavebeat_format_pred_average.view(2,-1), 
+            #                                             wavebeat_format_target.view(2,-1), 
+            #                                             target_sample_rate,
+            #                                             use_dbn=True)
+            # except:
+            #     dbn_beat_scores_average = { 'F-measure': 0 }
+            #     dbn_downbeat_scores_average = { 'F-measure': 0 }
 
-            beat_scores_weighted, downbeat_scores_weighted = evaluate(wavebeat_format_pred_weighted.view(2,-1),  
-                                                    wavebeat_format_target.view(2,-1), 
-                                                    target_sample_rate,
-                                                    use_dbn=False)
+            # beat_scores_weighted, downbeat_scores_weighted = evaluate(wavebeat_format_pred_weighted.view(2,-1),  
+            #                                         wavebeat_format_target.view(2,-1), 
+            #                                         target_sample_rate,
+            #                                         use_dbn=False)
 
-            try:
-                dbn_beat_scores_weighted, dbn_downbeat_scores_weighted = evaluate(wavebeat_format_pred_weighted.view(2,-1), 
-                                                        wavebeat_format_target.view(2,-1), 
-                                                        target_sample_rate,
-                                                        use_dbn=True)
-            except:
-                dbn_beat_scores_weighted = { 'F-measure': 0 }
-                dbn_downbeat_scores_weighted = { 'F-measure': 0 }
+            # try:
+            #     dbn_beat_scores_weighted, dbn_downbeat_scores_weighted = evaluate(wavebeat_format_pred_weighted.view(2,-1), 
+            #                                             wavebeat_format_target.view(2,-1), 
+            #                                             target_sample_rate,
+            #                                             use_dbn=True)
+            # except:
+            #     dbn_beat_scores_weighted = { 'F-measure': 0 }
+            #     dbn_downbeat_scores_weighted = { 'F-measure': 0 }
 
             classification_losses.append(losses[0])
             regression_losses.append(losses[1])
@@ -342,11 +342,11 @@ def evaluate_beat(dataset, model, threshold=0.05):
             print("RIGHT")
             print(f"BEAT (F-measure): {beat_scores_right['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_right['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_right['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_right['F-measure']:0.3f}")
-            print("AVERAGE")
-            print(f"BEAT (F-measure): {beat_scores_average['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_average['F-measure']:0.3f}")
+            # print("AVERAGE")
+            # print(f"BEAT (F-measure): {beat_scores_average['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_average['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_average['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_average['F-measure']:0.3f}")
-            print("WEIGHTED")
-            print(f"BEAT (F-measure): {beat_scores_weighted['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_weighted['F-measure']:0.3f}")
+            # print("WEIGHTED")
+            # print(f"BEAT (F-measure): {beat_scores_weighted['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_weighted['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_weighted['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_weighted['F-measure']:0.3f}\n")
 
             beat_scores = beat_scores_left
@@ -382,10 +382,10 @@ def evaluate_beat(dataset, model, threshold=0.05):
                         'downbeat_scores_left': downbeat_scores_left,
                         'beat_scores_right': beat_scores_right,
                         'downbeat_scores_right': downbeat_scores_right,
-                        'beat_scores_average': beat_scores_average,
-                        'downbeat_scores_average': downbeat_scores_average,
-                        'beat_scores_weighted': beat_scores_weighted,
-                        'downbeat_scores_weighted': downbeat_scores_weighted,
+                        # 'beat_scores_average': beat_scores_average,
+                        # 'downbeat_scores_average': downbeat_scores_average,
+                        # 'beat_scores_weighted': beat_scores_weighted,
+                        # 'downbeat_scores_weighted': downbeat_scores_weighted,
                         # 'dbn_beat_scores': dbn_beat_scores,
                         # 'dbn_downbeat_scores': dbn_downbeat_scores
                     }
@@ -401,10 +401,10 @@ def evaluate_beat(dataset, model, threshold=0.05):
         left_downbeat_mean_f_measure = np.mean([result['downbeat_scores_left']['F-measure'] for result in results])
         right_beat_mean_f_measure = np.mean([result['beat_scores_right']['F-measure'] for result in results])
         right_downbeat_mean_f_measure = np.mean([result['downbeat_scores_right']['F-measure'] for result in results])
-        average_beat_mean_f_measure = np.mean([result['beat_scores_average']['F-measure'] for result in results])
-        average_downbeat_mean_f_measure = np.mean([result['downbeat_scores_average']['F-measure'] for result in results])
-        weighted_beat_mean_f_measure = np.mean([result['beat_scores_weighted']['F-measure'] for result in results])
-        weighted_downbeat_mean_f_measure = np.mean([result['downbeat_scores_weighted']['F-measure'] for result in results])
+        # average_beat_mean_f_measure = np.mean([result['beat_scores_average']['F-measure'] for result in results])
+        # average_downbeat_mean_f_measure = np.mean([result['downbeat_scores_average']['F-measure'] for result in results])
+        # weighted_beat_mean_f_measure = np.mean([result['beat_scores_weighted']['F-measure'] for result in results])
+        # weighted_downbeat_mean_f_measure = np.mean([result['downbeat_scores_weighted']['F-measure'] for result in results])
         #dbn_beat_mean_f_measure = np.mean([result['dbn_beat_scores']['F-measure'] for result in results])
         #dbn_downbeat_mean_f_measure = np.mean([result['dbn_downbeat_scores']['F-measure'] for result in results])
 
@@ -412,16 +412,16 @@ def evaluate_beat(dataset, model, threshold=0.05):
         print(f"Average left downbeat F-measure: {left_downbeat_mean_f_measure:0.3f}")
         print(f"Average right beat F-measure: {right_beat_mean_f_measure:0.3f}")
         print(f"Average right downbeat F-measure: {right_downbeat_mean_f_measure:0.3f}")
-        print(f"Average average beat F-measure: {average_beat_mean_f_measure:0.3f}")
-        print(f"Average average downbeat F-measure: {average_downbeat_mean_f_measure:0.3f}")
-        print(f"Average weighted beat F-measure: {weighted_beat_mean_f_measure:0.3f}")
-        print(f"Average weighted downbeat F-measure: {weighted_downbeat_mean_f_measure:0.3f}")
+        # print(f"Average average beat F-measure: {average_beat_mean_f_measure:0.3f}")
+        # print(f"Average average downbeat F-measure: {average_downbeat_mean_f_measure:0.3f}")
+        # print(f"Average weighted beat F-measure: {weighted_beat_mean_f_measure:0.3f}")
+        # print(f"Average weighted downbeat F-measure: {weighted_downbeat_mean_f_measure:0.3f}")
         print()
         # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
         # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
         model.train()
 
-        beat_mean_f_measure = average_beat_mean_f_measure
-        downbeat_mean_f_measure = average_downbeat_mean_f_measure
+        beat_mean_f_measure = left_beat_mean_f_measure#average_beat_mean_f_measure
+        downbeat_mean_f_measure = left_downbeat_mean_f_measure#average_downbeat_mean_f_measure
         return beat_mean_f_measure, downbeat_mean_f_measure, 0, 0#dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure

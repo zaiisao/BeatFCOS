@@ -266,17 +266,17 @@ if __name__ == '__main__':
                 optimizer.zero_grad()
 
                 if args.fcos:
-                    classification_loss, regression_loss, centerness_loss = retinanet((audio, target))  # retinanet = model.resnet50(**dict_args)
+                    classification_loss, regression_loss, leftness_loss = retinanet((audio, target))  # retinanet = model.resnet50(**dict_args)
                                                                                                         # this calls the forward function of resnet50
                 else:
                     classification_loss, regression_loss = retinanet((audio, target))
-                    centerness_loss = torch.zeros(1)
+                    leftness_loss = torch.zeros(1)
     
                 classification_loss = classification_loss.mean() * classification_loss_weight
                 regression_loss = regression_loss.mean() * regression_loss_weight
-                centerness_loss = centerness_loss.mean()
+                leftness_loss = leftness_loss.mean()
 
-                loss = classification_loss + regression_loss + centerness_loss
+                loss = classification_loss + regression_loss + leftness_loss
 
                 if bool(loss == 0):
                     continue
@@ -285,7 +285,7 @@ if __name__ == '__main__':
                 # print(torch.abs(retinanet.module.classificationModel.output.weight.grad).sum())
                 # print(torch.abs(retinanet.module.regressionModel.regression.weight.grad).sum())
                 # if args.fcos:
-                #     print(torch.abs(retinanet.module.regressionModel.centerness.weight.grad).sum())
+                #     print(torch.abs(retinanet.module.regressionModel.leftness.weight.grad).sum())
 
                 torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
 
@@ -297,8 +297,8 @@ if __name__ == '__main__':
 
                 if args.fcos:
                     print(
-                        'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Centerness loss: {:1.5f} | Running loss: {:1.5f}'.format(
-                            epoch_num, iter_num, float(classification_loss), float(regression_loss), float(centerness_loss), np.mean(loss_hist)))
+                        'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Leftness loss: {:1.5f} | Running loss: {:1.5f}'.format(
+                            epoch_num, iter_num, float(classification_loss), float(regression_loss), float(leftness_loss), np.mean(loss_hist)))
                 else:
                     print(
                         'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
@@ -306,7 +306,7 @@ if __name__ == '__main__':
 
                 del classification_loss
                 del regression_loss
-                del centerness_loss
+                del leftness_loss
             except KeyboardInterrupt:
                 sys.exit()
             except Exception as e:

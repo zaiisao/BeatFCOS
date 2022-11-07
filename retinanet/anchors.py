@@ -6,21 +6,22 @@ import torch.nn as nn
 
 class Anchors(nn.Module):
     # def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
-    def __init__(self, fcos=False, base_level=0):
+    def __init__(self, fcos=False, base_level=0): # We use base level 8
         super(Anchors, self).__init__()
 
         self.fcos = fcos
         self.base_level = base_level
 
-        self.pyramid_levels = [8, 9, 10, 11, 12]
+        self.pyramid_levels = [8, 9, 10, 11, 12] # Actual strides we use are [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
         self.strides = [2 ** (x - self.base_level) for x in self.pyramid_levels]
         # self.strides = [2 ** x for x in self.pyramid_levels]
 
-        if self.fcos:
-            self.sizes = [0 for x in self.pyramid_levels]
-            self.scales = np.array([0])
+        self.sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976]]
+
+        if self.fcos:            
+            #self.sizes = [0 for x in self.pyramid_levels]
+            self.scales = np.array([1])
         else:
-            self.sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976]]
             self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
 
     def forward(self, base_image):
@@ -36,7 +37,7 @@ class Anchors(nn.Module):
 
         for idx, p in enumerate(self.pyramid_levels):
             anchors = generate_anchors(base_size=self.sizes[idx], scales=self.scales)
-            shifted_anchors = shift(feature_map_shapes[idx], self.strides[idx], anchors)
+            shifted_anchors = shift(feature_map_shapes[idx], self.strides[idx], anchors, fcos=self.fcos)
             #shifted_anchors_expanded = np.tile(np.expand_dims(shifted_anchors, axis=0), (2, 1, 1))
 
             if torch.cuda.is_available():
@@ -105,8 +106,9 @@ def anchors_for_shape(
     return all_anchors
 
 
-def shift(shape, stride, anchors):
-    shift_x = (np.arange(0, shape[0]) + 0.5) * stride
+def shift(feature_map_shapes, stride, anchors, fcos=False): # create one anchor point for each location on the feature map i
+    shift_x = (np.arange(0, feature_map_shapes[0]) + 0.5) * stride # feature_map_shapes[0] is the ith feature map x resolution
+    # shift_x is the x resolution of the ith feature map projected back to the base image
 
     shifts = np.vstack((
        shift_x.ravel(), shift_x.ravel()
@@ -116,11 +118,14 @@ def shift(shape, stride, anchors):
     # cell K shifts (K, 1, 2) to get
     # shift anchors (K, A, 2)
     # reshape to (K*A, 2) shifted anchors
-    A = anchors.shape[0]
-    K = shifts.shape[0]
+    A = anchors.shape[0] # A is 1
+    K = shifts.shape[0] # K is the resolution of the ith feature map on the base image
 
     all_anchors = (anchors.reshape((1, A, 2)) + shifts.reshape((1, K, 2)).transpose((1, 0, 2)))
     all_anchors = all_anchors.reshape((K * A, 2))
+
+    if fcos:
+        all_anchors = (all_anchors[:, 0] + all_anchors[:, 1]) / 2
 
     return all_anchors
 

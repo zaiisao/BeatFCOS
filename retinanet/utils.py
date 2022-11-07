@@ -25,6 +25,50 @@ def calc_iou(a, b):
 
     return IoU
 
+def calc_giou(a, b):
+    # 1. For the predicted line B_p, ensuring  x_p_2 > x_p_1
+
+    # 2. Calculating length of B_g: L_g = x_g_2 − x_g_1 (위에서 이미 정의한 gt_widths)
+    a_lengths = a[:, 1] - a[:, 0] #gt_widths
+
+    # 3. Calculating length of B_p: L_p = x̂_p_2 − x̂_p_1
+    b_lengths = b[:, 1] - b[:, 0]
+
+    # 4. Calculating intersection I between B_p and B_g
+    intersection_x1 = torch.max(a[:, 0], b[:, 0])
+    intersection_x2 = torch.min(a[:, 1], b[:, 1])
+    intersection = torch.where(
+        intersection_x2 > intersection_x1,
+        intersection_x2 - intersection_x1,
+        torch.zeros(a.size(dim=0))
+    )
+
+    # 5. Finding the coordinate of smallest enclosing line B_c:
+    coordinate_x1 = torch.min(a[:, 0], b[:, 0])
+    coordinate_x2 = torch.max(a[:, 1], b[:, 1])
+
+    # 6. Calculating length of B_c
+    bbox_coordinate = coordinate_x2 - coordinate_x1 + 1e-7
+
+    # 7. IoU (I / U), where U = L_p + L_g - I
+    union = b_lengths + a_lengths - intersection
+    iou = intersection / union
+
+    #if self.loss_type == "iou":
+        # 9a. L_IoU = 1 - IoU
+    #    regression_loss = 1 - iou
+    #else:
+        # 8. GIoU = IoU - (L_c - U)/L_c
+        #giou = iou - (bbox_coordinate - union)/bbox_coordinate
+    giou = iou - (bbox_coordinate - union)/bbox_coordinate
+    return iou, giou
+        #print(b, a, giou)
+
+        # 9b. L_GIoU = 1 - GIoU
+        #regression_loss = 1 - giou
+
+    #print(regression_loss.mean(), torch.exp(regression_loss.mean() * self.weight))
+
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -182,150 +226,224 @@ def nms_2d(anchor_boxes, scores, thresh_iou):
         torch.unsqueeze(anchor_boxes[:, 0], dim=1),
         torch.zeros((anchor_boxes.size(dim=0), 1)).to(anchor_boxes.device),
         torch.unsqueeze(anchor_boxes[:, 1], dim=1),
-        torch.zeros((anchor_boxes.size(dim=0), 1)).to(anchor_boxes.device)
+        torch.ones((anchor_boxes.size(dim=0), 1)).to(anchor_boxes.device)
     ), 1)
 
     return nms(boxes_3d, scores, thresh_iou)
 
-# https://github.com/bharatsingh430/soft-nms/blob/b8e69bdf8df2ad53025c9d198ded909b50471d4f/lib/nms/cpu_nms.pyx
-def soft_nms(boxes, sigma=0.5, iou_threshold=0.3, score_threshold=0.001, method=0):
-    N = boxes.shape[0]
-    iw, ih, box_area = None, None, None
-    ua = None
-    pos = 0
-    maxscore = 0
-    maxpos = 0
-    #cdef float x1,x2,y1,y2,tx1,tx2,ty1,ty2,ts,area,weight,ov
-    x1,x2,tx1,tx2,ts,area,weight,ov = None, None, None, None, None, None, None, None
+def soft_nms(dets, box_scores, sigma=0.5, thresh=0.05, use_regular_nms=False):
+    """
+    Build a pytorch implement of Soft NMS algorithm.
+    # Augments
+        dets:        boxes coordinate tensor (format:[y1, x1, y2, x2])
+        box_scores:  box score tensors
+        sigma:       variance of Gaussian function
+        thresh:      score thresh
+        cuda:        CUDA flag
+    # Return
+        the index of the selected boxes
+    """
+
+    # Indexes concatenate boxes with the last column
+    N = dets.shape[0]
+    indexes = torch.arange(0, N, dtype=torch.float).to(dets.device).view(N, 1)
+    dets = torch.cat((dets, indexes), dim=1)
+
+    # The order of boxes coordinate is [y1,x1,y2,x2]
+    #y1 = dets[:, 0]
+    #x1 = dets[:, 1]
+    #y2 = dets[:, 2]
+    #x2 = dets[:, 3]
+    x1 = dets[:, 0]
+    x2 = dets[:, 1]
+    scores = box_scores
+    #areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    areas = (x2 - x1 + 1) #* (y2 - y1 + 1)
 
     for i in range(N):
-        #maxscore = boxes[i, 4]
-        maxscore = boxes[i, 2]
-        maxpos = i
-
-        # save box i to tx1, tx2, and ts
-        # tx1 = boxes[i,0]
-        # ty1 = boxes[i,1]
-        # tx2 = boxes[i,2]
-        # ty2 = boxes[i,3]
-        # ts = boxes[i,4]
-        tx1 = boxes[i,0]
-        tx2 = boxes[i,1]
-        ts = boxes[i,2]
-
+        # intermediate parameters for later parameters exchange
+        tscore = scores[i].clone()
         pos = i + 1
 
-        # m <- argmax S
-        # get max box: get max score and max pos
-        while pos < N:
-            # if maxscore < boxes[pos, 4]:
-            #     maxscore = boxes[pos, 4]
-            if maxscore < boxes[pos, 2]:
-                maxscore = boxes[pos, 2]
-                maxpos = pos
-            pos = pos + 1
+        if i != N - 1:
+            maxscore, maxpos = torch.max(scores[pos:], dim=0)
+            if tscore < maxscore:
+                dets[i], dets[maxpos.item() + i + 1] = dets[maxpos.item() + i + 1].clone(), dets[i].clone()
+                scores[i], scores[maxpos.item() + i + 1] = scores[maxpos.item() + i + 1].clone(), scores[i].clone()
+                areas[i], areas[maxpos + i + 1] = areas[maxpos + i + 1].clone(), areas[i].clone()
 
-        # B <- B - M
-        # add max box as a detection
-        # boxes[i,0] = boxes[maxpos,0]
-        # boxes[i,1] = boxes[maxpos,1]
-        # boxes[i,2] = boxes[maxpos,2]
-        # boxes[i,3] = boxes[maxpos,3]
-        # boxes[i,4] = boxes[maxpos,4]
-        boxes[i,0] = boxes[maxpos,0]
-        boxes[i,1] = boxes[maxpos,1]
-        boxes[i,2] = boxes[maxpos,2]
+        # IoU calculate
+        #yy1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
+        #xx1 = np.maximum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
+        #yy2 = np.minimum(dets[i, 2].to("cpu").numpy(), dets[pos:, 2].to("cpu").numpy())
+        #xx2 = np.minimum(dets[i, 3].to("cpu").numpy(), dets[pos:, 3].to("cpu").numpy())
+        xx1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
+        xx2 = np.minimum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
+        
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        #h = np.maximum(0.0, yy2 - yy1 + 1)
+        #inter = torch.tensor(w * h).to(dets.device)
+        inter = torch.tensor(w).to(dets.device)
+        ovr = torch.div(inter, (areas[i] + areas[pos:] - inter))
 
-        # swap ith box and max box
-        # swap ith box with position of max box
-        # boxes[maxpos,0] = tx1
-        # boxes[maxpos,1] = ty1
-        # boxes[maxpos,2] = tx2
-        # boxes[maxpos,3] = ty2
-        # boxes[maxpos,4] = ts
-        boxes[maxpos,0] = tx1
-        boxes[maxpos,1] = tx2
-        boxes[maxpos,2] = ts
+        if use_regular_nms == True:
+            weight = torch.where(ovr > sigma, torch.zeros(ovr.shape), torch.ones(ovr.shape))
+        else:
+            # Gaussian decay
+            weight = torch.exp(-(ovr * ovr) / sigma)
 
-        # boxes[i, :] = boxes[maxpos, :]
-        # tx1 = boxes[i,0]
-        # ty1 = boxes[i,1]
-        # tx2 = boxes[i,2]
-        # ty2 = boxes[i,3]
-        # ts = boxes[i,4]
-        tx1 = boxes[i,0]
-        tx2 = boxes[i,1]
-        ts = boxes[i,2]
+        scores[pos:] = weight * scores[pos:]
 
-        pos = i + 1
-    # NMS iterations, note that N decreases by 1 if detection boxes fall below threshold
-        while pos < N:
-            # x1 = boxes[pos, 0]
-            # y1 = boxes[pos, 1]
-            # x2 = boxes[pos, 2]
-            # y2 = boxes[pos, 3]
-            # s = boxes[pos, 4]
-            x1 = boxes[pos, 0]
-            x2 = boxes[pos, 1]
-            s = boxes[pos, 2]
+    # select the boxes and keep the corresponding indexes
+    #keep = dets[:, 4][scores > thresh].int()
+    keep = dets[:, 2][scores > thresh].long()
 
-            # area = (x2 - x1 + 1) * (y2 - y1 + 1)
-            # iw = (min(tx2, x2) - max(tx1, x1) + 1)
-            area = x2 - x1 + 1
-            iw = (min(tx2, x2) - max(tx1, x1) + 1)
-            if iw > 0:
-                # ih = (min(ty2, y2) - max(ty1, y1) + 1)
-                # if ih > 0:
-                # ua = float((tx2 - tx1 + 1) * (ty2 - ty1 + 1) + area - iw * ih)
-                ua = float((tx2 - tx1 + 1) + area - iw)
-                # ov = iw * ih / ua # iou between max box and detection box
-                ov = iw / ua # iou between max box and detection box
-
-                if method == 1: # linear
-                    if ov > iou_threshold: 
-                        weight = 1 - ov
-                    else:
-                        weight = 1
-                elif method == 2: # gaussian
-                    weight = np.exp(-(ov * ov)/sigma)
-                else: # original NMS
-                    if ov > iou_threshold: 
-                        weight = 0
-                    else:
-                        weight = 1
-
-                # boxes[pos, 4] = weight*boxes[pos, 4]
-                boxes[pos, 2] = weight*boxes[pos, 2]
-            
-            # if box score falls below threshold, discard the box by swapping with last box
-            # update N
-                    # if boxes[pos, 4] < threshold:
-                    #     boxes[pos,0] = boxes[N-1, 0]
-                    #     boxes[pos,1] = boxes[N-1, 1]
-                    #     boxes[pos,2] = boxes[N-1, 2]
-                    #     boxes[pos,3] = boxes[N-1, 3]
-                    #     boxes[pos,4] = boxes[N-1, 4]
-                if boxes[pos, 2] < score_threshold:
-                    boxes[pos,0] = boxes[N-1, 0]
-                    boxes[pos,1] = boxes[N-1, 1]
-                    boxes[pos,2] = boxes[N-1, 2]
-                    N = N - 1
-                    pos = pos - 1
-
-            pos = pos + 1
-
-    #print(f"sorted boxes:\n{torch.sort(boxes, dim=2, descending=True)}")
-    #_, sorted_box_indices = torch.sort(boxes[:, 2], descending=True)
-    #print(f"sorted_box_indices: {sorted_box_indices}")
-    #print(f"number of boxes above threshold: {(boxes[:, 2] > score_threshold).sum()}")
-    #positive_indices = torch.ge(boxes[:, 2], score_threshold)
-    #num_positive_anchors = positive_indices.sum()
-    #print(f"number of boxes above score threshold: {num_positive_anchors}")
-    #print(f"soft nms boxes ({boxes[sorted_box_indices].shape}): {boxes[sorted_box_indices]}")
-    print(f"N: {N}")
-
-    keep = [i for i in range(N)]
     return keep
+
+# https://github.com/bharatsingh430/soft-nms/blob/b8e69bdf8df2ad53025c9d198ded909b50471d4f/lib/nms/cpu_nms.pyx
+# def soft_nms(boxes, sigma=0.5, iou_threshold=0.3, score_threshold=0.001, method=0):
+#     N = boxes.shape[0]
+#     iw, ih, box_area = None, None, None
+#     ua = None
+#     pos = 0
+#     maxscore = 0
+#     maxpos = 0
+#     #cdef float x1,x2,y1,y2,tx1,tx2,ty1,ty2,ts,area,weight,ov
+#     x1,x2,tx1,tx2,ts,area,weight,ov = None, None, None, None, None, None, None, None
+#     keep_indices = []
+
+#     for i in range(N):
+#         #maxscore = boxes[i, 4]
+#         maxscore = boxes[i, 2]
+#         maxpos = i
+
+#         # save box i to tx1, tx2, and ts
+#         # tx1 = boxes[i,0]
+#         # ty1 = boxes[i,1]
+#         # tx2 = boxes[i,2]
+#         # ty2 = boxes[i,3]
+#         # ts = boxes[i,4]
+#         tx1 = boxes[i,0]
+#         tx2 = boxes[i,1]
+#         ts = boxes[i,2]
+
+#         pos = i + 1
+
+#         # m <- argmax S
+#         # get max box: get max score and max pos
+#         while pos < N:
+#             # if maxscore < boxes[pos, 4]:
+#             #     maxscore = boxes[pos, 4]
+#             if maxscore < boxes[pos, 2]:
+#                 maxscore = boxes[pos, 2]
+#                 maxpos = pos
+#             pos = pos + 1
+
+#         keep_indices.append(maxpos)
+
+#         # B <- B - M
+#         # add max box as a detection
+#         # boxes[i,0] = boxes[maxpos,0]
+#         # boxes[i,1] = boxes[maxpos,1]
+#         # boxes[i,2] = boxes[maxpos,2]
+#         # boxes[i,3] = boxes[maxpos,3]
+#         # boxes[i,4] = boxes[maxpos,4]
+#         boxes[i,0] = boxes[maxpos,0]
+#         boxes[i,1] = boxes[maxpos,1]
+#         boxes[i,2] = boxes[maxpos,2]
+
+#         # swap ith box and max box
+#         # swap ith box with position of max box
+#         # boxes[maxpos,0] = tx1
+#         # boxes[maxpos,1] = ty1
+#         # boxes[maxpos,2] = tx2
+#         # boxes[maxpos,3] = ty2
+#         # boxes[maxpos,4] = ts
+#         boxes[maxpos,0] = tx1
+#         boxes[maxpos,1] = tx2
+#         boxes[maxpos,2] = ts
+
+#         # boxes[i, :] = boxes[maxpos, :]
+#         # tx1 = boxes[i,0]
+#         # ty1 = boxes[i,1]
+#         # tx2 = boxes[i,2]
+#         # ty2 = boxes[i,3]
+#         # ts = boxes[i,4]
+#         tx1 = boxes[i,0]
+#         tx2 = boxes[i,1]
+#         ts = boxes[i,2]
+
+#         pos = i + 1
+#     # NMS iterations, note that N decreases by 1 if detection boxes fall below threshold
+#         while pos < N:
+#             # x1 = boxes[pos, 0]
+#             # y1 = boxes[pos, 1]
+#             # x2 = boxes[pos, 2]
+#             # y2 = boxes[pos, 3]
+#             # s = boxes[pos, 4]
+#             x1 = boxes[pos, 0]
+#             x2 = boxes[pos, 1]
+#             s = boxes[pos, 2]
+
+#             # area = (x2 - x1 + 1) * (y2 - y1 + 1)
+#             # iw = (min(tx2, x2) - max(tx1, x1) + 1)
+#             area = x2 - x1 + 1
+#             iw = (min(tx2, x2) - max(tx1, x1) + 1)
+#             if iw > 0:
+#                 # ih = (min(ty2, y2) - max(ty1, y1) + 1)
+#                 # if ih > 0:
+#                 # ua = float((tx2 - tx1 + 1) * (ty2 - ty1 + 1) + area - iw * ih)
+#                 ua = float((tx2 - tx1 + 1) + area - iw)
+#                 # ov = iw * ih / ua # iou between max box and detection box
+#                 ov = iw / ua # iou between max box and detection box
+
+#                 if method == 1: # linear
+#                     if ov > iou_threshold: 
+#                         weight = 1 - ov
+#                     else:
+#                         weight = 1
+#                 elif method == 2: # gaussian
+#                     weight = np.exp(-(ov * ov)/sigma)
+#                 else: # original NMS
+#                     if ov > iou_threshold: 
+#                         weight = 0
+#                     else:
+#                         weight = 1
+
+#                 # boxes[pos, 4] = weight*boxes[pos, 4]
+#                 boxes[pos, 2] = weight*boxes[pos, 2]
+            
+#             # if box score falls below threshold, discard the box by swapping with last box
+#             # update N
+#                     # if boxes[pos, 4] < threshold:
+#                     #     boxes[pos,0] = boxes[N-1, 0]
+#                     #     boxes[pos,1] = boxes[N-1, 1]
+#                     #     boxes[pos,2] = boxes[N-1, 2]
+#                     #     boxes[pos,3] = boxes[N-1, 3]
+#                     #     boxes[pos,4] = boxes[N-1, 4]
+#                 if boxes[pos, 2] < score_threshold:
+#                     boxes[pos,0] = boxes[N-1, 0]
+#                     boxes[pos,1] = boxes[N-1, 1]
+#                     boxes[pos,2] = boxes[N-1, 2]
+#                     N = N - 1
+#                     pos = pos - 1
+
+#             pos = pos + 1
+
+#     #print(f"sorted boxes:\n{torch.sort(boxes, dim=2, descending=True)}")
+#     #_, sorted_box_indices = torch.sort(boxes[:, 2], descending=True)
+#     #print(f"sorted_box_indices: {sorted_box_indices}")
+#     #print(f"number of boxes above threshold: {(boxes[:, 2] > score_threshold).sum()}")
+#     #positive_indices = torch.ge(boxes[:, 2], score_threshold)
+#     #num_positive_anchors = positive_indices.sum()
+#     #print(f"number of boxes above score threshold: {num_positive_anchors}")
+#     #print(f"soft nms boxes ({boxes[sorted_box_indices].shape}): {boxes[sorted_box_indices]}")
+
+#     print(f"custom nms indices:\n{keep_indices}")
+#     keep = [i for i in range(N)]
+#     print(f"custom nms boxes:\n{boxes[keep]}")
+#     #print(f"custom nms ({boxes[torch.argsort(boxes[keep, 0])].shape}):\n{boxes[torch.argsort(boxes[keep, 0]), 0:2]}")
+#     return keep
 
 def soft_nms_from_pseudocode(boxes, scores, threshold):
     D = torch.zeros(0, 2)
