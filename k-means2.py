@@ -267,8 +267,8 @@ def get_clusters(num_clusters):
                 downbeat_intervals.append(downbeat_length)
                 #print(downbeat_length)
             #break
-        print(f"beat lengths: {[ '%.2f' % elem for elem in beat_intervals ]}")
-        print(f"downbeat lengths: {[ '%.2f' % elem for elem in downbeat_intervals ]}")
+        #print(f"beat lengths: {[ '%.2f' % elem for elem in beat_intervals ]}")
+        #print(f"downbeat lengths: {[ '%.2f' % elem for elem in downbeat_intervals ]}")
 
     all_boxes = np.array(annotation_dims)
     #print([ '%.2f' % elem for elem in annotation_dims ])
