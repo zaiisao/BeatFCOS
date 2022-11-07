@@ -313,10 +313,10 @@ class FocalLoss(nn.Module):
 
             classification_losses.append(cls_loss.sum()/torch.clamp(num_positive_anchors_per_class.float(), min=1.0))
 
-        if self.fcos:
-            return torch.stack(classification_losses).sum(dim=0)
-        else:
-            return torch.stack(classification_losses).mean(dim=0, keepdim=True)
+        # if self.fcos:
+        #     return torch.stack(classification_losses).sum(dim=0)
+        # else:
+        return torch.stack(classification_losses).mean(dim=0, keepdim=True)
 
 class RegressionLoss(nn.Module):
     def __init__(self, fcos=False, loss_type="l1", weight=1, num_anchors=3):
@@ -365,28 +365,37 @@ class RegressionLoss(nn.Module):
                 normalized_l_star_for_all_anchors,\
                 normalized_r_star_for_all_anchors = \
                     get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+                #torch.set_printoptions(edgeitems=10000000)
+                #print(f"normalized_l_star_for_all_anchors ({normalized_l_star_for_all_anchors.shape}):\n{normalized_l_star_for_all_anchors}")
+                #print(f"normalized_r_star_for_all_anchors ({normalized_r_star_for_all_anchors.shape}):\n{normalized_r_star_for_all_anchors}")
 
                 # normalized_annotations_for_anchors shape (number of positive anchors, 2)
                 # jth_regression[positive_anchor_indices_per_class, :2] shape (number of positive anchors, 2)
                 # IN order to calculate GIOU, we must compute the bbox corresponding to the regression output t_(x, y)
                 # Also we need to compute the bbox corresponding to the normalized lr targets for each feature map level
                 # We need to use the anchor point
+
                 normalized_l_r_bboxes = torch.stack((
                     torch.cat(anchors_list, dim=0) - normalized_l_star_for_all_anchors,
                     torch.cat(anchors_list, dim=0) + normalized_r_star_for_all_anchors
                 ), dim=1)
+                #print(f"normalized_r_star_for_all_anchors ({normalized_r_star_for_all_anchors.shape}):\n{normalized_r_star_for_all_anchors}")
 
                 positive_anchor_regression_giou = torch.clamp(calc_giou(
                     normalized_l_r_bboxes[positive_anchor_indices_per_class],
                     jth_regression[positive_anchor_indices_per_class, :2] # this is equal to t_(x, y) in the FCOS paper formula 2
                 ), min=-1, max=1)
+                #print(f"positive_anchor_regression_giou ({positive_anchor_regression_giou.shape}):\n{positive_anchor_regression_giou}")
 
                 regression_losses_for_positive_anchors = \
                     torch.ones(positive_anchor_regression_giou.shape).to(positive_anchor_regression_giou.device) \
                     - positive_anchor_regression_giou
+                #print(f"regression_losses_for_positive_anchors ({regression_losses_for_positive_anchors.shape}):\n{regression_losses_for_positive_anchors}")
 
                 #regression_losses.append(regression_losses_for_positive_anchors.sum() * self.weight)
                 regression_losses.append(regression_losses_for_positive_anchors.mean() * self.weight)
+                #print(f"regression_losses_for_positive_anchors.mean() * self.weight: {regression_losses_for_positive_anchors.mean() * self.weight}")
+                #torch.set_printoptions(edgeitems=3)
             else:
                 all_anchors = torch.cat(anchors_list, dim=0)
                 anchor_widths  = all_anchors[:, 1] - all_anchors[:, 0] # if fcos is true, anchor_widths = 0
@@ -482,10 +491,10 @@ class RegressionLoss(nn.Module):
                     else:
                         regression_losses.append(torch.tensor(0).float())
 
-        if self.fcos:
-            return torch.stack(regression_losses).sum(dim=0)
-        else:
-            return torch.stack(regression_losses).mean(dim=0, keepdim=True)
+        # if self.fcos:
+        #     return torch.stack(regression_losses).sum(dim=0)
+        # else:
+        return torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
 # class CenternessLoss(nn.Module):
 #     def __init__(self, fcos=False):
@@ -586,7 +595,7 @@ class LeftnessLoss(nn.Module):
 
             leftness_losses.append(left_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
 
-        if self.fcos:
-            return torch.stack(leftness_losses).sum(dim=0)
-        else:
-            return torch.stack(leftness_losses).mean(dim=0, keepdim=True)
+        # if self.fcos:
+        #     return torch.stack(leftness_losses).sum(dim=0)
+        # else:
+        return torch.stack(leftness_losses).mean(dim=0, keepdim=True)

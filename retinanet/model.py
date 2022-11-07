@@ -389,15 +389,17 @@ class ResNet(nn.Module):
 
             focal_losses[0] *= downbeat_weight
             regression_losses[0] *= downbeat_weight
-            leftness_losses[0] *= downbeat_weight
 
             focal_losses[1] *= (1 - downbeat_weight)
             regression_losses[1] *= (1 - downbeat_weight)
-            leftness_losses[1] *= (1 - downbeat_weight)
+
+            if self.fcos:
+                leftness_losses[0] *= downbeat_weight
+                leftness_losses[1] *= (1 - downbeat_weight)
+                leftness_loss = torch.stack(leftness_losses).sum(dim=0)
 
             focal_loss = torch.stack(focal_losses).sum(dim=0)
             regression_loss = torch.stack(regression_losses).sum(dim=0)
-            leftness_loss = torch.stack(leftness_losses).sum(dim=0)
 
             #return focal_loss, regression_loss
 
@@ -424,22 +426,26 @@ class ResNet(nn.Module):
 
             for i, classification_output in enumerate(classification_outputs):
                 regression_output = regression_outputs[i]
-                leftness_output = leftness_outputs[i]
+
+                if self.fcos:
+                    leftness_output = leftness_outputs[i]
 
                 for class_id in range(classification_output.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
                     # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
 
                     if self.fcos:
                         transformed_anchors = torch.stack((
-                            torch.stack((anchors_list[i], anchors_list[i])) - regression_output[:, :, 0] * 2**i,
-                            torch.stack((anchors_list[i], anchors_list[i])) + regression_output[:, :, 1] * 2**i
-                        ), dim=1)
+                            anchors_list[i] - regression_output[0, :, 0] * 2**i,
+                            anchors_list[i] + regression_output[0, :, 1] * 2**i
+                        ), dim=1).unsqueeze(dim=0)
+
+                        scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0])
                     else:
-                        transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_output)
+                        transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), torch.cat(regression_outputs, dim=1))
+                        scores = torch.squeeze(torch.cat(classification_outputs, dim=1)[:, :, class_id])
 
                     transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
-                    scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0])
                     scores_over_thresh = (scores > 0.05)
                     if scores_over_thresh.sum() == 0:
                         # no boxes to NMS, just continue
