@@ -329,20 +329,20 @@ class RegressionLoss(nn.Module):
                 positive_anchor_indices_per_class, assigned_annotations_for_anchors = get_atss_positives(jth_annotations, anchors_list, class_id=class_id)
 
                 if positive_anchor_indices_per_class.sum() > 0:
-                    assigned_annotations = assigned_annotations[positive_anchor_indices_per_class, :]
+                    positive_annotations = assigned_annotations_for_anchors[positive_anchor_indices_per_class, :] #MJ: corrected
 
                     anchor_widths_pi = anchor_widths[positive_anchor_indices_per_class]
                     anchor_ctr_x_pi = anchor_ctr_x[positive_anchor_indices_per_class]
 
-                    gt_widths  = assigned_annotations[:, 1] - assigned_annotations[:, 0]
-                    gt_ctr_x   = assigned_annotations[:, 0] + 0.5 * gt_widths
+                    gt_widths  = positive_annotations[:, 1] - positive_annotations[:, 0]
+                    gt_ctr_x   = positive_annotations[:, 0] + 0.5 * gt_widths
                     # print("gt", gt_widths)
                     # print("anchor", anchor_widths_pi)
 
                     # clip widths to 1
                     gt_widths  = torch.clamp(gt_widths, min=1)
 
-                    if self.loss_type == "l1":
+                    if self.loss_type == "l1": #MJ: compute the "offset" regression loss, where the offsets are relative to the positive anchor boxes.
                         box_targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
                         box_targets_dw = torch.log(gt_widths / anchor_widths_pi)
 
@@ -358,28 +358,39 @@ class RegressionLoss(nn.Module):
 
                         regression_diff = torch.abs(box_targets - jth_regression[positive_anchor_indices_per_class, :])
 
-                        # regression_loss = torch.where(
-                        #     torch.le(regression_diff, 1.0 / 9.0),
-                        #     0.5 * 9.0 * torch.pow(regression_diff, 2),
-                        #     regression_diff - 0.5 / 9.0
-                        # )
+                        #MJ: 9.0 in the following is not the number of anchors!!!!
                         regression_loss = torch.where(
-                            torch.le(regression_diff, 1.0 / self.num_anchors),
-                            0.5 * self.num_anchors * torch.pow(regression_diff, 2),
-                            regression_diff - 0.5 / self.num_anchors
+                            torch.le(regression_diff, 1.0 / 9.0),
+                            0.5 * 9.0 * torch.pow(regression_diff, 2),
+                            regression_diff - 0.5 / 9.0
                         )
+                        # regression_loss = torch.where(
+                        #     torch.le(regression_diff, 1.0 / self.num_anchors),
+                        #     0.5 * self.num_anchors * torch.pow(regression_diff, 2),
+                        #     regression_diff - 0.5 / self.num_anchors
+                        # )
                         # print("regression", jth_regression[positive_anchor_indices_per_class, :])
                         # print("box_targets", box_targets)
                         # print("loss", regression_loss)
 
                         regression_losses.append(regression_loss.mean())
-                    elif self.loss_type == "iou" or self.loss_type == "giou":
-                        target_left = assigned_annotations[:, 0]
-                        target_right = assigned_annotations[:, 1]
+
+                    elif self.loss_type == "iou" or self.loss_type == "giou": #Computhe iou or giou regresion loss.
+
+                        #MJ:  positive_annotations = assigned_annotations_for_anchors[positive_anchor_indices_per_class, :] #MJ: corrected
+                        target_left = positive_annotations[:, 0]  #MJ: assigned_annotations => positive_annotations
+                        target_right = positive_annotations[:, 1]
 
                         #prediction = self.regressBoxes(all_anchors.unsqueeze(dim=0), jth_regression.unsqueeze(dim=0)).squeeze()
-                        prediction_left = prediction[positive_anchor_indices_per_class, 0]
-                        prediction_right = prediction[positive_anchor_indices_per_class, 1]
+                        #MJ: The use of self.regressBoxes() transforms the offsets prediciton to the real bbxes coordinates for evaluation mode 
+                        #It has nothing to do with defining iou or giou loss for the positive anchor boxes
+                        # prediction_left = prediction[positive_anchor_indices_per_class, 0]
+                        # prediction_right = prediction[positive_anchor_indices_per_class, 1]
+
+                        #MJ:
+
+                        prediction_left = jth_regression[positive_anchor_indices_per_class, 0]
+                        prediction_right = jth_regression[positive_anchor_indices_per_class, 1]
 
                         target_area = (target_left + target_right)
                         prediction_area = (prediction_left + prediction_right)
@@ -409,7 +420,7 @@ class RegressionLoss(nn.Module):
                         regression_losses.append(torch.tensor(0).float().cuda())
                     else:
                         regression_losses.append(torch.tensor(0).float())
-
+            #End of e;se:
         if self.fcos:
             return torch.stack(regression_losses).sum(dim=0)
         else:
@@ -453,7 +464,7 @@ class RegressionLoss(nn.Module):
 #             targets = torch.where(
 #                 positive_indices,
 #                 torch.sqrt(torch.min(left, right) / torch.max(left, right)).float(),
-#                 torch.zeros(positive_indices.shape)
+#                 torch.zeros(positive_indices.shape)  
 #             ).unsqueeze(dim=1)
 
 #             bce = -(targets * torch.log(jth_centerness) + (1.0 - targets) * torch.log(1.0 - jth_centerness))
@@ -476,7 +487,7 @@ class LeftnessLoss(nn.Module):
         super(LeftnessLoss, self).__init__()
         self.fcos = fcos
 
-    def forward(self, leftnesses, anchors, annotations, regress_limits=(0, float('inf'))):
+    def forward(self, leftnesses, anchors_list, annotations, regress_limits=(0, float('inf'))):
         if not self.fcos:
             raise NotImplementedError
 
@@ -490,11 +501,12 @@ class LeftnessLoss(nn.Module):
             jth_annotations = jth_annotations[jth_annotations[:, 2] != -1]
 
             #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
-            jth_leftness = torch.sigmoid(jth_leftness)
+            jth_leftness = torch.sigmoid(jth_leftness)  #MJ:  #https://stackoverflow.com/questions/66906884/how-is-pytorchs-class-bcewithlogitsloss-exactly-implemented
+        
 
             positive_indices, assigned_annotations, left, right = get_fcos_positives(
                 jth_annotations,
-                anchor,
+                anchors_list,
                 regress_limits[0],
                 regress_limits[1]
             )
@@ -504,7 +516,7 @@ class LeftnessLoss(nn.Module):
             targets = torch.where(
                 positive_indices,
                 torch.sqrt(torch.min(left, right) / torch.max(left, right)).float(),
-                torch.zeros(positive_indices.shape)
+                torch.zeros(positive_indices.shape)   #MJ: do you want to set the zero centerness targets here?
             ).unsqueeze(dim=1)
 
             bce = -(targets * torch.log(jth_leftness) + (1.0 - targets) * torch.log(1.0 - jth_leftness))

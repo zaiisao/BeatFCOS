@@ -222,6 +222,15 @@ class ResNet(nn.Module):
 
         self.focalLoss = losses.FocalLoss(fcos=self.fcos)
         self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, num_anchors=num_anchors)
+        #MJ:   class RegressionLoss(nn.Module):
+        # def __init__(self, fcos=False, loss_type="l1", weight=1, num_anchors=3): MJ: what is this "weight"?
+        #     super(RegressionLoss, self).__init__()
+        #     self.fcos = fcos
+        #     self.loss_type = loss_type
+        #     self.weight = weight
+        #     self.num_anchors = num_anchors
+
+
         self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
 
         for m in self.modules():
@@ -395,7 +404,7 @@ class ResNet(nn.Module):
 
             focal_loss = torch.stack(focal_losses).sum(dim=0)
             regression_loss = torch.stack(regression_losses).sum(dim=0)
-            leftness_loss = torch.stack(leftnesd_losses).sum(dim=0)
+            leftness_loss = torch.stack(leftness_losses).sum(dim=0)
 
             #return focal_loss, regression_loss
 
