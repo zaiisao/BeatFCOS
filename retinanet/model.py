@@ -111,6 +111,9 @@ class RegressionModel(nn.Module):
         # regression is B x C x L, with C = 2*num_anchors
         regression = regression.permute(0, 2, 1)
         regression = regression.contiguous().view(regression.shape[0], -1, 2, self.num_classes)
+        #MJ: regression = regression.contiguous().view(regression.shape[0], -1, 2): (64, -1, 2) <= (64, W, 2), -1 => W
+        #   regression.contiguous().view(regression.shape[0], -1, 2, self.num_classes): 
+        #   (64, W, 2)  => (64,W/2, 2,2); Half the anchor points for the output ?? 
 
         if self.fcos:
             centerness = self.centerness(out)
@@ -282,7 +285,7 @@ class ResNet(nn.Module):
         # With 8 layers, each with stride 2, we downsample the signal by a factor of 2^8 = 256,
         # which, given an input sample rate of 22.05 kHz produces an output signal with a
         # sample rate of 86 Hz
-        tcn_layers = self.dstcn(audio_batch, 3)
+        tcn_layers = self.dstcn(audio_batch, 3) #audio_batch: shape =(B,W,1)
 
         # The following is the 1D version of RetinaNet
         # x = self.conv1(audio_batch)
@@ -297,7 +300,7 @@ class ResNet(nn.Module):
 
         # feature_maps = list of five feature maps
         #feature_maps = self.fpn([x2, x3, x4])
-        feature_maps = self.fpn(tcn_layers[-3:])
+        feature_maps = self.fpn(tcn_layers[-3:]) #feature map = a list of feature maps whose shape is (B,W_{i},1)
 
         if self.fcos:
             classification_outputs = [self.classificationModel(feature_map) for feature_map in feature_maps]
@@ -308,7 +311,7 @@ class ResNet(nn.Module):
                 bbx_regression_output, centerness_regression_output = self.regressionModel(feature_map)
                 regression_outputs.append(bbx_regression_output)
                 centerness_outputs.append(centerness_regression_output)
-        else:
+        else: # shape of self.classificationModel(feature_map) = (B, W_{i}, 2)
             classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
             regression_outputs = torch.cat([self.regressionModel(feature_map) for feature_map in feature_maps], dim=1)
 

@@ -201,10 +201,14 @@ class FocalLoss(nn.Module):
             num_positive_anchors = positive_indices.sum()
 
             targets[positive_indices, :] = 0
-            if class_id is None:
-                targets[positive_indices, assigned_annotations[positive_indices, 2].long()] = 1
-            else:
-                targets[positive_indices] = 1
+            # if class_id is None:
+            #     targets[positive_indices, assigned_annotations[positive_indices, 2].long()] = 1
+            # else:
+            #     targets[positive_indices] = 1
+       
+            targets[positive_indices, assigned_annotations[positive_indices, 2].long()] = 1
+           
+
 
             if torch.cuda.is_available():
                 alpha_factor = torch.ones(targets.shape).cuda() * alpha
