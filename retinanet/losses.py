@@ -42,7 +42,7 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
     sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
     bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
 
-    positive_anchor_indices = torch.zeros(0, dtype=torch.bool).to(jth_annotations)
+    positive_anchor_indices = torch.zeros(0).to(jth_annotations)
     normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations)
     l_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
     r_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
@@ -114,6 +114,8 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         r_star_for_all_anchors = torch.cat((r_star_for_all_anchors, positive_r_star_per_level))
         normalized_l_star_for_all_anchors = torch.cat((normalized_l_star_for_all_anchors, normalized_positive_l_star_per_level))
         normalized_r_star_for_all_anchors = torch.cat((normalized_r_star_for_all_anchors, normalized_positive_r_star_per_level))
+
+    positive_anchor_indices = positive_anchor_indices.bool()
 
     return positive_anchor_indices, normalized_annotations_for_anchors,\
         l_star_for_all_anchors, r_star_for_all_anchors,\
@@ -575,7 +577,7 @@ class LeftnessLoss(nn.Module):
             left_targets = torch.where(
                 positive_anchor_indices_per_class,
                 torch.sqrt(r_star_for_all_anchors / (l_star_for_all_anchors + r_star_for_all_anchors)).float(),
-                torch.zeros(positive_anchor_indices_per_class.shape)
+                torch.zeros(positive_anchor_indices_per_class.shape).to(positive_anchor_indices_per_class.device)
             ).unsqueeze(dim=1)
 
             bce = -(left_targets * torch.log(jth_leftness) + (1.0 - left_targets) * torch.log(1.0 - jth_leftness))
