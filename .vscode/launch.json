@@ -21,7 +21,9 @@
                 "--channel_growth", "32",
                 "--augment", "--batch_size", "1",
                 "--audio_sample_rate", "22050",
-                "--num_workers", "0"
+                "--num_workers", "0",
+                "--reg_loss_type", "giou",
+                "--fcos"
                 // "--checkpoints_dir", "checkpoints"
             ],
             "console": "integratedTerminal"

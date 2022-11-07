@@ -10,7 +10,7 @@ import config
 matplotlib.use('agg')
 #file_path = config.train_annotations_file
 
-num_anchors = 5
+num_anchors = 3
 
 def resize_image(image_data, size):
     """ Resizes the image without changing the aspect ratio with padding, so that
@@ -124,7 +124,8 @@ def kmeans(boxes, k):
         if(last_cluster == current_nearest).all():
             break # The model is converged
         for cluster in range(k):
-            clusters[cluster] = np.mean(boxes[current_nearest == cluster], axis=0)
+            #clusters[cluster] = np.mean(boxes[current_nearest == cluster], axis=0)
+            clusters[cluster] = np.max(boxes[current_nearest == cluster], axis=0)
 
         last_cluster = current_nearest
 
@@ -259,12 +260,12 @@ def get_clusters(num_clusters):
                 beat_intervals.append(beat_length)
                 #print(downbeat_length)
 
-            for downbeat_index, current_downbeat_location in enumerate(downbeat_times[:-1]):
-                next_downbeat_location = downbeat_times[downbeat_index + 1]
+            # for downbeat_index, current_downbeat_location in enumerate(downbeat_times[:-1]):
+            #     next_downbeat_location = downbeat_times[downbeat_index + 1]
 
-                downbeat_length = (next_downbeat_location - current_downbeat_location)# * 22050
-                annotation_dims.append(downbeat_length)
-                downbeat_intervals.append(downbeat_length)
+            #     downbeat_length = (next_downbeat_location - current_downbeat_location)# * 22050
+            #     annotation_dims.append(downbeat_length)
+            #     downbeat_intervals.append(downbeat_length)
                 #print(downbeat_length)
             #break
         #print(f"beat lengths: {[ '%.2f' % elem for elem in beat_intervals ]}")

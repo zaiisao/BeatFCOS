@@ -221,7 +221,7 @@ class ResNet(nn.Module):
         self.clipBoxes = ClipBoxes()
 
         self.focalLoss = losses.FocalLoss(fcos=self.fcos)
-        self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, num_anchors=num_anchors)
+        self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, weight=1, num_anchors=num_anchors)
         self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
 
         for m in self.modules():
@@ -428,8 +428,12 @@ class ResNet(nn.Module):
 
                 for class_id in range(classification_output.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
                     # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
-                    transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_output)
-                    transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
+
+                    if self.fcos:
+                        transformed_anchors = regression_output * torch.cat(anchors_list, dim=0)
+                    else:
+                        transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_output)
+                        transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
                     scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, class_id])
                     scores_over_thresh = (scores > 0.05)
