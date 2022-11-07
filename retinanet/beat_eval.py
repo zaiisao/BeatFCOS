@@ -199,10 +199,10 @@ def evaluate_beat(dataset, model, threshold=0.05):
                 left_position_index = int(box[0])
                 right_position_index = int(box[1])
 
-                wavebeat_format_pred_left[row, left_position_index] = 1
+                wavebeat_format_pred_left[row, min(left_position_index, length - 1)] = 1
                 wavebeat_format_pred_right[row, min(right_position_index, length - 1)] = 1
 
-                box_scores_left[row, left_position_index] = score
+                box_scores_left[row, min(left_position_index, length - 1)] = score
                 box_scores_right[row, min(right_position_index, length - 1)] = score
 
                 if label == 0 and (first_pred_downbeat_index is None or left_position_index < first_pred_downbeat_index):
