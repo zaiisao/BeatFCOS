@@ -7,21 +7,22 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
     class_bbox_annotation = jth_annotations[jth_annotations[:, 2] == class_id]
 
     audio_target_rate = 22050 / 256
-    distance_ranges = [
-        (0, 0.32537674) * audio_target_rate,
-        (0.32537674, 0.47555801) * audio_target_rate,
-        (0.47555801, 0.64588683) * audio_target_rate,
-        (0.64588683, 1.16883525) * audio_target_rate,
-        (1.16883525, 2.17128976) * audio_target_rate,
-        (2.17128976, float("inf")) * audio_target_rate
-    ]
+    distance_ranges = [(x[0] * audio_target_rate, x[1] * audio_target_rate) for x in [
+        (0, 0.32537674),
+        (0.32537674, 0.47555801),
+        (0.47555801, 0.64588683),
+        (0.64588683, 1.16883525),
+        (1.16883525, 2.17128976),
+        (2.17128976, float("inf"))
+    ]]
+
     # bbox_sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976, ]]
 
     # sort from shortest to longest
     sorted_bbox_indices = (class_bbox_annotation[:, 1] - class_bbox_annotation[:, 0]).argsort()
     class_bbox_annotation = class_bbox_annotation[sorted_bbox_indices]
 
-    positive_anchor_indices = torch.zeros(0)
+    positive_anchor_indices = torch.zeros(0, dtype=torch.bool)
     normalized_annotations_for_anchors = torch.zeros(0, 3)
     l_star_for_all_anchors = torch.zeros(0)
     r_star_for_all_anchors = torch.zeros(0)
@@ -72,7 +73,8 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         positive_l_star_per_level = torch.diagonal(l_star_per_level[positive_argmax_per_level], 0)
         positive_r_star_per_level = torch.diagonal(r_star_per_level[positive_argmax_per_level], 0)
 
-        normalized_annotations_for_anchors = torch.cat((normalized_annotations_for_anchors, normalized_annotations_for_anchors_per_level))
+        positive_anchor_indices = torch.cat((positive_anchor_indices, positive_anchor_indices_per_level), dim=0)
+        normalized_annotations_for_anchors = torch.cat((normalized_annotations_for_anchors, normalized_annotations_for_anchors_per_level), dim=0)
         l_star_for_all_anchors = torch.cat((l_star_for_all_anchors, positive_l_star_per_level))
         r_star_for_all_anchors = torch.cat((r_star_for_all_anchors, positive_r_star_per_level))
 
@@ -261,7 +263,12 @@ class FocalLoss(nn.Module):
                 cls_loss = torch.where(torch.ne(class_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).cuda())
             else:
                 cls_loss = torch.where(torch.ne(class_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape))
-            #print(cls_loss[positive_anchor_indices_per_class].sum(), cls_loss[~positive_anchor_indices_per_class].sum())
+            # print("cls", torch.ne(class_targets, -1.0).shape, positive_anchor_indices_per_class.shape, bce.shape, cls_loss.shape)
+
+            # if torch.cuda.is_available():
+            #     left_loss = torch.where(positive_anchor_indices_per_class, bce, torch.zeros(bce.shape).cuda())
+            # else:
+            #     left_loss = torch.where(positive_anchor_indices_per_class, bce, torch.zeros(bce.shape))
 
             classification_losses.append(cls_loss.sum()/torch.clamp(num_positive_anchors_per_class.float(), min=1.0))
 
@@ -286,12 +293,6 @@ class RegressionLoss(nn.Module):
         # in our case, regressions is (B, C, W), with C = 2*num_anchors = 2*1
         batch_size = regressions.shape[0] 
         regression_losses = []
-
-        # anchors_list = [[ [5, 5, 10, 10], [5, 5, 15, 15], ... ]]
-        # in our case, anchors_list = [[ [5, 5], [10, 10], [15, 15] ... ]]
-        all_anchors = torch.cat(anchors_list, dim=0)
-        anchor_widths  = all_anchors[:, 1] - all_anchors[:, 0] # if fcos is true, anchor_widths = 0
-        anchor_ctr_x   = all_anchors[:, 0] + 0.5 * anchor_widths # if fcos is true, anchor_ctr_x = anchor[:, 0]
 
         # if self.fcos:
         #     assert torch.all(anchor[:, 0] == anchor[:, 1])
@@ -318,10 +319,22 @@ class RegressionLoss(nn.Module):
 
                 # normalized_annotations_for_anchors shape (number of positive anchors, 2)
                 # jth_regression[positive_anchor_indices_per_class, :2] shape (number of positive anchors, 2)
-                regression_losses_for_positive_anchors = 1 - calc_giou(normalized_annotations_for_anchors, jth_regression[positive_anchor_indices_per_class, :2])
+                positive_anchor_regression_giou = calc_giou(
+                    normalized_annotations_for_anchors[positive_anchor_indices_per_class],
+                    jth_regression[positive_anchor_indices_per_class, :2]
+                )
 
-                regression_losses.append(regression_losses_for_positive_anchors.sum() * self.weight)
+                regression_losses_for_positive_anchors = \
+                    torch.ones(positive_anchor_regression_giou.shape).to(positive_anchor_regression_giou.device) \
+                    - positive_anchor_regression_giou
+
+                #regression_losses.append(regression_losses_for_positive_anchors.sum() * self.weight)
+                regression_losses.append(regression_losses_for_positive_anchors.mean() * self.weight)
             else:
+                all_anchors = torch.cat(anchors_list, dim=0)
+                anchor_widths  = all_anchors[:, 1] - all_anchors[:, 0] # if fcos is true, anchor_widths = 0
+                anchor_ctr_x   = all_anchors[:, 0] + 0.5 * anchor_widths # if fcos is true, anchor_ctr_x = anchor[:, 0]
+
                 # IoU = calc_iou(anchors[0, :, :], jth_annotations[:, :2]) # num_anchors x num_annotations
                 # IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
                 # positive_indices = torch.ge(IoU_max, 0.5)
@@ -334,8 +347,8 @@ class RegressionLoss(nn.Module):
                     anchor_widths_pi = anchor_widths[positive_anchor_indices_per_class]
                     anchor_ctr_x_pi = anchor_ctr_x[positive_anchor_indices_per_class]
 
-                    gt_widths  = positive_annotations[:, 1] - positive_annotations[:, 0]
-                    gt_ctr_x   = positive_annotations[:, 0] + 0.5 * gt_widths
+                    gt_widths  = assigned_annotations[:, 1] - assigned_annotations[:, 0]
+                    gt_ctr_x   = assigned_annotations[:, 0] + 0.5 * gt_widths
                     # print("gt", gt_widths)
                     # print("anchor", anchor_widths_pi)
 
@@ -374,12 +387,9 @@ class RegressionLoss(nn.Module):
                         # print("loss", regression_loss)
 
                         regression_losses.append(regression_loss.mean())
-
-                    elif self.loss_type == "iou" or self.loss_type == "giou": #Computhe iou or giou regresion loss.
-
-                        #MJ:  positive_annotations = assigned_annotations_for_anchors[positive_anchor_indices_per_class, :] #MJ: corrected
-                        target_left = positive_annotations[:, 0]  #MJ: assigned_annotations => positive_annotations
-                        target_right = positive_annotations[:, 1]
+                    elif self.loss_type == "iou" or self.loss_type == "giou":
+                        target_left = assigned_annotations[:, 0]
+                        target_right = assigned_annotations[:, 1]
 
                         #prediction = self.regressBoxes(all_anchors.unsqueeze(dim=0), jth_regression.unsqueeze(dim=0)).squeeze()
                         #MJ: The use of self.regressBoxes() transforms the offsets prediciton to the real bbxes coordinates for evaluation mode 
@@ -487,7 +497,7 @@ class LeftnessLoss(nn.Module):
         super(LeftnessLoss, self).__init__()
         self.fcos = fcos
 
-    def forward(self, leftnesses, anchors_list, annotations, regress_limits=(0, float('inf'))):
+    def forward(self, leftnesses, anchors, annotations, regress_limits=(0, float('inf'))):
         if not self.fcos:
             raise NotImplementedError
 
@@ -506,28 +516,32 @@ class LeftnessLoss(nn.Module):
 
             positive_indices, assigned_annotations, left, right = get_fcos_positives(
                 jth_annotations,
-                anchors_list,
+                anchor,
                 regress_limits[0],
                 regress_limits[1]
             )
 
-            num_positive_anchors = positive_indices.sum()
+            # center_targets = torch.where(
+            #     positive_anchor_indices_per_class,
+            #     torch.sqrt(torch.min(l_star_for_all_anchors, r_star_for_all_anchors) / torch.max(l_star_for_all_anchors, r_star_for_all_anchors)).float(),
+            #     torch.zeros(positive_anchor_indices_per_class.shape)
+            # ).unsqueeze(dim=1)
 
             targets = torch.where(
                 positive_indices,
                 torch.sqrt(torch.min(left, right) / torch.max(left, right)).float(),
-                torch.zeros(positive_indices.shape)   #MJ: do you want to set the zero centerness targets here?
+                torch.zeros(positive_indices.shape)
             ).unsqueeze(dim=1)
+            # torch.set_printoptions(edgeitems=1000000)
+            # print(torch.where(positive_anchor_indices_per_class, l_star_for_all_anchors, torch.zeros(l_star_for_all_anchors.shape)))
+            # print(torch.where(positive_anchor_indices_per_class, r_star_for_all_anchors, torch.zeros(r_star_for_all_anchors.shape)))
+            # torch.set_printoptions(edgeitems=3)
 
-            bce = -(targets * torch.log(jth_leftness) + (1.0 - targets) * torch.log(1.0 - jth_leftness))
+            bce = -(left_targets * torch.log(jth_leftness) + (1.0 - left_targets) * torch.log(1.0 - jth_leftness))
 
-            if torch.cuda.is_available():
-                ctr_loss = torch.where(positive_indices, bce, torch.zeros(bce.shape).cuda())
-            else:
-                ctr_loss = torch.where(positive_indices, bce, torch.zeros(bce.shape))
+            left_loss = bce.squeeze() * positive_anchor_indices_per_class
 
-            #print(ctr_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
-            leftness_losses.append(ctr_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
+            leftness_losses.append(left_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
 
         if self.fcos:
             return torch.stack(leftness_losses).sum(dim=0)

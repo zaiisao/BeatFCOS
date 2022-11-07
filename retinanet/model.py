@@ -323,7 +323,9 @@ class ResNet(nn.Module):
 
         # anchors_list is the list of all anchor points on the feature maps if self.fcos is true
         anchors_list = self.anchors(tcn_layers[-3])
-        number_of_classes = classification_outputs.size(dim=2)
+        #number_of_classes = classification_outputs.size(dim=2)
+        # All classification outputs should be the same so we just pick the 0th one
+        number_of_classes = classification_outputs[0].size(dim=2)
 
         if self.training:
             # Return the loss if training
