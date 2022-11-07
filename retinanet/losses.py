@@ -42,12 +42,12 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
     sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
     bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
 
-    positive_anchor_indices = torch.zeros(0, dtype=torch.bool)
-    normalized_annotations_for_anchors = torch.zeros(0, 3)
-    l_star_for_all_anchors = torch.zeros(0)
-    r_star_for_all_anchors = torch.zeros(0)
-    normalized_l_star_for_all_anchors = torch.zeros(0)
-    normalized_r_star_for_all_anchors = torch.zeros(0)
+    positive_anchor_indices = torch.zeros(0, dtype=torch.bool).to(jth_annotations)
+    normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations)
+    l_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
+    r_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
+    normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
+    normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
 
     # anchors_list contains the anchor points (x, y) on the base level image corresponding to the feature map
     for i, anchor_points_per_level in enumerate(anchors_list): # anchor points per level, (anchor locations (x, y) on the base level image)
