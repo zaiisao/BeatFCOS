@@ -127,8 +127,6 @@ def evaluate_beat(dataset, model, threshold=0.05):
         results = []
         image_ids = []
 
-        classification_losses, regression_losses = [], []
-
         for index, data in enumerate(dataset):
             #data = dataset[index]
             #scale = data['scale']
@@ -152,14 +150,13 @@ def evaluate_beat(dataset, model, threshold=0.05):
             # run network
             if torch.cuda.is_available():
                 #scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
-                scores, labels, boxes, losses = model((audio, target))
+                scores, labels, boxes = model((audio, target))
             else:
                 #scores, labels, boxes = model(audio.permute(2, 0, 1).float().unsqueeze(dim=0))
-                scores, labels, boxes, losses = model((audio, target))
+                scores, labels, boxes = model((audio, target))
             scores = scores.cpu()
             labels = labels.cpu()
             boxes  = boxes.cpu()
-            losses = [loss.cpu() for loss in losses]
 
             # correct boxes for image scale
             #boxes /= scale
@@ -332,10 +329,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
             #     dbn_beat_scores_weighted = { 'F-measure': 0 }
             #     dbn_downbeat_scores_weighted = { 'F-measure': 0 }
 
-            classification_losses.append(losses[0])
-            regression_losses.append(losses[1])
 
-            print(f"{index}/{len(dataset)} {metadata['Filename']} CLS: {losses[0]} | REG: {losses[1]}")
+            print(f"{index}/{len(dataset)} {metadata['Filename']}")
             print("LEFT")
             print(f"BEAT (F-measure): {beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_left['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_left['F-measure']:0.3f}")
@@ -377,7 +372,6 @@ def evaluate_beat(dataset, model, threshold=0.05):
                         #'category_id': dataset.label_to_coco_label(label),
                         'score': float(score),
                         'bbox': box.tolist(),
-                        'losses': losses,
                         'beat_scores_left': beat_scores_left,
                         'downbeat_scores_left': downbeat_scores_left,
                         'beat_scores_right': beat_scores_right,

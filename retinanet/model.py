@@ -430,12 +430,16 @@ class ResNet(nn.Module):
                     # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
 
                     if self.fcos:
-                        transformed_anchors = regression_output * torch.cat(anchors_list, dim=0)
+                        transformed_anchors = torch.stack((
+                            torch.stack((anchors_list[i], anchors_list[i])) - regression_output[:, :, 0] * 2**i,
+                            torch.stack((anchors_list[i], anchors_list[i])) + regression_output[:, :, 1] * 2**i
+                        ), dim=1)
                     else:
                         transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_output)
-                        transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
-                    scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, class_id])
+                    transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
+
+                    scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0])
                     scores_over_thresh = (scores > 0.05)
                     if scores_over_thresh.sum() == 0:
                         # no boxes to NMS, just continue
