@@ -61,7 +61,7 @@ def calc_giou(a, b):
         # 8. GIoU = IoU - (L_c - U)/L_c
         #giou = iou - (bbox_coordinate - union)/bbox_coordinate
     giou = iou - (bbox_coordinate - union)/bbox_coordinate
-    return iou, giou
+    return giou
         #print(b, a, giou)
 
         # 9b. L_GIoU = 1 - GIoU
