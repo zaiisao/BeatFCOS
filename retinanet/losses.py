@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 from retinanet.utils import BBoxTransform, calc_iou, calc_giou
 
-def get_fcos_positives(jth_annotations, anchors_list, class_id):
-    bbox_annotations_per_class = jth_annotations[jth_annotations[:, 2] == class_id]
+def get_fcos_positives(jth_bbox_annotations, anchors_list, class_id):
+    bbox_annotations_per_class = jth_bbox_annotations[jth_bbox_annotations[:, 2] == class_id]
 
     audio_target_rate = 22050 / 256
     # distances_ranges : We have five clusters of sizes. Each cluster has the smallest and the largest size.
@@ -34,23 +34,26 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
     # K-max version of K-means applied to 5 clusters
     # 2 clusters for only downbeat intervals: [3.74199546 2.62519274 2.23147392]
     # 3 clusters for only downbeat intervals: [8.02371882 5.78800454]
-    sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
+    #MJ: sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
+    #                                             C3           C4           C5         C6         C7
+    sizes = [x * audio_target_rate for x in [0, 2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, 10.0] ]
 
     # bbox_sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976, ]]
 
-    # sort from shortest to longest
-    sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
+    # sort from shortest to longest sizes of the bbox lengths
+    sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort() # sort in the ascending ordr
     bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
 
-    positive_anchor_indices = torch.zeros(0).to(jth_annotations)
-    normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations)
-    l_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
-    r_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
-    normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
-    normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
+    positive_bbox_indices = torch.zeros(0).to(jth_bbox_annotations) #MJ: this operation produces > tensor([])
+    #MJ: torch.to(other, non_blocking=False, copy=False) Returns a Tensor with same torch.dtype and torch.device as the Tensor other.
+    normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_bbox_annotations)
+    l_star_for_all_anchors = torch.zeros(0).to(jth_bbox_annotations)
+    r_star_for_all_anchors = torch.zeros(0).to(jth_bbox_annotations)
+    normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_bbox_annotations)
+    normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_bbox_annotations)
 
     # anchors_list contains the anchor points (x, y) on the base level image corresponding to the feature map
-    for i, anchor_points_per_level in enumerate(anchors_list): # anchor points per level, (anchor locations (x, y) on the base level image)
+    for i, anchor_points_per_level in enumerate(anchors_list, 1): #MJ i starts form 1; anchor points per level, (anchor locations {} (x, y) } on the base level image)
         # the shape of anchor_points_per_level is (num of anchors,)
         # the shape of torch.unsqueeze(anchor_points_per_level, dim=0) is (1, num of anchors)
         # the shape of bbox_annotations_per_class[:, 0] is (num of annotations,)
@@ -66,7 +69,7 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
 
         # apply the distance limits criteria
         # lefts is l*, rights is r* which are all the anchor points on the base image
-        # the shape of l_star_to_bboxes_for_anchors is (N, M) (1, N, M) ()
+        # the shape of l_star_to_bboxes_for_anchors is (N, M) 
         # torch.unsqueeze(anchor_points_per_level, dim=0) shape is (1, N)
         # torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1) (M, 1)
         l_star_to_bboxes_for_anchors = torch.unsqueeze(anchor_points_per_level, dim=0) - torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)
@@ -81,22 +84,25 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         # center_xs =
 
         # when i is 0,
-        lower_size = sizes[i - 1] if i > 0 else 0
+        #lower_size = sizes[i - 1] if i > 0 else 0
+        lower_size = sizes[i - 1] # i starts from 1; i-1 = 0
         upper_size = sizes[i]
         # points_within_range_per_level shape is (N, M)
         points_within_range_per_level = ~torch.logical_or(
-            torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) < lower_size,
+            torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) < lower_size, # lower_size could be 0
             torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) >= upper_size
         )
 
         # positive_argmax_per_level are the first indices to the positive anchors which are both in gt boxes and satisfy the bbox size limits
         # If there are multiple maximal values in a reduced row then the indices of the first maximal value are returned.
         positive_anchor_indices_per_level, positive_argmax_per_level = torch.logical_and(
-            anchor_points_in_gt_bboxes,
-            points_within_range_per_level
+            anchor_points_in_gt_bboxes,  # shape = (N,M)
+            points_within_range_per_level  # shape = (N,M)
         ).max(dim=0)
 
-        # torch.set_printoptions(edgeitems=10000000)
+        #positive_anchor_indices_per_level: shape = (M,); positive_argmax_per_level: (M,)
+        # torch.set_printoptions(edgeit
+        # ems=10000000)
         # print(f"positive_argmax_per_level for level {i}: {positive_argmax_per_level.shape}\n{positive_argmax_per_level}")
         # print(f"positive_anchor_indices_per_level for level {i}: {positive_anchor_indices_per_level.shape}\n{positive_anchor_indices_per_level}")
         # torch.set_printoptions(edgeitems=3)
@@ -109,6 +115,7 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         normalized_positive_r_star_per_level = positive_r_star_per_level / 2**i
 
         positive_anchor_indices = torch.cat((positive_anchor_indices, positive_anchor_indices_per_level), dim=0)
+
         normalized_annotations_for_anchors = torch.cat((normalized_annotations_for_anchors, normalized_annotations_for_anchors_per_level), dim=0)
         l_star_for_all_anchors = torch.cat((l_star_for_all_anchors, positive_l_star_per_level))
         r_star_for_all_anchors = torch.cat((r_star_for_all_anchors, positive_r_star_per_level))
@@ -300,7 +307,7 @@ class FocalLoss(nn.Module):
 
             cls_loss = focal_weight * bce
 
-            if torch.cuda.is_available():
+            if torch.cuda.is_available(): #MJ: 
                 cls_loss = torch.where(torch.ne(class_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).cuda())
             else:
                 cls_loss = torch.where(torch.ne(class_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape))
@@ -408,13 +415,13 @@ class RegressionLoss(nn.Module):
                 positive_anchor_indices_per_class, assigned_annotations_for_anchors = get_atss_positives(jth_annotations, anchors_list, class_id=class_id)
 
                 if positive_anchor_indices_per_class.sum() > 0:
-                    positive_annotations = assigned_annotations_for_anchors[positive_anchor_indices_per_class, :]
+                    annotations_for_positive_anchors = assigned_annotations_for_anchors[positive_anchor_indices_per_class, :]
 
                     anchor_widths_pi = anchor_widths[positive_anchor_indices_per_class]
                     anchor_ctr_x_pi = anchor_ctr_x[positive_anchor_indices_per_class]
 
-                    gt_widths  = positive_annotations[:, 1] - positive_annotations[:, 0]
-                    gt_ctr_x   = positive_annotations[:, 0] + 0.5 * gt_widths
+                    gt_widths  = annotations_for_positive_anchors[:, 1] - annotations_for_positive_anchors[:, 0]
+                    gt_ctr_x   = annotations_for_positive_anchors[:, 0] + 0.5 * gt_widths
                     # print("gt", gt_widths)
                     # print("anchor", anchor_widths_pi)
 

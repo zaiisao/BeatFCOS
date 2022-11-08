@@ -64,7 +64,7 @@ def generate_anchors(base_size=16, scales=None):
     anchors = np.zeros((num_anchors, 2))
 
     # scale base_size
-    anchors[:, 1] = base_size * scales.T
+    anchors[:, 1] = base_size * scales.T  # base_size = 1
 
     # transform from (x_ctr, w) -> (x1, x2)
     anchors[:, :] -= np.tile(anchors[:, 1] * 0.5, (2, 1)).T
