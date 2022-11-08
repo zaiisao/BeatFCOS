@@ -241,8 +241,8 @@ class ResNet(nn.Module):
         self.regressionModel.regression.bias.data.fill_(0)
 
         self.regressionModel.leftness.weight.data.fill_(0)
-        # self.regressionModel.leftness.bias.data.fill_(0)
-        self.regressionModel.leftness.bias.data.fill_(-math.log((1.0 - prior) / prior))
+        self.regressionModel.leftness.bias.data.fill_(0)
+        #self.regressionModel.leftness.bias.data.fill_(-math.log((1.0 - prior) / prior))
 
         self.freeze_bn()
 
