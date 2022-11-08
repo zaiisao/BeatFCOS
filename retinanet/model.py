@@ -443,9 +443,9 @@ class ResNet(nn.Module):
                         #print(f"transformed_anchors ({transformed_anchors.shape}: {transformed_anchors}")
                         #print(f"classification_output[:, :, class_id] ({classification_output[:, :, class_id].shape}): {classification_output[:, :, class_id]}")
                         #print(f"leftness_output[:, :, 0] ({leftness_output[:, :, 0].shape}): {leftness_output[:, :, 0]}")
-                        print("transformed_anchors", transformed_anchors.shape)
-                        print("classification_output", classification_output.shape)
-                        print("classification_output", leftness_output.shape)
+                        # print("transformed_anchors", transformed_anchors.shape)
+                        # print("classification_output", classification_output.shape)
+                        # print("classification_output", leftness_output.shape)
                         scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0])
                     else:
                         transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), torch.cat(regression_outputs, dim=1))
