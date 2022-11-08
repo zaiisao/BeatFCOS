@@ -40,8 +40,9 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
     # bbox_sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976, ]]
 
     # sort from shortest to longest sizes of the bbox lengths
-    sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort() # sort in the ascending ordr
-    bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
+    #MJ: you do not need to short bboxes according to their lengths. Moreover, you might be able to take advantage of the temporal order of beats.
+    # sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort() # sort in the ascending ordr
+    # bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
 
     positive_anchor_indices = torch.zeros(0).to(jth_annotations.device)
     normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations.device)
