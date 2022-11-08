@@ -571,6 +571,7 @@ class LeftnessLoss(nn.Module):
             jth_annotations = jth_annotations[jth_annotations[:, 2] != -1]
 
             #jth_leftness = torch.sigmoid(jth_leftness)
+            jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
 
             positive_anchor_indices_per_class, _, l_star_for_all_anchors, r_star_for_all_anchors, _, _ = \
                 get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
