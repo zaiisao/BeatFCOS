@@ -556,6 +556,7 @@ class LeftnessLoss(nn.Module):
     def __init__(self, fcos=False):
         super(LeftnessLoss, self).__init__()
         self.fcos = fcos
+        self.bce_with_logits = nn.BCEWithLogitsLoss()
 
     def forward(self, leftnesses, anchors_list, annotations, class_id, regress_limits=(0, float('inf'))):
         if not self.fcos:
@@ -571,7 +572,7 @@ class LeftnessLoss(nn.Module):
             jth_annotations = jth_annotations[jth_annotations[:, 2] != -1]
 
             #jth_leftness = torch.sigmoid(jth_leftness)
-            jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
+            #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
 
             positive_anchor_indices_per_class, _, l_star_for_all_anchors, r_star_for_all_anchors, _, _ = \
                 get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
@@ -595,8 +596,9 @@ class LeftnessLoss(nn.Module):
             #     torch.zeros(positive_anchor_indices_per_class.shape).to(positive_anchor_indices_per_class.device)
             # ).unsqueeze(dim=1)
 
-            bce = -(left_targets * torch.log(jth_leftness[positive_anchor_indices_per_class, :])\
-                + (1.0 - left_targets) * torch.log(1.0 - jth_leftness[positive_anchor_indices_per_class, :]))
+            #bce = -(left_targets * torch.log(jth_leftness[positive_anchor_indices_per_class, :])\
+            #    + (1.0 - left_targets) * torch.log(1.0 - jth_leftness[positive_anchor_indices_per_class, :]))
+            bce = self.bce_with_logits(jth_leftness[positive_anchor_indices_per_class, 0], left_targets)
 
             left_loss = bce#.squeeze() * positive_anchor_indices_per_class
             #print(left_loss.min(), left_loss.max())
