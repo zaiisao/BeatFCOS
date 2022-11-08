@@ -44,13 +44,12 @@ def get_fcos_positives(jth_bbox_annotations, anchors_list, class_id):
     sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort() # sort in the ascending ordr
     bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
 
-    positive_bbox_indices = torch.zeros(0).to(jth_bbox_annotations) #MJ: this operation produces > tensor([])
-    #MJ: torch.to(other, non_blocking=False, copy=False) Returns a Tensor with same torch.dtype and torch.device as the Tensor other.
-    normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_bbox_annotations)
-    l_star_for_all_anchors = torch.zeros(0).to(jth_bbox_annotations)
-    r_star_for_all_anchors = torch.zeros(0).to(jth_bbox_annotations)
-    normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_bbox_annotations)
-    normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_bbox_annotations)
+    positive_anchor_indices = torch.zeros(0).to(jth_annotations.device)
+    normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations.device)
+    l_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
+    r_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
+    normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
+    normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
 
     # anchors_list contains the anchor points (x, y) on the base level image corresponding to the feature map
     for i, anchor_points_per_level in enumerate(anchors_list, 1): #MJ i starts form 1; anchor points per level, (anchor locations {} (x, y) } on the base level image)
@@ -74,7 +73,6 @@ def get_fcos_positives(jth_bbox_annotations, anchors_list, class_id):
         # torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1) (M, 1)
         l_star_to_bboxes_for_anchors = torch.unsqueeze(anchor_points_per_level, dim=0) - torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)
         r_star_to_bboxes_for_anchors = torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1) - torch.unsqueeze(anchor_points_per_level, dim=0)
-
         # (floor(s/2) + xs, floor(s/2) + ys)
         # strides = [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
         # s = 2**i
@@ -563,6 +561,7 @@ class LeftnessLoss(nn.Module):
     def __init__(self, fcos=False):
         super(LeftnessLoss, self).__init__()
         self.fcos = fcos
+        #self.bce_with_logits = nn.BCEWithLogitsLoss()
 
     def forward(self, leftnesses, anchors, annotations, regress_limits=(0, float('inf'))):
         if not self.fcos:
@@ -579,8 +578,10 @@ class LeftnessLoss(nn.Module):
 
             #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
             jth_leftness = torch.sigmoid(jth_leftness)
+            #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
 
-            positive_anchor_indices_per_class, normalized_annotations_for_anchors, l_star_for_all_anchors, r_star_for_all_anchors = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+            positive_anchor_indices_per_class, normalized_annotations_for_anchors, l_star_for_all_anchors, r_star_for_all_anchors, _, _ = \
+                get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
 
             positive_indices, assigned_annotations, left, right = get_fcos_positives(
                 jth_annotations,
@@ -598,14 +599,18 @@ class LeftnessLoss(nn.Module):
             left_targets = torch.where(
                 positive_anchor_indices_per_class,
                 torch.sqrt(r_star_for_all_anchors / (l_star_for_all_anchors + r_star_for_all_anchors)).float(),
-                torch.zeros(positive_anchor_indices_per_class.shape)
+                torch.zeros(positive_anchor_indices_per_class.shape).to(positive_anchor_indices_per_class.device)
             ).unsqueeze(dim=1)
 
-            bce = -(left_targets * torch.log(jth_leftness) + (1.0 - left_targets) * torch.log(1.0 - jth_leftness))
+            bce = -(left_targets * torch.log(jth_leftness[positive_anchor_indices_per_class, :])\
+                + (1.0 - left_targets) * torch.log(1.0 - jth_leftness[positive_anchor_indices_per_class, :]))
+            #bce = self.bce_with_logits(jth_leftness[positive_anchor_indices_per_class, :], left_targets.unsqueeze(dim=1))
 
-            left_loss = bce.squeeze() * positive_anchor_indices_per_class
+            left_loss = bce#.squeeze() * positive_anchor_indices_per_class
+            #print(left_loss.min(), left_loss.max())
 
-            leftness_losses.append(left_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
+            #leftness_losses.append(left_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
+            leftness_losses.append(left_loss.mean())
 
         # if self.fcos:
         #     return torch.stack(leftness_losses).sum(dim=0)
