@@ -16,7 +16,7 @@ class Anchors(nn.Module):
         self.strides = [2 ** (x - self.base_level) for x in self.pyramid_levels]
         # self.strides = [2 ** x for x in self.pyramid_levels]
 
-        self.sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976]]
+        self.sizes = [x * 22050 / 256 for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882]]
 
         if self.fcos:            
             #self.sizes = [0 for x in self.pyramid_levels]
