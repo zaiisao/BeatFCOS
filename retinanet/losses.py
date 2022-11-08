@@ -598,7 +598,8 @@ class LeftnessLoss(nn.Module):
 
             #bce = -(left_targets * torch.log(jth_leftness[positive_anchor_indices_per_class, :])\
             #    + (1.0 - left_targets) * torch.log(1.0 - jth_leftness[positive_anchor_indices_per_class, :]))
-            bce = self.bce_with_logits(jth_leftness[positive_anchor_indices_per_class, 0], left_targets)
+            print(jth_leftness[positive_anchor_indices_per_class, :].shape, left_targets.unsqueeze(dim=1).shape)
+            bce = self.bce_with_logits(jth_leftness[positive_anchor_indices_per_class, :], left_targets.unsqueeze(dim=1))
 
             left_loss = bce#.squeeze() * positive_anchor_indices_per_class
             #print(left_loss.min(), left_loss.max())
