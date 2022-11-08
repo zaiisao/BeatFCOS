@@ -377,6 +377,7 @@ if __name__ == '__main__':
             print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
             highest_downbeat_mean_f_measure = downbeat_mean_f_measure
 
+        should_save_checkpoint = True # FOR DEBUGGING
         if should_save_checkpoint:
             new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
             print(f"Saving checkpoint at {new_checkpoint_path}")
