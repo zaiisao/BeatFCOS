@@ -196,6 +196,46 @@ val_dataloader = torch.utils.data.DataLoader(val_dataset_list,
 
 dict_args = vars(args)
 
+#MJ: The commandline on the terminal:
+
+# From https://github.com/csteinmetz1/wavebeat
+# python train.py \
+# --ballroom_audio_dir /path/to/BallroomData \
+# --ballroom_annot_dir /path/to/BallroomAnnotations \
+# --beatles_audio_dir /path/to/The_Beatles \
+# --beatles_annot_dir /path/to/The_Beatles_Annotations/beat/The_Beatles \
+# --hainsworth_audio_dir /path/to/hainsworth/wavs \   ?
+# --hainsworth_annot_dir /path/to/hainsworth/beat \
+# --rwc_popular_audio_dir /path/to/rwc_popular/audio \
+# --rwc_popular_annot_dir /path/to/rwc_popular/beat \
+# --gpus 1 \          ?
+# --preload \
+# --precision 16 \    ?
+# --patience 10 \
+# --train_length 2097152 \
+# --eval_length 2097152 \
+# --model_type dstcn \
+# --act_type PReLU \
+# --norm_type BatchNorm \
+# --channel_width 32 \
+# --channel_growth 32 \
+# --augment \
+# --batch_size 16 \
+# --lr 1e-3 \                 ?
+# --gradient_clip_val 4.0 \  ?
+# --audio_sample_rate 22050 \
+# --num_workers 24 \  ?
+# --max_epochs 100 \
+
+
+
+#OURS (? Colab?): python train.py --ballroom_audio_dir ../../beat-tracking-dataset/labeled_data/train/br_test/data 
+# --ballroom_annot_dir ../../beat-tracking-dataset/labeled_data/train/br_test/label --preload --patience 10 
+# --train_length 2097152 --eval_length 2097152 --act_type PReLU --norm_type BatchNorm --channel_width 32 --channel_growth 32 
+# --augment --batch_size 1 --audio_sample_rate 22050 --num_workers 0
+
+#MJ: print( dict_args) ?
+
 if __name__ == '__main__':
     # Create the model
     if args.depth == 18:

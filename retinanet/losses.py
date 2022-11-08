@@ -4,48 +4,73 @@ import torch.nn as nn
 from retinanet.utils import BBoxTransform, calc_iou, calc_giou
 
 def get_fcos_positives(jth_annotations, anchors_list, class_id):
-    class_bbox_annotation = jth_annotations[jth_annotations[:, 2] == class_id]
+    bbox_annotations_per_class = jth_annotations[jth_annotations[:, 2] == class_id]
 
     audio_target_rate = 22050 / 256
-    distance_ranges = [(x[0] * audio_target_rate, x[1] * audio_target_rate) for x in [
-        (0, 0.32537674),
-        (0.32537674, 0.47555801),
-        (0.47555801, 0.64588683),
-        (0.64588683, 1.16883525),
-        (1.16883525, 2.17128976),
-        (2.17128976, float("inf"))
-    ]]
+    # distances_ranges : We have five clusters of sizes. Each cluster has the smallest and the largest size.
+    # cluster 0 = (t0, t1)
+    # cluster 1 = (t1, t2)
+    # cluster 2 = (t2, t3)
+    # cluster 3 = (t3, t4)
+    # cluster 4 = (t4, t5)
+    # cluster 5 = (t5, t6)
+
+    # t0 = 0
+    # t1 = MEAN(smallest element of cluster 1, largest element of cluster 0)
+    # t2 = smallest element of cluster 2 = largest element of cluster 1
+    # t3 = smallest element of cluster 3 = largest element of cluster 2
+    # t4 = smallest element of cluster 4 = largest element of cluster 3
+    # t5 = smallest element of cluster 5 = largest element of cluster 4
+    # t6 = inf
+    # distance_ranges = [(x[0] * audio_target_rate, x[1] * audio_target_rate) for x in [
+    #     (0, 0.32537674),
+    #     (0.32537674, 0.47555801),
+    #     (0.47555801, 0.64588683),
+    #     (0.64588683, 1.16883525),
+    #     (1.16883525, 2.17128976),
+    #     (2.17128976, float("inf"))
+    # ]]
+
+    # K-max version of K-means applied to 5 clusters
+    # 2 clusters for only downbeat intervals: [3.74199546 2.62519274 2.23147392]
+    # 3 clusters for only downbeat intervals: [8.02371882 5.78800454]
+    sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
 
     # bbox_sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976, ]]
 
     # sort from shortest to longest
-    sorted_bbox_indices = (class_bbox_annotation[:, 1] - class_bbox_annotation[:, 0]).argsort()
-    class_bbox_annotation = class_bbox_annotation[sorted_bbox_indices]
+    sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
+    bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
 
-    positive_anchor_indices = torch.zeros(0, dtype=torch.bool)
-    normalized_annotations_for_anchors = torch.zeros(0, 3)
-    l_star_for_all_anchors = torch.zeros(0)
-    r_star_for_all_anchors = torch.zeros(0)
+    positive_anchor_indices = torch.zeros(0).to(jth_annotations)
+    normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations)
+    l_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
+    r_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
+    normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
+    normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_annotations)
 
     # anchors_list contains the anchor points (x, y) on the base level image corresponding to the feature map
     for i, anchor_points_per_level in enumerate(anchors_list): # anchor points per level, (anchor locations (x, y) on the base level image)
         # the shape of anchor_points_per_level is (num of anchors,)
         # the shape of torch.unsqueeze(anchor_points_per_level, dim=0) is (1, num of anchors)
-        # the shape of class_bbox_annotation[:, 0] is (num of annotations,)
-        # the shape of torch.unsqueeze(class_bbox_annotation[:, 0], dim=1) is (num of annotations, 1)
+        # the shape of bbox_annotations_per_class[:, 0] is (num of annotations,)
+        # the shape of torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1) is (num of annotations, 1)
         # the shape of anchor_points_in_gt_bboxes is (num of annotations, num_of_anchors)
 
         # check whether anchor points are within gt boxes
         # anchor_points_in_gt_bboxes is a (N, M) boolean matric where N is the number of anchors and M is the number of annotations
         anchor_points_in_gt_bboxes = torch.logical_and(
-            torch.ge(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(class_bbox_annotation[:, 0], dim=1)),
-            torch.le(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(class_bbox_annotation[:, 1], dim=1))
+            torch.ge(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)),
+            torch.le(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1))
         )
 
         # apply the distance limits criteria
         # lefts is l*, rights is r* which are all the anchor points on the base image
-        l_star_per_level = torch.unsqueeze(anchor_points_per_level, dim=0) - torch.unsqueeze(class_bbox_annotation[:, 0], dim=1)
-        r_star_per_level = torch.unsqueeze(class_bbox_annotation[:, 1], dim=1) - torch.unsqueeze(anchor_points_per_level, dim=0)
+        # the shape of l_star_to_bboxes_for_anchors is (N, M) (1, N, M) ()
+        # torch.unsqueeze(anchor_points_per_level, dim=0) shape is (1, N)
+        # torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1) (M, 1)
+        l_star_to_bboxes_for_anchors = torch.unsqueeze(anchor_points_per_level, dim=0) - torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)
+        r_star_to_bboxes_for_anchors = torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1) - torch.unsqueeze(anchor_points_per_level, dim=0)
 
         # (floor(s/2) + xs, floor(s/2) + ys)
         # strides = [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
@@ -56,9 +81,12 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         # center_xs =
 
         # when i is 0,
-        points_within_range_per_level = torch.logical_and(
-            torch.max(l_star_per_level, r_star_per_level) < distance_ranges[i][1],
-            torch.max(l_star_per_level, r_star_per_level) >= distance_ranges[i][0]
+        lower_size = sizes[i - 1] if i > 0 else 0
+        upper_size = sizes[i]
+        # points_within_range_per_level shape is (N, M)
+        points_within_range_per_level = ~torch.logical_or(
+            torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) < lower_size,
+            torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) >= upper_size
         )
 
         # positive_argmax_per_level are the first indices to the positive anchors which are both in gt boxes and satisfy the bbox size limits
@@ -68,17 +96,30 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
             points_within_range_per_level
         ).max(dim=0)
 
-        normalized_annotations_for_anchors_per_level = class_bbox_annotation[positive_argmax_per_level, :] / 2**i
+        # torch.set_printoptions(edgeitems=10000000)
+        # print(f"positive_argmax_per_level for level {i}: {positive_argmax_per_level.shape}\n{positive_argmax_per_level}")
+        # print(f"positive_anchor_indices_per_level for level {i}: {positive_anchor_indices_per_level.shape}\n{positive_anchor_indices_per_level}")
+        # torch.set_printoptions(edgeitems=3)
 
-        positive_l_star_per_level = torch.diagonal(l_star_per_level[positive_argmax_per_level], 0)
-        positive_r_star_per_level = torch.diagonal(r_star_per_level[positive_argmax_per_level], 0)
+        normalized_annotations_for_anchors_per_level = bbox_annotations_per_class[positive_argmax_per_level, :] / 2**i
+
+        positive_l_star_per_level = torch.diagonal(l_star_to_bboxes_for_anchors[positive_argmax_per_level], 0)
+        positive_r_star_per_level = torch.diagonal(r_star_to_bboxes_for_anchors[positive_argmax_per_level], 0)
+        normalized_positive_l_star_per_level = positive_l_star_per_level / 2**i
+        normalized_positive_r_star_per_level = positive_r_star_per_level / 2**i
 
         positive_anchor_indices = torch.cat((positive_anchor_indices, positive_anchor_indices_per_level), dim=0)
         normalized_annotations_for_anchors = torch.cat((normalized_annotations_for_anchors, normalized_annotations_for_anchors_per_level), dim=0)
         l_star_for_all_anchors = torch.cat((l_star_for_all_anchors, positive_l_star_per_level))
         r_star_for_all_anchors = torch.cat((r_star_for_all_anchors, positive_r_star_per_level))
+        normalized_l_star_for_all_anchors = torch.cat((normalized_l_star_for_all_anchors, normalized_positive_l_star_per_level))
+        normalized_r_star_for_all_anchors = torch.cat((normalized_r_star_for_all_anchors, normalized_positive_r_star_per_level))
 
-    return positive_anchor_indices, normalized_annotations_for_anchors, l_star_for_all_anchors, r_star_for_all_anchors
+    positive_anchor_indices = positive_anchor_indices.bool()
+
+    return positive_anchor_indices, normalized_annotations_for_anchors,\
+        l_star_for_all_anchors, r_star_for_all_anchors,\
+        normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors
 
 def get_atss_positives(jth_annotations, anchors_list, class_id):
     class_bbox_annotation = jth_annotations[jth_annotations[:, 2] == class_id]
@@ -225,7 +266,7 @@ class FocalLoss(nn.Module):
             if self.fcos:
                 class_targets = torch.zeros(jth_classification.shape)
 
-                positive_anchor_indices_per_class, assigned_annotations, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+                positive_anchor_indices_per_class, assigned_annotations, _, _, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
             else:
                 # initialize the beat/downbeat classifiers of all anchors (positive and negative) to background
                 class_targets = torch.zeros(jth_classification.shape)
@@ -272,10 +313,10 @@ class FocalLoss(nn.Module):
 
             classification_losses.append(cls_loss.sum()/torch.clamp(num_positive_anchors_per_class.float(), min=1.0))
 
-        if self.fcos:
-            return torch.stack(classification_losses).sum(dim=0)
-        else:
-            return torch.stack(classification_losses).mean(dim=0, keepdim=True)
+        # if self.fcos:
+        #     return torch.stack(classification_losses).sum(dim=0)
+        # else:
+        return torch.stack(classification_losses).mean(dim=0, keepdim=True)
 
 class RegressionLoss(nn.Module):
     def __init__(self, fcos=False, loss_type="l1", weight=1, num_anchors=3):
@@ -304,8 +345,12 @@ class RegressionLoss(nn.Module):
             jth_annotations = annotations[j, :, :]
             #jth_annotations = jth_annotations[jth_annotations[:, 2] != -1] # jth_annotations[:, 2] is the classification label
 
+            # the shape of jth_annotations is (number of target boxes of the batch item with the most boxes, 3)
             jth_annotations = jth_annotations[jth_annotations[:, 2] != -1] # jth_annotations[:, 2] is the classification label
 
+            # the shape of jth_annotations after the masking is (number of target boxes of the this batch item, 3)
+
+            # If there are gt bboxes on the current image, we set the regression loss of this image to 0 and continue to the next batch item
             if jth_annotations.shape[0] == 0:
                 if torch.cuda.is_available():
                     regression_losses.append(torch.tensor(0).float().cuda())
@@ -315,21 +360,42 @@ class RegressionLoss(nn.Module):
                 continue
 
             if self.fcos:
-                positive_anchor_indices_per_class, normalized_annotations_for_anchors, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+                positive_anchor_indices_per_class,\
+                normalized_annotations_for_anchors, _, _,\
+                normalized_l_star_for_all_anchors,\
+                normalized_r_star_for_all_anchors = \
+                    get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+                #torch.set_printoptions(edgeitems=10000000)
+                #print(f"normalized_l_star_for_all_anchors ({normalized_l_star_for_all_anchors.shape}):\n{normalized_l_star_for_all_anchors}")
+                #print(f"normalized_r_star_for_all_anchors ({normalized_r_star_for_all_anchors.shape}):\n{normalized_r_star_for_all_anchors}")
 
                 # normalized_annotations_for_anchors shape (number of positive anchors, 2)
                 # jth_regression[positive_anchor_indices_per_class, :2] shape (number of positive anchors, 2)
-                positive_anchor_regression_giou = calc_giou(
-                    normalized_annotations_for_anchors[positive_anchor_indices_per_class],
-                    jth_regression[positive_anchor_indices_per_class, :2]
-                )
+                # IN order to calculate GIOU, we must compute the bbox corresponding to the regression output t_(x, y)
+                # Also we need to compute the bbox corresponding to the normalized lr targets for each feature map level
+                # We need to use the anchor point
+
+                normalized_l_r_bboxes = torch.stack((
+                    torch.cat(anchors_list, dim=0) - normalized_l_star_for_all_anchors,
+                    torch.cat(anchors_list, dim=0) + normalized_r_star_for_all_anchors
+                ), dim=1)
+                #print(f"normalized_r_star_for_all_anchors ({normalized_r_star_for_all_anchors.shape}):\n{normalized_r_star_for_all_anchors}")
+
+                positive_anchor_regression_giou = torch.clamp(calc_giou(
+                    normalized_l_r_bboxes[positive_anchor_indices_per_class],
+                    jth_regression[positive_anchor_indices_per_class, :2] # this is equal to t_(x, y) in the FCOS paper formula 2
+                ), min=-1, max=1)
+                #print(f"positive_anchor_regression_giou ({positive_anchor_regression_giou.shape}):\n{positive_anchor_regression_giou}")
 
                 regression_losses_for_positive_anchors = \
                     torch.ones(positive_anchor_regression_giou.shape).to(positive_anchor_regression_giou.device) \
                     - positive_anchor_regression_giou
+                #print(f"regression_losses_for_positive_anchors ({regression_losses_for_positive_anchors.shape}):\n{regression_losses_for_positive_anchors}")
 
                 #regression_losses.append(regression_losses_for_positive_anchors.sum() * self.weight)
                 regression_losses.append(regression_losses_for_positive_anchors.mean() * self.weight)
+                #print(f"regression_losses_for_positive_anchors.mean() * self.weight: {regression_losses_for_positive_anchors.mean() * self.weight}")
+                #torch.set_printoptions(edgeitems=3)
             else:
                 all_anchors = torch.cat(anchors_list, dim=0)
                 anchor_widths  = all_anchors[:, 1] - all_anchors[:, 0] # if fcos is true, anchor_widths = 0
@@ -342,13 +408,13 @@ class RegressionLoss(nn.Module):
                 positive_anchor_indices_per_class, assigned_annotations_for_anchors = get_atss_positives(jth_annotations, anchors_list, class_id=class_id)
 
                 if positive_anchor_indices_per_class.sum() > 0:
-                    positive_annotations = assigned_annotations_for_anchors[positive_anchor_indices_per_class, :] #MJ: corrected
+                    positive_annotations = assigned_annotations_for_anchors[positive_anchor_indices_per_class, :]
 
                     anchor_widths_pi = anchor_widths[positive_anchor_indices_per_class]
                     anchor_ctr_x_pi = anchor_ctr_x[positive_anchor_indices_per_class]
 
-                    gt_widths  = assigned_annotations[:, 1] - assigned_annotations[:, 0]
-                    gt_ctr_x   = assigned_annotations[:, 0] + 0.5 * gt_widths
+                    gt_widths  = positive_annotations[:, 1] - positive_annotations[:, 0]
+                    gt_ctr_x   = positive_annotations[:, 0] + 0.5 * gt_widths
                     # print("gt", gt_widths)
                     # print("anchor", anchor_widths_pi)
 
@@ -371,7 +437,6 @@ class RegressionLoss(nn.Module):
 
                         regression_diff = torch.abs(box_targets - jth_regression[positive_anchor_indices_per_class, :])
 
-                        #MJ: 9.0 in the following is not the number of anchors!!!!
                         regression_loss = torch.where(
                             torch.le(regression_diff, 1.0 / 9.0),
                             0.5 * 9.0 * torch.pow(regression_diff, 2),
@@ -386,42 +451,37 @@ class RegressionLoss(nn.Module):
                         # print("box_targets", box_targets)
                         # print("loss", regression_loss)
 
+                        # regression_loss.mean() is the mean of the regression loss for all positive anchors
                         regression_losses.append(regression_loss.mean())
                     elif self.loss_type == "iou" or self.loss_type == "giou":
-                        target_left = assigned_annotations[:, 0]
-                        target_right = assigned_annotations[:, 1]
+                        # # In the method that uses the anchor boxes, we can also use IOU regression loss
+                        # target_left = positive_annotations[:, 0]
+                        # target_right = positive_annotations[:, 1]
 
-                        #prediction = self.regressBoxes(all_anchors.unsqueeze(dim=0), jth_regression.unsqueeze(dim=0)).squeeze()
-                        #MJ: The use of self.regressBoxes() transforms the offsets prediciton to the real bbxes coordinates for evaluation mode 
-                        #It has nothing to do with defining iou or giou loss for the positive anchor boxes
+                        # #prediction = self.regressBoxes(all_anchors.unsqueeze(dim=0), jth_regression.unsqueeze(dim=0)).squeeze()
                         # prediction_left = prediction[positive_anchor_indices_per_class, 0]
                         # prediction_right = prediction[positive_anchor_indices_per_class, 1]
 
-                        #MJ:
+                        # target_area = (target_left + target_right)
+                        # prediction_area = (prediction_left + prediction_right)
 
-                        prediction_left = jth_regression[positive_anchor_indices_per_class, 0]
-                        prediction_right = jth_regression[positive_anchor_indices_per_class, 1]
+                        # w_intersect = torch.min(prediction_left, target_left) + torch.min(prediction_right, target_right)
+                        # g_w_intersect = torch.max(prediction_left, target_left) + torch.max(prediction_right, target_right)
 
-                        target_area = (target_left + target_right)
-                        prediction_area = (prediction_left + prediction_right)
+                        # ac_uion = g_w_intersect + 1e-7
+                        # area_intersect = w_intersect
+                        # area_union = target_area + prediction_area - area_intersect
+                        # ious = (area_intersect + 1.0) / (area_union + 1.0)
+                        # gious = ious - (ac_uion - area_union) / ac_uion
 
-                        w_intersect = torch.min(prediction_left, target_left) + torch.min(prediction_right, target_right)
-                        g_w_intersect = torch.max(prediction_left, target_left) + torch.max(prediction_right, target_right)
-
-                        ac_uion = g_w_intersect + 1e-7
-                        area_intersect = w_intersect
-                        area_union = target_area + prediction_area - area_intersect
-                        ious = (area_intersect + 1.0) / (area_union + 1.0)
-                        gious = ious - (ac_uion - area_union) / ac_uion
-
-                        if self.loss_type == 'iou':
-                            losses = -torch.log(ious)
-                        elif self.loss_type == 'linear_iou':
-                            losses = 1 - ious
-                        elif self.loss_type == 'giou':
-                            losses = 1 - gious
-                        else:
-                            raise NotImplementedError
+                        # if self.loss_type == 'iou':
+                        #     losses = -torch.log(ious)
+                        # elif self.loss_type == 'linear_iou':
+                        #     losses = 1 - ious
+                        # elif self.loss_type == 'giou':
+                        #     losses = 1 - gious
+                        # else:
+                        #     raise NotImplementedError
 
                         regression_losses.append(losses.sum() * self.weight)
 
@@ -430,11 +490,11 @@ class RegressionLoss(nn.Module):
                         regression_losses.append(torch.tensor(0).float().cuda())
                     else:
                         regression_losses.append(torch.tensor(0).float())
-            #End of e;se:
-        if self.fcos:
-            return torch.stack(regression_losses).sum(dim=0)
-        else:
-            return torch.stack(regression_losses).mean(dim=0, keepdim=True)
+
+        # if self.fcos:
+        #     return torch.stack(regression_losses).sum(dim=0)
+        # else:
+        return torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
 # class CenternessLoss(nn.Module):
 #     def __init__(self, fcos=False):
@@ -511,8 +571,9 @@ class LeftnessLoss(nn.Module):
             jth_annotations = jth_annotations[jth_annotations[:, 2] != -1]
 
             #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
-            jth_leftness = torch.sigmoid(jth_leftness)  #MJ:  #https://stackoverflow.com/questions/66906884/how-is-pytorchs-class-bcewithlogitsloss-exactly-implemented
-        
+            jth_leftness = torch.sigmoid(jth_leftness)
+
+            positive_anchor_indices_per_class, normalized_annotations_for_anchors, l_star_for_all_anchors, r_star_for_all_anchors = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
 
             positive_indices, assigned_annotations, left, right = get_fcos_positives(
                 jth_annotations,
@@ -527,15 +588,11 @@ class LeftnessLoss(nn.Module):
             #     torch.zeros(positive_anchor_indices_per_class.shape)
             # ).unsqueeze(dim=1)
 
-            targets = torch.where(
-                positive_indices,
-                torch.sqrt(torch.min(left, right) / torch.max(left, right)).float(),
-                torch.zeros(positive_indices.shape)
+            left_targets = torch.where(
+                positive_anchor_indices_per_class,
+                torch.sqrt(r_star_for_all_anchors / (l_star_for_all_anchors + r_star_for_all_anchors)).float(),
+                torch.zeros(positive_anchor_indices_per_class.shape)
             ).unsqueeze(dim=1)
-            # torch.set_printoptions(edgeitems=1000000)
-            # print(torch.where(positive_anchor_indices_per_class, l_star_for_all_anchors, torch.zeros(l_star_for_all_anchors.shape)))
-            # print(torch.where(positive_anchor_indices_per_class, r_star_for_all_anchors, torch.zeros(r_star_for_all_anchors.shape)))
-            # torch.set_printoptions(edgeitems=3)
 
             bce = -(left_targets * torch.log(jth_leftness) + (1.0 - left_targets) * torch.log(1.0 - jth_leftness))
 
@@ -543,7 +600,7 @@ class LeftnessLoss(nn.Module):
 
             leftness_losses.append(left_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
 
-        if self.fcos:
-            return torch.stack(leftness_losses).sum(dim=0)
-        else:
-            return torch.stack(leftness_losses).mean(dim=0, keepdim=True)
+        # if self.fcos:
+        #     return torch.stack(leftness_losses).sum(dim=0)
+        # else:
+        return torch.stack(leftness_losses).mean(dim=0, keepdim=True)

@@ -41,6 +41,7 @@ class dsTCNBlock(torch.nn.Module):
 
         pad_value =  ((kernel_size-1) * dilation) // 2
 
+
         self.conv1 = torch.nn.Conv1d(in_ch, 
                                      out_ch, 
                                      kernel_size=kernel_size, 
@@ -96,7 +97,7 @@ class dsTCNModel(torch.nn.Module):
         Args:
             ninputs (int): Number of input channels (mono = 1, stereo 2). Default: 1
             noutputs (int): Number of output channels (mono = 1, stereo 2). Default: 1
-            nblocks (int): Number of total TCN blocks. Default: 10
+            nblocks (int): Number of total TCN blocks. Default: 10 (8 => 10)
             kernel_size (int): Width of the convolutional kernels. Default: 15
             stride (int): Stide size when applying convolutional filter. Default: 2 
             dilation_growth (int): Compute the dilation factor at each block as dilation_growth ** (n % stack_size). Default: 8
@@ -125,11 +126,14 @@ class dsTCNModel(torch.nn.Module):
         super(dsTCNModel, self).__init__()
 
         self.blocks = torch.nn.ModuleList()
-        for n in range(nblocks):
+
+        for n in range(nblocks): 
             in_ch = ninputs if n == 0 else out_ch 
             out_ch = channel_width if n == 0 else in_ch + channel_growth
-            dilation = dilation_growth ** (n % stack_size)
+            dilation = dilation_growth ** (n % stack_size)  #MJ:  stack_size = 5 (5 <= 4)
+                                                            #(n % stack_size) = 0,1,2,3,4 =>8**0, ..8**4; n=0 ... 9 => 2 stacks
 
+            #out_ch = 1 => 32 => 64 => 96 = 128 => 160   => ...=>256 => 288 =>  320 (in case of 10 blocks)
             self.blocks.append(dsTCNBlock(
                 in_ch, 
                 out_ch,
@@ -140,11 +144,28 @@ class dsTCNModel(torch.nn.Module):
                 act_type
             ))
 
-    def forward(self, x, last_count):
+            #MJ: omit the output layer from the tcn: 
+            #  self.output = torch.nn.Conv1d(out_ch, = 128
+            #                           noutputs,   = 2
+            #                           kernel_size=1)
+            # 
+            # 
+            # 
+    #The original:
+    # def forward(self, x):
+    
+    #     for block in self.blocks:
+    #         x = block(x)
+        
+    #     x = self.output(x) => omit the output layer in our case; see below
+    #     #x = torch.sigmoid(x)
+
+    #     return x
+    def forward(self, x, last_count): #MJ: last_count =3: get the last 3 blocks (i=7,8,9) from the tcn model
         results = []
-        for i, block in enumerate(self.blocks):
+        for i, block in enumerate(self.blocks): #i starts from 0
             x = block(x)
-            if i >= len(self.blocks) - last_count:
+            if i >= len(self.blocks) - last_count:  #MJ: i >= 10-3 =7: blocks 7,8,9 are gotten
                 results.append(x)
 
         return results

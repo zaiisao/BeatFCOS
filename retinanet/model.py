@@ -20,6 +20,8 @@ model_urls = {
 
 class PyramidFeatures(nn.Module):
     # feature_size is the number of channels in each feature map
+    # >256 => 288 =>  320: C3=256, C=288, C5 = 320
+
     def __init__(self, C3_size, C4_size, C5_size, feature_size=256):
         super(PyramidFeatures, self).__init__()
         # torch.nn.Conv1d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1,
@@ -170,10 +172,13 @@ class ClassificationModel(nn.Module):
 
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
-class ResNet(nn.Module):
+#MJ: https://pseudo-lab.github.io/pytorch-guide/docs/ch03-1.html
+class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defined in our code using tcn
     def __init__(self, num_classes, block, layers, fcos=False, reg_loss_type="l1", **kwargs):
         #self.inplanes = 64
+
         self.inplanes = 256
+
         super(ResNet, self).__init__()
 
         self.fcos = fcos
@@ -182,30 +187,35 @@ class ResNet(nn.Module):
         # self.bn1 = nn.BatchNorm2d(64)
         # self.relu = nn.ReLU(inplace=True)
         # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        # self.layer1 = self._make_layer(block, 64, layers[0])
-        # self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        # self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        # self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        # self.layer1 = self._make_layer(block, 64, layers[0] = 3)   def _make_layer(self, block, planes, blocks, stride=1): stride 1 block= residual block
+        # self.layer2 = self._make_layer(block, 128, layers[1 = 4], stride=2) : downsampling block with stride 2
+        # self.layer3 = self._make_layer(block, 256, layers[2] = 6, stride=2)
+        # self.layer4 = self._make_layer(block, 512, layers[3] = 3, stride=2)
 
-        # downsampling tcn's output tensor dimension is (b, 256, 8192) (b, channel, width/length)
+        # downsampled tcn's output tensor dimension: shape = (b, 256, 8192) =(b, channel, width/length), 8192 = 2^13 samples
 
         # From WaveBeat model
         # With 8 layers, each with stride 2, we downsample the signal by a factor of 2^8 = 256,
         # which, given an input sample rate of 22.05 kHz produces an output signal with a
         # sample rate of 86 Hz
-        self.dstcn = dsTCNModel(**kwargs) # conv1 shape: (b, 256, 8192)
+        self.dstcn = dsTCNModel(**kwargs) # 
+        #MJ:  downsampled tcn's output tensor dimension: shape = (b, 256, 8192) =(b, channel, width/length), 8192 = 2^13 samples
+        
 
         # if block == BasicBlock:
         #     fpn_sizes = [self.layer2[layers[1] - 1].conv2.out_channels, self.layer3[layers[2] - 1].conv2.out_channels,
         #                  self.layer4[layers[3] - 1].conv2.out_channels]
         # elif block == Bottleneck:
-        #     fpn_sizes = [self.layer2[layers[1] - 1].conv3.out_channels, self.layer3[layers[2] - 1].conv3.out_channels,
-        #                  self.layer4[layers[3] - 1].conv3.out_channels]
+        #     fpn_sizes = [self.layer2[layers[1] - 1 = 3].conv3.out_channels, self.layer3[layers[2] - 1 = 5].conv3.out_channels,
+        #                  self.layer4[layers[3] - 1 = 2].conv3.out_channels]
         # else:
         #     raise ValueError(f"Block type {block} not understood")
 
-        # self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2])
-        self.fpn = PyramidFeatures(*(block.out_ch for block in self.dstcn.blocks[-3:]))
+        # self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2]) #MJ: PyramidFeatures( C_{8}.out_ch, C_{9}.out_ch, C_{10}.out_ch)
+
+        # fpn_sizes =[ 512,1024,2048 ]  
+        # self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2])   
+        self.fpn = PyramidFeatures(*(block.out_ch for block in self.dstcn.blocks[-3:]))  #MJ: The feature maps starts with C_{8}, the cnn block at stride 2^8 from the base level image
 
         num_anchors = 3
         if self.fcos:
@@ -214,23 +224,20 @@ class ResNet(nn.Module):
         self.classificationModel = ClassificationModel(256, num_anchors=num_anchors, num_classes=num_classes)
         self.regressionModel = RegressionModel(256, num_anchors=num_anchors, fcos=self.fcos)
 
-        self.anchors = Anchors(base_level=8, fcos=self.fcos)
+        # self.anchors = Anchors(base_level=8, fcos=self.fcos)
+
+        self.anchors = Anchors(base_level=7, fcos=self.fcos) 
+         #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
+         #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
+
+        
 
         self.regressBoxes = BBoxTransform()
 
         self.clipBoxes = ClipBoxes()
 
         self.focalLoss = losses.FocalLoss(fcos=self.fcos)
-        self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, num_anchors=num_anchors)
-        #MJ:   class RegressionLoss(nn.Module):
-        # def __init__(self, fcos=False, loss_type="l1", weight=1, num_anchors=3): MJ: what is this "weight"?
-        #     super(RegressionLoss, self).__init__()
-        #     self.fcos = fcos
-        #     self.loss_type = loss_type
-        #     self.weight = weight
-        #     self.num_anchors = num_anchors
-
-
+        self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, weight=1, num_anchors=num_anchors)
         self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
 
         for m in self.modules():
@@ -255,9 +262,9 @@ class ResNet(nn.Module):
 
         self.freeze_bn()
 
-    def _make_layer(self, block, planes, blocks, stride=1):
+    def _make_layer(self, block, planes, blocks, stride=1): # planes = 64, 128, 256, 512 = output channels; blocks = 3,4,6,3
         downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
+        if stride != 1 or self.inplanes != planes * block.expansion:  #MJ:  block = class Bottleneck; Bottleneck.expansion = 4
             downsample = nn.Sequential(
                 nn.Conv1d(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
@@ -363,57 +370,67 @@ class ResNet(nn.Module):
 
             #     #return focal_loss, regression_loss, leftness_loss
             # else:
-            focal_losses, regression_losses, leftness_losses = [], [], []
+            focal_losses_batch_all_classes, regression_losses_batch_all_classes, leftness_losses_batch_all_classes = [], [], []
 
             for class_id in range(number_of_classes):
-                class_focal_loss = self.focalLoss(
-                    torch.cat(classification_outputs, dim=1),
-                    anchors_list,#[anchors[class_id] for anchors in anchors_list],
+                class_focal_loss_batch = self.focalLoss(
+
+                    torch.cat(classification_outputs, dim=1), #MJ: cat:  https://sanghyu.tistory.com/85
+                     #MJ:  x_{i} in classification_outputs has shape (B,W_{i},C), W= the number of anchor points in feature map i
+                     # torch.cat(classification_outputs, dim=1) has shape (B, sum(W_{i}, i=0, 4), 2);
+                     #  classification_output[b, loc,0] = 0 or 1 = the downbeat classifier at anchor point loc;
+                     # classification_output[b, loc, 1] = 0 or 1 = the beat classifier at  anchor point loc
+                     # 
+                    anchors_list,#[anchors for anchors in anchors_list],
                     annotations,
                     class_id
-                )
+                ) #class_focal_loss: the batch mean loss of class_id: shape = (1,) because we used Keepdim=True when we return the batch mean loss for all the anchor points
 
-                class_regression_loss = self.regressionLoss(
+                class_regression_loss_batch = self.regressionLoss(
                     torch.cat(regression_outputs, dim=1),
-                    anchors_list,#[anchors[class_id] for anchors in anchors_list],
+                    anchors_list,#[anchors  for anchors in anchors_list],
                     annotations,
                     class_id
                 )
 
                 if self.fcos:
-                    class_leftness_loss = self.leftnessLoss(
+                    class_leftness_loss_batch = self.leftnessLoss(
                         torch.cat(leftness_outputs, dim=1),
-                        anchors_list,#[anchors[class_id] for anchors in anchors_list],
+                        anchors_list,#[anchors for anchors in anchors_list],
                         annotations,
                         class_id
                     )
 
-                    leftness_losses.append(class_leftness_loss)
+                    leftness_losses_batch_all_classes.append(class_leftness_loss_batch)
+                #if self.fcos:
 
-                focal_losses.append(class_focal_loss)
-                regression_losses.append(class_regression_loss)
+                focal_losses_batch_all_classes.append(class_focal_loss_batch)
+                regression_losses_batch_all_classes.append(class_regression_loss_batch)
                 # END for class_id in range(number_of_classes)
 
             downbeat_weight = 0.6
 
-            focal_losses[0] *= downbeat_weight
-            regression_losses[0] *= downbeat_weight
-            leftness_losses[0] *= downbeat_weight
+            focal_losses_batch_all_classes[0] *= downbeat_weight
+            regression_losses_batch_all_classes[0] *= downbeat_weight
 
-            focal_losses[1] *= (1 - downbeat_weight)
-            regression_losses[1] *= (1 - downbeat_weight)
-            leftness_losses[1] *= (1 - downbeat_weight)
+            focal_losses_batch_all_classes[1] *= (1 - downbeat_weight)
+            regression_losses_batch_all_classes[1] *= (1 - downbeat_weight)
 
-            focal_loss = torch.stack(focal_losses).sum(dim=0)
-            regression_loss = torch.stack(regression_losses).sum(dim=0)
-            leftness_loss = torch.stack(leftness_losses).sum(dim=0)
+            if self.fcos:
+                leftness_losses_batch_all_classes[0] *= downbeat_weight
+                leftness_losses_batch_all_classes[1] *= (1 - downbeat_weight)
+                leftness_loss = torch.stack(leftness_losses_batch_all_classes).sum(dim=0)
+
+            focal_loss_class_mean = torch.stack(focal_losses_batch_all_classes).sum(dim=0)  #MJ: stack: https://sanghyu.tistory.com/85
+            #torch.stack(focal_losses_all_classes):  shape =(2,1)
+            regression_loss_class_mean = torch.stack(regression_losses_batch_all_classes).sum(dim=0)
 
             #return focal_loss, regression_loss
 
             if self.fcos:
-                return focal_loss, regression_loss, leftness_loss
+                return focal_loss_class_mean, regression_loss_class_mean, leftness_loss
             else:
-                return focal_loss, regression_loss
+                return focal_loss_class_mean, regression_loss_class_mean
         else:
             # Start of evaluation mode
 
@@ -433,14 +450,26 @@ class ResNet(nn.Module):
 
             for i, classification_output in enumerate(classification_outputs):
                 regression_output = regression_outputs[i]
-                leftness_output = leftness_outputs[i]
+
+                if self.fcos:
+                    leftness_output = leftness_outputs[i]
 
                 for class_id in range(classification_output.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
                     # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
-                    transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_output)
+
+                    if self.fcos:
+                        transformed_anchors = torch.stack((
+                            anchors_list[i] - regression_output[0, :, 0] * 2**i,
+                            anchors_list[i] + regression_output[0, :, 1] * 2**i
+                        ), dim=1).unsqueeze(dim=0)
+
+                        scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0])
+                    else:
+                        transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), torch.cat(regression_outputs, dim=1))
+                        scores = torch.squeeze(torch.cat(classification_outputs, dim=1)[:, :, class_id])
+
                     transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
-                    scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, class_id])
                     scores_over_thresh = (scores > 0.05)
                     if scores_over_thresh.sum() == 0:
                         # no boxes to NMS, just continue

@@ -40,7 +40,7 @@ def calc_giou(a, b):
     intersection = torch.where(
         intersection_x2 > intersection_x1,
         intersection_x2 - intersection_x1,
-        torch.zeros(a.size(dim=0))
+        torch.zeros(a.size(dim=0)).to(a.device)
     )
 
     # 5. Finding the coordinate of smallest enclosing line B_c:
@@ -104,7 +104,7 @@ class BasicBlock(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    expansion = 4
+    expansion = 4  #Class field?
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
