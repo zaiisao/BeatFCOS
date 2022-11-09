@@ -311,6 +311,8 @@ if __name__ == '__main__':
                 else:
                     classification_loss, regression_loss = retinanet((audio, target))
                     leftness_loss = torch.zeros(1)
+
+                leftness_loss = torch.zeros(1) # Temporarily disable leftness
     
                 classification_loss = classification_loss.mean() * classification_loss_weight
                 regression_loss = regression_loss.mean() * regression_loss_weight
