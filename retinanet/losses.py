@@ -128,8 +128,10 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         positive_anchor_indices = torch.cat((positive_anchor_indices, positive_anchor_indices_per_level), dim=0) 
 
         normalized_l_r_bboxes_per_level = torch.stack((
-            (anchor_points_per_level / 2**i) - normalized_positive_l_star_per_level,  # all_anchors =  torch.cat(anchors_list, dim=0) = the center of the box
-            (anchor_points_per_level / 2**i) + normalized_positive_r_star_per_level
+            #(anchor_points_per_level / 2**i) - normalized_positive_l_star_per_level,  # all_anchors =  torch.cat(anchors_list, dim=0) = the center of the box
+            #(anchor_points_per_level / 2**i) + normalized_positive_r_star_per_level
+            -normalized_positive_l_star_per_level,
+            normalized_positive_r_star_per_level
         ), dim=1)
 
         #MJ:   normalized_annotations_for_anchors_per_level : shape = (N_{i},3); normalized_annotations_for_anchors: shape = (sum(N_{i}),3)
