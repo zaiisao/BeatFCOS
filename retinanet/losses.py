@@ -50,6 +50,7 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
     r_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
     normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
     normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
+    normalized_l_r_bboxes_for_all_anchors = torch.zeros(0, 2).to(jth_annotations.device)
 
     # anchors_list contains the anchor points (x, y) on the base level image corresponding to the feature map
     for i, anchor_points_per_level in enumerate(anchors_list): #MJ i starts form 1; anchor points per level, (anchor locations {} (x, y) } on the base level image)
@@ -126,6 +127,11 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         #MJ: concatenate 5 times:
         positive_anchor_indices = torch.cat((positive_anchor_indices, positive_anchor_indices_per_level), dim=0) 
 
+        normalized_l_r_bboxes_per_level = torch.stack((
+            (anchor_points_per_level / 2**i) - normalized_positive_l_star_per_level,  # all_anchors =  torch.cat(anchors_list, dim=0) = the center of the box
+            (anchor_points_per_level / 2**i) + normalized_positive_r_star_per_level
+        ), dim=1)
+
         #MJ:   normalized_annotations_for_anchors_per_level : shape = (N_{i},3); normalized_annotations_for_anchors: shape = (sum(N_{i}),3)
         normalized_annotations_for_anchors = torch.cat((normalized_annotations_for_anchors, normalized_annotations_for_anchors_per_level), dim=0)
 
@@ -135,11 +141,14 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         normalized_l_star_for_all_anchors = torch.cat((normalized_l_star_for_all_anchors, normalized_positive_l_star_per_level))  #MJ: dim=0
         normalized_r_star_for_all_anchors = torch.cat((normalized_r_star_for_all_anchors, normalized_positive_r_star_per_level))
 
+        normalized_l_r_bboxes_for_all_anchors = torch.cat((normalized_l_r_bboxes_for_all_anchors, normalized_l_r_bboxes_per_level), dim=0)
+
     positive_anchor_indices = positive_anchor_indices.bool()  #The shape of positive_anchor_indices = ( N_{1} + N_{2} +...+ N_{5}, )
 
     return positive_anchor_indices, normalized_annotations_for_anchors,\
         l_star_for_all_anchors, r_star_for_all_anchors,\
-        normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors
+        normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors,\
+        normalized_l_r_bboxes_for_all_anchors
 
 def get_atss_positives(jth_annotations, anchors_list, class_id):
     class_bbox_annotation = jth_annotations[jth_annotations[:, 2] == class_id]
@@ -286,7 +295,7 @@ class FocalLoss(nn.Module):
             if self.fcos:
                 class_targets = torch.zeros(jth_classification.shape)
 
-                positive_anchor_indices_per_class, assigned_annotations, _, _, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+                positive_anchor_indices_per_class, assigned_annotations, _, _, _, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
             else:
                 # initialize the beat/downbeat classifiers of all anchors (positive and negative) to background
                 class_targets = torch.zeros(jth_classification.shape)
@@ -381,9 +390,8 @@ class RegressionLoss(nn.Module):
 
             if self.fcos:
                 positive_anchor_indices_per_class,\
-                normalized_annotations_for_anchors, _, _,\
-                normalized_l_star_for_all_anchors,\
-                normalized_r_star_for_all_anchors = \
+                normalized_annotations_for_anchors, _, _, _, _,\
+                normalized_l_r_bboxes_for_all_anchors =\
                     get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
 
                 # MJ: normalized_annotations_for_anchors: shape = (sum(N_{i}),3)    
@@ -398,16 +406,16 @@ class RegressionLoss(nn.Module):
                 # We need to use the anchor point
 
                 #MJ: get the bboxes from the l_star and r_star values of the anchor point for the boxes
-                normalized_bboxes_for_all_anchors = torch.stack((
-                    torch.cat(anchors_list, dim=0) - normalized_l_star_for_all_anchors,  # all_anchors =  torch.cat(anchors_list, dim=0) = the center of the box
-                    torch.cat(anchors_list, dim=0) + normalized_r_star_for_all_anchors
-                ), dim=1)
+                # normalized_bboxes_for_all_anchors = torch.stack((
+                #     torch.cat(anchors_list, dim=0) - normalized_l_star_for_all_anchors,  # all_anchors =  torch.cat(anchors_list, dim=0) = the center of the box
+                #     torch.cat(anchors_list, dim=0) + normalized_r_star_for_all_anchors
+                # ), dim=1)
 
                 #   normalized_bboxes_for_all_anchors: shape = (N,2)
-                #print(f"normalized_r_star_for_all_anchors ({normalized_r_star_for_all_anchors.shape}):\n{normalized_r_star_for_all_anchors}")
+                # print(f"normalized_l_r_bboxes_for_all_anchors ({normalized_l_r_bboxes_for_all_anchors[positive_anchor_indices_per_class].shape}):\n{normalized_l_r_bboxes_for_all_anchors[positive_anchor_indices_per_class]}")
 
                 positive_anchor_regression_giou = torch.clamp(calc_giou(
-                    normalized_bboxes_for_all_anchors[positive_anchor_indices_per_class], #MJ: normalized_bboxes_for_all_anchors is the bbxes for the positive anchors already!
+                    normalized_l_r_bboxes_for_all_anchors[positive_anchor_indices_per_class], #MJ: normalized_bboxes_for_all_anchors is the bbxes for the positive anchors already!
                     #normalized_bboxes_for_all_anchors,
                     jth_regression[positive_anchor_indices_per_class, :2] #MJ:  jth_regression[positive_anchor_indices_per_class, :2] =  t_(x, y) in the FCOS paper formula 2
                 ), min=-1, max=1)
@@ -602,7 +610,7 @@ class LeftnessLoss(nn.Module):
             #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
 
             positive_anchor_indices_per_class, normalized_annotations_for_anchors, l_star_for_all_anchors, r_star_for_all_anchors, \
-            normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors = \
+            normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors, _ = \
                             get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
 
         # MJ:   get_fcos_positives(jth_annotations, anchors_list, class_id=class_id) returns:
