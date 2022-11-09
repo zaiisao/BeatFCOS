@@ -475,8 +475,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                         # print(f"classification_output[:, :, class_id]: {classification_output[:, :, class_id]}")
                         # print(f"leftness_output[:, :, 0].sigmoid(): {leftness_output[:, :, 0].sigmoid()}")
 
-                        scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0].sigmoid())
-                        #scores = torch.squeeze(classification_output[:, :, class_id])
+                        #scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0].sigmoid())
+                        scores = torch.squeeze(classification_output[:, :, class_id])
                     else:
                         transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), torch.cat(regression_outputs, dim=1))
                         scores = torch.squeeze(torch.cat(classification_outputs, dim=1)[:, :, class_id])
