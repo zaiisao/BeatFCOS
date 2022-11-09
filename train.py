@@ -311,8 +311,6 @@ if __name__ == '__main__':
                 else:
                     classification_loss, regression_loss = retinanet((audio, target))
                     leftness_loss = torch.zeros(1)
-
-                leftness_loss = torch.zeros(1) # Temporarily disable leftness
     
                 classification_loss = classification_loss.mean() * classification_loss_weight
                 regression_loss = regression_loss.mean() * regression_loss_weight
@@ -356,15 +354,15 @@ if __name__ == '__main__':
                 traceback.print_exc()
                 continue
 
-            print('Evaluating dataset')
-            # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
-            beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat(val_dataloader, retinanet)
+        print('Evaluating dataset')
+        # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
+        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat(val_dataloader, retinanet)
 
-            print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
-            # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
-            # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
-            # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
-            # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
+        print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+        # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
+        # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+        # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
+        # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
         scheduler.step(np.mean(epoch_loss))
 
