@@ -226,7 +226,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         # self.anchors = Anchors(base_level=8, fcos=self.fcos)
 
-        self.anchors = Anchors(base_level=7, fcos=self.fcos) 
+        self.anchors = Anchors(base_level=8, fcos=self.fcos) 
          #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
          #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
 

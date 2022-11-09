@@ -41,8 +41,8 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
 
     # sort from shortest to longest sizes of the bbox lengths
     #MJ: you do not need to short bboxes according to their lengths. Moreover, you might be able to take advantage of the temporal order of beats.
-    # sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort() # sort in the ascending ordr
-    # bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
+    sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort() # sort in the ascending ordr
+    bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
 
     positive_anchor_indices = torch.zeros(0).to(jth_annotations.device)
     normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations.device)
@@ -112,12 +112,12 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
 
         normalized_annotations_for_anchors_per_level = bbox_annotations_per_class[positive_argmax_per_level, :] / 2**i
 
-        # MJ: positive_l_star_per_level = torch.diagonal(l_star_to_bboxes_for_anchors[positive_argmax_per_level], 0) #MJ: get the main diagonal of the matrix ??
-        # positive_r_star_per_level = torch.diagonal(r_star_to_bboxes_for_anchors[positive_argmax_per_level], 0)
+        positive_l_star_per_level = torch.diagonal(l_star_to_bboxes_for_anchors[positive_argmax_per_level], 0) #MJ: get the main diagonal of the matrix ??
+        positive_r_star_per_level = torch.diagonal(r_star_to_bboxes_for_anchors[positive_argmax_per_level], 0)
 
         # MJ: 
-        positive_l_star_per_level = l_star_to_bboxes_for_anchors[positive_argmax_per_level] # get the l_star values of the positive anchors
-        positive_r_star_per_level = r_star_to_bboxes_for_anchors[positive_argmax_per_level] # get the 4_star values of the positive anchors
+        #positive_l_star_per_level = l_star_to_bboxes_for_anchors[positive_argmax_per_level] # get the l_star values of the positive anchors
+        #positive_r_star_per_level = r_star_to_bboxes_for_anchors[positive_argmax_per_level] # get the r_star values of the positive anchors
 
 
         normalized_positive_l_star_per_level = positive_l_star_per_level / 2**i
@@ -407,8 +407,8 @@ class RegressionLoss(nn.Module):
                 #print(f"normalized_r_star_for_all_anchors ({normalized_r_star_for_all_anchors.shape}):\n{normalized_r_star_for_all_anchors}")
 
                 positive_anchor_regression_giou = torch.clamp(calc_giou(
-                    #normalized_bboxes_for_all_anchors[positive_anchor_indices_per_class], #MJ: normalized_bboxes_for_all_anchors is the bbxes for the positive anchors already!
-                    normalized_bboxes_for_all_anchors,
+                    normalized_bboxes_for_all_anchors[positive_anchor_indices_per_class], #MJ: normalized_bboxes_for_all_anchors is the bbxes for the positive anchors already!
+                    #normalized_bboxes_for_all_anchors,
                     jth_regression[positive_anchor_indices_per_class, :2] #MJ:  jth_regression[positive_anchor_indices_per_class, :2] =  t_(x, y) in the FCOS paper formula 2
                 ), min=-1, max=1)
                 #print(f"positive_anchor_regression_giou ({positive_anchor_regression_giou.shape}):\n{positive_anchor_regression_giou}")
@@ -623,6 +623,8 @@ class LeftnessLoss(nn.Module):
             #     torch.sqrt(torch.min(l_star_for_all_anchors, r_star_for_all_anchors) / torch.max(l_star_for_all_anchors, r_star_for_all_anchors)).float(),
             #     torch.zeros(positive_anchor_indices_per_class.shape)
             # ).unsqueeze(dim=1)
+            l_star_for_positive_anchors = l_star_for_all_anchors[positive_anchor_indices_per_class]
+            r_star_for_positive_anchors = r_star_for_all_anchors[positive_anchor_indices_per_class]
 
             #MJ: leftness_targets = torch.where(
             #     positive_anchor_indices_per_class,
@@ -632,11 +634,12 @@ class LeftnessLoss(nn.Module):
 
             #MJ: r_star_for_all_anchors and r_star_for_all_anchors are l, and r values for the positive anchors already, which are determined by get_fcos_positives(),
             # and their values are  positive:
-            leftness_targets =   torch.sqrt( r_star_for_all_anchors / (l_star_for_all_anchors + r_star_for_all_anchors) )
-           #MJ: Shape of leftness_targets = (num_of_positive_anchors,)
-           #  The shape of jth_leftness = (num_of_anchors, 1); jth_leftness[positive_anchor_indices_per_class, :]: shape =(num_of_positive_anchors,1)
+            leftness_targets = torch.sqrt( r_star_for_positive_anchors / (l_star_for_positive_anchors + r_star_for_positive_anchors) )
 
-            leftness_targets = leftness_targets.unsqueeze(dim=1);
+            #MJ: Shape of leftness_targets = (num_of_positive_anchors,)
+            #  The shape of jth_leftness = (num_of_anchors, 1); jth_leftness[positive_anchor_indices_per_class, :]: shape =(num_of_positive_anchors,1)
+            leftness_targets = leftness_targets.unsqueeze(dim=1)
+
             bce = -(leftness_targets * torch.log(jth_leftness[positive_anchor_indices_per_class, :])\
                 + (1.0 - leftness_targets) * torch.log(1.0 - jth_leftness[positive_anchor_indices_per_class, :]))
             #bce = self.bce_with_logits(jth_leftness[positive_anchor_indices_per_class, :], left_targets.unsqueeze(dim=1))
