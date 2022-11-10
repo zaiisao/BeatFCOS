@@ -3,154 +3,336 @@ import torch
 import torch.nn as nn
 from retinanet.utils import BBoxTransform, calc_iou, calc_giou
 
-def get_fcos_positives(jth_annotations, anchors_list, class_id):
-    bbox_annotations_per_class = jth_annotations[jth_annotations[:, 2] == class_id]
+# def get_fcos_positives(jth_annotations, anchors_list, class_id):
+#     bbox_annotations_per_class = jth_annotations[jth_annotations[:, 2] == class_id]
 
-    audio_target_rate = 22050 / 256
-    # distances_ranges : We have five clusters of sizes. Each cluster has the smallest and the largest size.
-    # cluster 0 = (t0, t1)
-    # cluster 1 = (t1, t2)
-    # cluster 2 = (t2, t3)
-    # cluster 3 = (t3, t4)
-    # cluster 4 = (t4, t5)
-    # cluster 5 = (t5, t6)
+#     audio_target_rate = 22050 / 256
+#     # distances_ranges : We have five clusters of sizes. Each cluster has the smallest and the largest size.
+#     # cluster 0 = (t0, t1)
+#     # cluster 1 = (t1, t2)
+#     # cluster 2 = (t2, t3)
+#     # cluster 3 = (t3, t4)
+#     # cluster 4 = (t4, t5)
+#     # cluster 5 = (t5, t6)
 
-    # t0 = 0
-    # t1 = MEAN(smallest element of cluster 1, largest element of cluster 0)
-    # t2 = smallest element of cluster 2 = largest element of cluster 1
-    # t3 = smallest element of cluster 3 = largest element of cluster 2
-    # t4 = smallest element of cluster 4 = largest element of cluster 3
-    # t5 = smallest element of cluster 5 = largest element of cluster 4
-    # t6 = inf
-    # distance_ranges = [(x[0] * audio_target_rate, x[1] * audio_target_rate) for x in [
-    #     (0, 0.32537674),
-    #     (0.32537674, 0.47555801),
-    #     (0.47555801, 0.64588683),
-    #     (0.64588683, 1.16883525),
-    #     (1.16883525, 2.17128976),
-    #     (2.17128976, float("inf"))
-    # ]]
+#     # t0 = 0
+#     # t1 = MEAN(smallest element of cluster 1, largest element of cluster 0)
+#     # t2 = smallest element of cluster 2 = largest element of cluster 1
+#     # t3 = smallest element of cluster 3 = largest element of cluster 2
+#     # t4 = smallest element of cluster 4 = largest element of cluster 3
+#     # t5 = smallest element of cluster 5 = largest element of cluster 4
+#     # t6 = inf
+#     # distance_ranges = [(x[0] * audio_target_rate, x[1] * audio_target_rate) for x in [
+#     #     (0, 0.32537674),
+#     #     (0.32537674, 0.47555801),
+#     #     (0.47555801, 0.64588683),
+#     #     (0.64588683, 1.16883525),
+#     #     (1.16883525, 2.17128976),
+#     #     (2.17128976, float("inf"))
+#     # ]]
 
-    # K-max version of K-means applied to 5 clusters
-    # 2 clusters for only downbeat intervals: [3.74199546 2.62519274 2.23147392]
-    # 3 clusters for only downbeat intervals: [8.02371882 5.78800454]
-    sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
-    #                                             C3           C4           C5         C6         C7
+#     # K-max version of K-means applied to 5 clusters
+#     # 2 clusters for only downbeat intervals: [3.74199546 2.62519274 2.23147392]
+#     # 3 clusters for only downbeat intervals: [8.02371882 5.78800454]
+#     sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
+#     #                                             C3           C4           C5         C6         C7
    
-    # bbox_sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976, ]]
+#     # bbox_sizes = [x * 22050 / 256 for x in [0.32537674, 0.47555801, 0.64588683, 1.16883525, 2.17128976, ]]
 
-    # sort from shortest to longest sizes of the bbox lengths
-    #MJ: you do not need to short bboxes according to their lengths. Moreover, you might be able to take advantage of the temporal order of beats.
-    sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort() # sort in the ascending ordr
-    bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
+#     # sort from shortest to longest sizes of the bbox lengths
+#     #MJ: you do not need to short bboxes according to their lengths. Moreover, you might be able to take advantage of the temporal order of beats.
+#     sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort() # sort in the ascending ordr
+#     bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
 
-    positive_anchor_indices = torch.zeros(0).to(jth_annotations.device)
+#     positive_anchor_indices = torch.zeros(0).to(jth_annotations.device)
+#     normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations.device)
+#     l_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
+#     r_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
+#     normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
+#     normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
+#     normalized_l_r_bboxes_for_all_anchors = torch.zeros(0, 2).to(jth_annotations.device)
+
+#     # anchors_list contains the anchor points (x, y) on the base level image corresponding to the feature map
+#     for i, anchor_points_per_level in enumerate(anchors_list): #MJ i starts form 1; anchor points per level, (anchor locations {} (x, y) } on the base level image)
+#         # the shape of anchor_points_per_level is (num of anchors,)
+#         # the shape of torch.unsqueeze(anchor_points_per_level, dim=0) is (1, num of anchors)
+#         # the shape of bbox_annotations_per_class[:, 0] is (num of annotations,)
+#         # the shape of torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1) is (num of annotations, 1)
+#         # the shape of anchor_points_in_gt_bboxes is (num of annotations, num_of_anchors)
+
+#         # check whether anchor points are within gt boxes
+#         # anchor_points_in_gt_bboxes is a (N, M) boolean matric where N is the number of anchors and M is the number of annotations
+#         anchor_points_in_gt_bboxes = torch.logical_and(
+#             torch.ge(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)),
+#             torch.le(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1))
+#         )
+#         #******************************************************************************************************************************************
+#         #MJ: anchor_points_in_gt_bboxes should be changed to anchor_points_within_left_area_of_gt_boxes
+#         #                                               (with radius r, which has value 1.5 or more; the length of the left area will be 2*r))
+#         #****************************************************************************************************************************************
+
+#         # apply the distance limits criteria
+#         # lefts is l*, rights is r* which are all the anchor points on the base image
+#         # the shape of l_star_to_bboxes_for_anchors is (M,N) 
+#         # torch.unsqueeze(anchor_points_per_level, dim=0) shape is (1, N)
+#         # torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1) (M, 1)
+#         l_star_to_bboxes_for_anchors = torch.unsqueeze(anchor_points_per_level, dim=0) - torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)
+#         r_star_to_bboxes_for_anchors = torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1) - torch.unsqueeze(anchor_points_per_level, dim=0)
+#         # (floor(s/2) + xs, floor(s/2) + ys)
+#         # strides = [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
+#         # s = 2**i
+
+#         # xs = anchor_points_per_level
+#         # xs_in_input_image = xs // 2 + s*xs
+#         # center_xs =
+
+#         # when i is 0,
+#         lower_size = sizes[i - 1] if i > 0 else 0
+       
+#         upper_size = sizes[i]
+#         # points_within_range_per_level shape is (M, N_{i}
+#         points_within_range_per_level = ~torch.logical_or(
+#             torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) < lower_size, # lower_size could be 0
+#             torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) >= upper_size
+#         )
+
+#         # positive_argmax_per_level are the first indices to the positive anchors which are both in gt boxes and satisfy the bbox size limits
+#         # If there are multiple maximal values in a reduced row then the indices of the first maximal value are returned.
+#         positive_anchor_indices_per_level, positive_argmax_per_level = torch.logical_and(
+#             anchor_points_in_gt_bboxes,  # shape = (M,N_{i})
+#             points_within_range_per_level  # shape = (M,N_{i})
+#         ).max(dim=0)
+
+#         #positive_anchor_indices_per_level: a boolean index tensor with  shape (N_{i},) which tells whether the bbox at it is positively related to the anchor.
+#         #  positive_argmax_per_level: a index  tensor of shape (N_{i},) whose value refers to the bbox to which the anchor is related positively
+#         # torch.set_printoptions(edgeit
+#         # ems=10000000)
+#         # print(f"positive_argmax_per_level for level {i}: {positive_argmax_per_level.shape}\n{positive_argmax_per_level}")
+#         # print(f"positive_anchor_indices_per_level for level {i}: {positive_anchor_indices_per_level.shape}\n{positive_anchor_indices_per_level}")
+#         # torch.set_printoptions(edgeitems=3)
+
+#         normalized_annotations_for_anchors_per_level = bbox_annotations_per_class[positive_argmax_per_level, :] / 2**i
+
+#         positive_l_star_per_level = torch.diagonal(l_star_to_bboxes_for_anchors[positive_argmax_per_level], 0) #MJ: get the main diagonal of the matrix ??
+#         positive_r_star_per_level = torch.diagonal(r_star_to_bboxes_for_anchors[positive_argmax_per_level], 0)
+
+#         # MJ: 
+#         #positive_l_star_per_level = l_star_to_bboxes_for_anchors[positive_argmax_per_level] # get the l_star values of the positive anchors
+#         #positive_r_star_per_level = r_star_to_bboxes_for_anchors[positive_argmax_per_level] # get the r_star values of the positive anchors
+
+
+#         normalized_positive_l_star_per_level = positive_l_star_per_level / 2**i
+#         normalized_positive_r_star_per_level = positive_r_star_per_level / 2**i
+
+#         #MJ: concatenate 5 times:
+#         positive_anchor_indices = torch.cat((positive_anchor_indices, positive_anchor_indices_per_level), dim=0) 
+
+#         normalized_l_r_bboxes_per_level = torch.stack((
+#             #(anchor_points_per_level / 2**i) - normalized_positive_l_star_per_level,  # all_anchors =  torch.cat(anchors_list, dim=0) = the center of the box
+#             #(anchor_points_per_level / 2**i) + normalized_positive_r_star_per_level
+#             -normalized_positive_l_star_per_level,
+#             normalized_positive_r_star_per_level
+#         ), dim=1)
+
+#         #MJ:   normalized_annotations_for_anchors_per_level : shape = (N_{i},3); normalized_annotations_for_anchors: shape = (sum(N_{i}),3)
+#         normalized_annotations_for_anchors = torch.cat((normalized_annotations_for_anchors, normalized_annotations_for_anchors_per_level), dim=0)
+
+#         l_star_for_all_anchors = torch.cat((l_star_for_all_anchors, positive_l_star_per_level))
+#         r_star_for_all_anchors = torch.cat((r_star_for_all_anchors, positive_r_star_per_level))
+
+#         normalized_l_star_for_all_anchors = torch.cat((normalized_l_star_for_all_anchors, normalized_positive_l_star_per_level))  #MJ: dim=0
+#         normalized_r_star_for_all_anchors = torch.cat((normalized_r_star_for_all_anchors, normalized_positive_r_star_per_level))
+
+#         normalized_l_r_bboxes_for_all_anchors = torch.cat((normalized_l_r_bboxes_for_all_anchors, normalized_l_r_bboxes_per_level), dim=0)
+
+#     positive_anchor_indices = positive_anchor_indices.bool()  #The shape of positive_anchor_indices = ( N_{1} + N_{2} +...+ N_{5}, )
+
+#     return positive_anchor_indices, normalized_annotations_for_anchors,\
+#         l_star_for_all_anchors, r_star_for_all_anchors,\
+#         normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors,\
+#         normalized_l_r_bboxes_for_all_anchors
+
+radius = 3
+def get_fcos_positives(jth_annotations, anchors_list, class_id):
+
+    #ipdb.set_trace(context=30)
+    #print(f"jth_annotations ({jth_annotations.shape}):\n{jth_annotations}")
+    #print(f"anchors_list ({len(anchors_list)}):\n{anchors_list}")
+    annotations_per_class = jth_annotations[jth_annotations[:, 2] == class_id]
+
+    # for debugging:
+    #audio_target_rate = 22050 / 256: bboxes in jth_annotations range from 2 to 5
+    audio_target_rate=1
+    sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
+
+    # sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
+    # print(f"sorted_bbox_indices ({sorted_bbox_indices.shape}):\n{sorted_bbox_indices}")
+    # bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
+    # print(f"bbox_annotations_per_class ({bbox_annotations_per_class.shape}):\n{bbox_annotations_per_class}")
+
+    #positive_anchor_indices = torch.zeros(0).to(jth_annotations.device)
+
+    indices_to_bboxes_for_positive_anchors = torch.zeros(0).to(jth_annotations.device)
     normalized_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations.device)
-    l_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
-    r_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
-    normalized_l_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
-    normalized_r_star_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
-    normalized_l_r_bboxes_for_all_anchors = torch.zeros(0, 2).to(jth_annotations.device)
+    l_star_for_anchors = torch.zeros(0).to(jth_annotations.device)
+    r_star_for_anchors = torch.zeros(0).to(jth_annotations.device)
+    normalized_l_star_for_anchors = torch.zeros(0).to(jth_annotations.device)
+    normalized_r_star_for_anchors = torch.zeros(0).to(jth_annotations.device)
 
     # anchors_list contains the anchor points (x, y) on the base level image corresponding to the feature map
-    for i, anchor_points_per_level in enumerate(anchors_list): #MJ i starts form 1; anchor points per level, (anchor locations {} (x, y) } on the base level image)
-        # the shape of anchor_points_per_level is (num of anchors,)
-        # the shape of torch.unsqueeze(anchor_points_per_level, dim=0) is (1, num of anchors)
-        # the shape of bbox_annotations_per_class[:, 0] is (num of annotations,)
-        # the shape of torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1) is (num of annotations, 1)
-        # the shape of anchor_points_in_gt_bboxes is (num of annotations, num_of_anchors)
+    for i, anchor_points_per_level in enumerate(anchors_list):
 
-        # check whether anchor points are within gt boxes
-        # anchor_points_in_gt_bboxes is a (N, M) boolean matric where N is the number of anchors and M is the number of annotations
-        anchor_points_in_gt_bboxes = torch.logical_and(
-            torch.ge(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)),
-            torch.le(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1))
+      # for debugging: 
+        # The original version: anchor_points_in_gt_bboxes = torch.logical_and(
+        #     torch.ge(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)),
+        #     torch.le(torch.unsqueeze(anchor_points_per_level, dim=0), torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1))
+        # )
+
+        # l_star_to_bboxes_for_anchors = torch.unsqueeze(anchor_points_per_level, dim=0) - torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)
+        # r_star_to_bboxes_for_anchors = torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1) - torch.unsqueeze(anchor_points_per_level, dim=0)
+        #print(f"torch.unsqueeze(anchor_points_per_level, dim=0):\n{torch.unsqueeze(anchor_points_per_level, dim=0)}")
+        #print(f"torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1):\n{torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)}")
+        #print(f"l_star_to_bboxes_for_anchors ({l_star_to_bboxes_for_anchors.shape}):\n{l_star_to_bboxes_for_anchors}")
+
+        #The new verrsion by MJ: 
+        
+        anchor_points_per_level_nx1 = torch.unsqueeze(anchor_points_per_level, dim=1)  # shape = (N,1)
+        l_annotations_per_class_1xm = torch.unsqueeze(annotations_per_class[:, 0], dim=0)  # shape = (1,M)
+        r_annotations_per_class_1xm = torch.unsqueeze(annotations_per_class[:, 1], dim=0)   # shape = (1,M)
+
+        # is_anchor_points_in_gt_bboxes_per_level = torch.logical_and(
+        #     torch.ge( anchor_points_per_level_nx1,  l_annotations_per_class_1xm),
+        #     torch.le( anchor_points_per_level_nx1,  r_annotations_per_class_1xm)
+        # )
+
+        # JA: New radius implementation
+        radius_limits_from_l_annotations = l_annotations_per_class_1xm + (radius * 2**i)
+        is_anchor_points_in_radii_per_level = torch.logical_and(
+            torch.ge( anchor_points_per_level_nx1, l_annotations_per_class_1xm),
+            torch.le( anchor_points_per_level_nx1, torch.minimum(r_annotations_per_class_1xm, radius_limits_from_l_annotations))
         )
-        #******************************************************************************************************************************************
-        #MJ: anchor_points_in_gt_bboxes should be changed to anchor_points_within_left_area_of_gt_boxes
-        #                                               (with radius r, which has value 1.5 or more; the length of the left area will be 2*r))
-        #****************************************************************************************************************************************
+        #is_anchor_points_in_gt_bboxes : shape =(N,M)
+        l_stars_to_bboxes_for_anchors_per_level =  anchor_points_per_level_nx1 - l_annotations_per_class_1xm
+        r_stars_to_bboxes_for_anchors_per_level =  r_annotations_per_class_1xm -  anchor_points_per_level_nx1
 
-        # apply the distance limits criteria
-        # lefts is l*, rights is r* which are all the anchor points on the base image
-        # the shape of l_star_to_bboxes_for_anchors is (M,N) 
-        # torch.unsqueeze(anchor_points_per_level, dim=0) shape is (1, N)
-        # torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1) (M, 1)
-        l_star_to_bboxes_for_anchors = torch.unsqueeze(anchor_points_per_level, dim=0) - torch.unsqueeze(bbox_annotations_per_class[:, 0], dim=1)
-        r_star_to_bboxes_for_anchors = torch.unsqueeze(bbox_annotations_per_class[:, 1], dim=1) - torch.unsqueeze(anchor_points_per_level, dim=0)
-        # (floor(s/2) + xs, floor(s/2) + ys)
-        # strides = [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
-        # s = 2**i
-
-        # xs = anchor_points_per_level
-        # xs_in_input_image = xs // 2 + s*xs
-        # center_xs =
-
-        # when i is 0,
-        lower_size = sizes[i - 1] if i > 0 else 0
+        
        
-        upper_size = sizes[i]
-        # points_within_range_per_level shape is (M, N_{i}
-        points_within_range_per_level = ~torch.logical_or(
-            torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) < lower_size, # lower_size could be 0
-            torch.max(l_star_to_bboxes_for_anchors, r_star_to_bboxes_for_anchors) >= upper_size
-        )
+        # Use dict to display the results for anchors:
+        # https://hckcksrl.medium.com/python-zip-%EB%82%B4%EC%9E%A5%ED%95%A8%EC%88%98-95ad2997990
+        # https://stackoverflow.com/questions/55486631/iterate-over-two-pytorch-tensors-at-once
+        # https://jungnamgyu.tistory.com/53 np., torch.set_printoptions( precision =2) 
+        # dic ={}
+        # for anchor, anchor_data  in zip(anchor_points_per_level_nx1, l_stars_to_bboxes_for_anchors_per_level ):
+        #   dic[anchor] = anchor_data
 
+        # #print(f"l_stars_to_bboxes_for_anchors_per_level:\n")
+        # #for key, value in dic.items():
+        # #  print(key, ':', value)
+        # #print(f"r_star_to_bboxes_for_anchors_per_level :\n {  r_star_to_bboxes_for_anchors_per_level}")
+
+        # dic ={}
+        # for anchor, anchor_data  in zip(anchor_points_per_level_nx1, r_stars_to_bboxes_for_anchors_per_level ):
+        #   dic[anchor] = anchor_data
+
+        #print(f"r_stars_to_bboxes_for_anchors_per_level:\n")
+        #for key, value in dic.items():
+        #  print(key, ':', value)
+      
+        lower_size = sizes[i - 1] if i > 0 else 0
+        upper_size = sizes[i]
+
+        max_offsets_to_regress_for_anchor_points = torch.max(l_stars_to_bboxes_for_anchors_per_level, r_stars_to_bboxes_for_anchors_per_level)
+        # is_anchor_points_within_bbox_range_per_level shape is (N, M)
+        is_anchor_points_within_bbox_range_per_level = ~torch.logical_or(
+            max_offsets_to_regress_for_anchor_points < lower_size,
+            max_offsets_to_regress_for_anchor_points >= upper_size
+        )
+        #print(f" max_offsets_to_regress_for_anchor_points (with level i=0 only):\n { max_offsets_to_regress_for_anchor_points}")
+        #print(f" is_anchor_points_within_bbox_range_per_level (with level i=0 only):\n { is_anchor_points_within_bbox_range_per_level}")
         # positive_argmax_per_level are the first indices to the positive anchors which are both in gt boxes and satisfy the bbox size limits
         # If there are multiple maximal values in a reduced row then the indices of the first maximal value are returned.
-        positive_anchor_indices_per_level, positive_argmax_per_level = torch.logical_and(
-            anchor_points_in_gt_bboxes,  # shape = (M,N_{i})
-            points_within_range_per_level  # shape = (M,N_{i})
-        ).max(dim=0)
+        # positive_anchor_indices_per_level, positive_argmax_per_level = torch.logical_and(
+        #     is_anchor_points_in_gt_bboxes,
+        #     is_anchor_points_within_bbox_range_per_level
+        # ).max(dim=0)
 
-        #positive_anchor_indices_per_level: a boolean index tensor with  shape (N_{i},) which tells whether the bbox at it is positively related to the anchor.
-        #  positive_argmax_per_level: a index  tensor of shape (N_{i},) whose value refers to the bbox to which the anchor is related positively
-        # torch.set_printoptions(edgeit
-        # ems=10000000)
-        # print(f"positive_argmax_per_level for level {i}: {positive_argmax_per_level.shape}\n{positive_argmax_per_level}")
-        # print(f"positive_anchor_indices_per_level for level {i}: {positive_anchor_indices_per_level.shape}\n{positive_anchor_indices_per_level}")
-        # torch.set_printoptions(edgeitems=3)
+        #A new version by MJ: 
+        boolean_indices_to_bboxes_for_anchors_per_level = torch.logical_and(
+             #is_anchor_points_in_gt_bboxes_per_level,
+             is_anchor_points_in_radii_per_level,
+             is_anchor_points_within_bbox_range_per_level
+        )
+        #boolean_indices_to_bboxes_for_anchors_per_level: shape = (N,M)
+       
+        #print(f"is_anchor_points_in_gt_bboxes_per_level:\n {is_anchor_points_in_gt_bboxes_per_level}")
+        #print(f" is_anchor_points_within_bbox_range_per_level:\n { is_anchor_points_within_bbox_range_per_level}")
+        #print(f"boolean_indices_to_bboxes_for_anchors_per_level:\n {boolean_indices_to_bboxes_for_anchors_per_level}")
 
-        normalized_annotations_for_anchors_per_level = bbox_annotations_per_class[positive_argmax_per_level, :] / 2**i
+        
+        #The new version:
 
-        positive_l_star_per_level = torch.diagonal(l_star_to_bboxes_for_anchors[positive_argmax_per_level], 0) #MJ: get the main diagonal of the matrix ??
-        positive_r_star_per_level = torch.diagonal(r_star_to_bboxes_for_anchors[positive_argmax_per_level], 0)
+        max_boolean_indices_to_bboxes_for_anchors, argmax_boolean_indices_to_bboxes_for_anchors = \
+            torch.max(boolean_indices_to_bboxes_for_anchors_per_level, dim=1)
+        
+        #print(f"positivity_indicators_of_bboxes_for_anchors: \n{positivity_indicators_of_bboxes_for_anchors}")
+        #print(f"argmax_positivity_indicators_of_bboxes_for_anchors: \n{argmax_positivity_indicators_of_bboxes_for_anchors}")
 
-        # MJ: 
-        #positive_l_star_per_level = l_star_to_bboxes_for_anchors[positive_argmax_per_level] # get the l_star values of the positive anchors
-        #positive_r_star_per_level = r_star_to_bboxes_for_anchors[positive_argmax_per_level] # get the r_star values of the positive anchors
+        assigned_annotations_for_anchors_per_level = annotations_per_class[argmax_boolean_indices_to_bboxes_for_anchors]
 
+        # torch.gt(boolean_indices_to_anchors_per_level, False, dim=1)
 
-        normalized_positive_l_star_per_level = positive_l_star_per_level / 2**i
-        normalized_positive_r_star_per_level = positive_r_star_per_level / 2**i
+        #print(f"annotations_per_class: \n{annotations_per_class}")
+        #print(f" assigned_annotations_for_anchors_per_level:\n { assigned_annotations_for_anchors_per_level}") 
 
-        #MJ: concatenate 5 times:
-        positive_anchor_indices = torch.cat((positive_anchor_indices, positive_anchor_indices_per_level), dim=0) 
+        indices_to_bboxes_for_positive_anchors_per_level =  torch.gt(max_boolean_indices_to_bboxes_for_anchors, False)
 
-        normalized_l_r_bboxes_per_level = torch.stack((
-            #(anchor_points_per_level / 2**i) - normalized_positive_l_star_per_level,  # all_anchors =  torch.cat(anchors_list, dim=0) = the center of the box
-            #(anchor_points_per_level / 2**i) + normalized_positive_r_star_per_level
-            -normalized_positive_l_star_per_level,
-            normalized_positive_r_star_per_level
-        ), dim=1)
+        #print(f"indices_to_bboxes_for_positive_anchors_per_level\n {indices_to_bboxes_for_positive_anchors_per_level}")
 
-        #MJ:   normalized_annotations_for_anchors_per_level : shape = (N_{i},3); normalized_annotations_for_anchors: shape = (sum(N_{i}),3)
+        # We don't need this step because we already get the annotations for the positive anchors in the main routine
+        #annotations_for_positive_anchors_per_level =  assigned_annotations_for_anchors_per_level[ indices_to_bboxes_for_positive_anchors_per_level]
+
+        #print(f"annotations_for_positive_anchors_per_level:\n {annotations_for_positive_anchors_per_level}")
+
+        #normalized_annotations_for_positive_anchors_per_level =  annotations_for_positive_anchors_per_level[:, 0:2] / 2**i
+
+        #normalized_annotations_for_positive_anchors_per_level =  annotations_for_positive_anchors_per_level
+        normalized_annotations_for_anchors_per_level = assigned_annotations_for_anchors_per_level
+        normalized_annotations_for_anchors_per_level[:,0] /= 2**i
+        normalized_annotations_for_anchors_per_level[:,1] /= 2**i
+      #  annotations_for_positive_anchors_per_level: shape = (N, 3), where bbox_annotations_per_class[i,0]= x1,  bbox_annotations_per_class[i,1] = x2,  bbox_annotations_per_class[i,2]= class label
+
+        #print(f"normalized_annotations_for_positive_anchors_per_level: \n{normalized_annotations_for_positive_anchors_per_level}")
+
+      
+        # MJ:  # get the l_star values of the bboxes for the positive anchors
+
+        l_stars_for_anchors_per_level = l_stars_to_bboxes_for_anchors_per_level[
+            torch.arange(0, anchor_points_per_level.size(dim=0)),
+            argmax_boolean_indices_to_bboxes_for_anchors
+        ]
+
+        r_stars_for_anchors_per_level = r_stars_to_bboxes_for_anchors_per_level[
+            torch.arange(0, anchor_points_per_level.size(dim=0)),
+            argmax_boolean_indices_to_bboxes_for_anchors
+        ]
+        #print(f'  l_stars_for_positive_anchors_per_level = \n { l_stars_for_positive_anchors_per_level}')
+        #print(f' r_stars_for_positive_anchors_per_level  = \n { r_stars_for_positive_anchors_per_level }' )
+
+        normalized_l_star_for_anchors_per_level = l_stars_for_anchors_per_level / 2**i
+        normalized_r_star_for_anchors_per_level = r_stars_for_anchors_per_level / 2**i
+
+        indices_to_bboxes_for_positive_anchors = torch.cat(( indices_to_bboxes_for_positive_anchors, indices_to_bboxes_for_positive_anchors_per_level), dim=0)
         normalized_annotations_for_anchors = torch.cat((normalized_annotations_for_anchors, normalized_annotations_for_anchors_per_level), dim=0)
+        l_star_for_anchors = torch.cat((l_star_for_anchors, l_stars_for_anchors_per_level))
+        r_star_for_anchors = torch.cat((r_star_for_anchors, r_stars_for_anchors_per_level ))
+        normalized_l_star_for_anchors = torch.cat((normalized_l_star_for_anchors, normalized_l_star_for_anchors_per_level))
+        normalized_r_star_for_anchors = torch.cat((normalized_r_star_for_anchors, normalized_r_star_for_anchors_per_level))
 
-        l_star_for_all_anchors = torch.cat((l_star_for_all_anchors, positive_l_star_per_level))
-        r_star_for_all_anchors = torch.cat((r_star_for_all_anchors, positive_r_star_per_level))
+    indices_to_bboxes_for_positive_anchors = indices_to_bboxes_for_positive_anchors.bool()
 
-        normalized_l_star_for_all_anchors = torch.cat((normalized_l_star_for_all_anchors, normalized_positive_l_star_per_level))  #MJ: dim=0
-        normalized_r_star_for_all_anchors = torch.cat((normalized_r_star_for_all_anchors, normalized_positive_r_star_per_level))
-
-        normalized_l_r_bboxes_for_all_anchors = torch.cat((normalized_l_r_bboxes_for_all_anchors, normalized_l_r_bboxes_per_level), dim=0)
-
-    positive_anchor_indices = positive_anchor_indices.bool()  #The shape of positive_anchor_indices = ( N_{1} + N_{2} +...+ N_{5}, )
-
-    return positive_anchor_indices, normalized_annotations_for_anchors,\
-        l_star_for_all_anchors, r_star_for_all_anchors,\
-        normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors,\
-        normalized_l_r_bboxes_for_all_anchors
+    return indices_to_bboxes_for_positive_anchors, normalized_annotations_for_anchors,\
+        l_star_for_anchors, r_star_for_anchors,\
+        normalized_l_star_for_anchors, normalized_r_star_for_anchors
 
 def get_atss_positives(jth_annotations, anchors_list, class_id):
     class_bbox_annotation = jth_annotations[jth_annotations[:, 2] == class_id]
@@ -297,7 +479,7 @@ class FocalLoss(nn.Module):
             if self.fcos:
                 class_targets = torch.zeros(jth_classification.shape)
 
-                positive_anchor_indices_per_class, assigned_annotations, _, _, _, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+                positive_anchor_indices_per_class, assigned_annotations, _, _, _, _ = get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
             else:
                 # initialize the beat/downbeat classifiers of all anchors (positive and negative) to background
                 class_targets = torch.zeros(jth_classification.shape)
@@ -391,10 +573,14 @@ class RegressionLoss(nn.Module):
                 continue
 
             if self.fcos:
-                positive_anchor_indices_per_class,\
-                normalized_annotations_for_anchors, _, _, _, _,\
-                normalized_l_r_bboxes_for_all_anchors =\
+                positive_anchor_indices_per_class,normalized_annotations_for_anchors, _, _,\
+                normalized_positive_l_star_per_level, normalized_positive_r_star_per_level = \
                     get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
+
+                normalized_l_r_bboxes_for_all_anchors = torch.stack((
+                    -normalized_positive_l_star_per_level,
+                    normalized_positive_r_star_per_level
+                ), dim=1)
 
                 # MJ: normalized_annotations_for_anchors: shape = (sum(N_{i}),3)    
                 #torch.set_printoptions(edgeitems=10000000)
@@ -611,8 +797,9 @@ class LeftnessLoss(nn.Module):
             jth_leftness = torch.sigmoid(jth_leftness) #MJ: jth_leftness will range from 0 to 1 as a probability
             #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
 
-            positive_anchor_indices_per_class, normalized_annotations_for_anchors, l_star_for_all_anchors, r_star_for_all_anchors, \
-            normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors, _ = \
+            positive_anchor_indices_per_class, normalized_annotations_for_anchors, \
+            l_star_for_all_anchors, r_star_for_all_anchors, \
+            normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors = \
                             get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
 
         # MJ:   get_fcos_positives(jth_annotations, anchors_list, class_id=class_id) returns:
