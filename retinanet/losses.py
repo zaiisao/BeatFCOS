@@ -615,7 +615,7 @@ class RegressionLoss(nn.Module):
                 #print(f"regression_losses_for_positive_anchors ({regression_losses_for_positive_anchors.shape}):\n{regression_losses_for_positive_anchors}")
 
                 #regression_losses.append(regression_losses_for_positive_anchors.sum() * self.weight)
-                regression_losses_batch.append(regression_losses_for_positive_anchors.mean() * self.weight)
+                regression_losses_batch.append(torch.nan_to_num(regression_losses_for_positive_anchors.mean(), nan=0.0) * self.weight)
                 #print(f"regression_losses_for_positive_anchors.mean() * self.weight: {regression_losses_for_positive_anchors.mean() * self.weight}")
                 #torch.set_printoptions(edgeitems=3)
             else: #NOT fcos
@@ -845,7 +845,7 @@ class LeftnessLoss(nn.Module):
             #print(left_loss.min(), left_loss.max())
 
             #leftness_losses.append(left_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
-            leftness_losses_batch.append(leftness_loss.mean())
+            leftness_losses_batch.append(torch.nan_to_num(leftness_loss.mean(), nan=0.0))
 
         # if self.fcos:
         #     return torch.stack(leftness_losses).sum(dim=0)
