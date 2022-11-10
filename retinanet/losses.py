@@ -152,7 +152,7 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou
 #         normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors,\
 #         normalized_l_r_bboxes_for_all_anchors
 
-radius = 3
+radius = 6
 def get_fcos_positives(jth_annotations, anchors_list, class_id):
 
     #ipdb.set_trace(context=30)
