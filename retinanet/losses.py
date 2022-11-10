@@ -162,7 +162,7 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
 
     # for debugging:
     #audio_target_rate = 22050 / 256: bboxes in jth_annotations range from 2 to 5
-    audio_target_rate=1
+    audio_target_rate = 22050 / 256
     sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
 
     # sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
@@ -574,12 +574,12 @@ class RegressionLoss(nn.Module):
 
             if self.fcos:
                 positive_anchor_indices_per_class,normalized_annotations_for_anchors, _, _,\
-                normalized_positive_l_star_per_level, normalized_positive_r_star_per_level = \
+                normalized_positive_l_star, normalized_positive_r_star = \
                     get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
 
                 normalized_l_r_bboxes_for_all_anchors = torch.stack((
-                    -normalized_positive_l_star_per_level,
-                    normalized_positive_r_star_per_level
+                    -normalized_positive_l_star,
+                    normalized_positive_r_star
                 ), dim=1)
 
                 # MJ: normalized_annotations_for_anchors: shape = (sum(N_{i}),3)    
