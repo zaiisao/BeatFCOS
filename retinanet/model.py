@@ -90,6 +90,7 @@ class RegressionModel(nn.Module):
         #self.output = nn.Conv2d(feature_size, num_anchors * 4, kernel_size=3, padding=1)
         self.regression = nn.Conv1d(feature_size, num_anchors * 2, kernel_size=3, padding=1)
         self.leftness = nn.Conv1d(feature_size, 1, kernel_size=3, padding=1)
+        self.leftness_act = nn.Sigmoid()
 
         self.fcos = fcos
 
@@ -116,6 +117,7 @@ class RegressionModel(nn.Module):
 
         if self.fcos:
             leftness = self.leftness(out)
+            leftness = self.leftness_act(leftness)
             leftness = leftness.permute(0, 2, 1)
             leftness = leftness.contiguous().view(leftness.shape[0], -1, 1)
 
@@ -463,7 +465,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                             anchors_list[i] + regression_output[0, :, 1] * 2**i
                         ), dim=1).unsqueeze(dim=0)
 
-                        scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0].sigmoid())
+                        scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0])
                         #scores = torch.squeeze(classification_output[:, :, class_id])
                     else:
                         transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), torch.cat(regression_outputs, dim=1))
