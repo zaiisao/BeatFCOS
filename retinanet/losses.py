@@ -609,7 +609,7 @@ class RegressionLoss(nn.Module):
                 #print(f"regression_losses_for_positive_anchors ({regression_losses_for_positive_anchors.shape}):\n{regression_losses_for_positive_anchors}")
 
                 #regression_losses.append(regression_losses_for_positive_anchors.sum() * self.weight)
-                regression_losses_batch.append(torch.nan_to_num(regression_losses_for_positive_anchors.mean(), nan=0.0) * self.weight)
+                regression_losses_batch.append(regression_losses_for_positive_anchors.mean() * self.weight)
                 #print(f"regression_losses_for_positive_anchors.mean() * self.weight: {regression_losses_for_positive_anchors.mean() * self.weight}")
                 #torch.set_printoptions(edgeitems=3)
             else: #NOT fcos
@@ -783,12 +783,13 @@ class LeftnessLoss(nn.Module):
 
         for j in range(batch_size):
             jth_leftness = leftnesses[j, :, :]  # MJ: The shape of jth_leftness = (num_of_anchors, 1)
+            jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
 
             jth_annotations = annotations[j, :, :]
             jth_annotations = jth_annotations[jth_annotations[:, 2] != -1]
 
             #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
-            jth_leftness = torch.sigmoid(jth_leftness) #MJ: jth_leftness will range from 0 to 1 as a probability
+            #jth_leftness = torch.sigmoid(jth_leftness) #MJ: jth_leftness will range from 0 to 1 as a probability
             #jth_leftness = torch.clamp(jth_leftness, 1e-4, 1.0 - 1e-4)
 
             positive_anchor_indices_per_class, normalized_annotations_for_anchors, \
