@@ -152,16 +152,12 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou
 #         normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors,\
 #         normalized_l_r_bboxes_for_all_anchors
 
-radius = 6
+radius = 1.5
 def get_fcos_positives(jth_annotations, anchors_list, class_id):
-
-    #ipdb.set_trace(context=30)
     #print(f"jth_annotations ({jth_annotations.shape}):\n{jth_annotations}")
     #print(f"anchors_list ({len(anchors_list)}):\n{anchors_list}")
     annotations_per_class = jth_annotations[jth_annotations[:, 2] == class_id]
 
-    # for debugging:
-    #audio_target_rate = 22050 / 256: bboxes in jth_annotations range from 2 to 5
     audio_target_rate = 22050 / 256
     sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
 
@@ -213,7 +209,7 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         )
         #is_anchor_points_in_gt_bboxes : shape =(N,M)
         l_stars_to_bboxes_for_anchors_per_level =  anchor_points_per_level_nx1 - l_annotations_per_class_1xm
-        r_stars_to_bboxes_for_anchors_per_level =  r_annotations_per_class_1xm -  anchor_points_per_level_nx1
+        r_stars_to_bboxes_for_anchors_per_level =  r_annotations_per_class_1xm - anchor_points_per_level_nx1
 
         
        
@@ -578,7 +574,7 @@ class RegressionLoss(nn.Module):
                     get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
 
                 normalized_l_r_bboxes_for_all_anchors = torch.stack((
-                    -normalized_positive_l_star,
+                    normalized_positive_l_star,
                     normalized_positive_r_star
                 ), dim=1)
 

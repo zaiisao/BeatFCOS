@@ -463,18 +463,6 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                             anchors_list[i] + regression_output[0, :, 1] * 2**i
                         ), dim=1).unsqueeze(dim=0)
 
-                        # torch.set_printoptions(edgeitems=100000000)
-                        # #print(f"transformed_anchors for {class_id} on level {i} ({transformed_anchors.shape}: {transformed_anchors}")
-                        # print(f"level {i} for class {class_id}: {regression_output[0, :, :] * 2**i}")
-                        # torch.set_printoptions(edgeitems=3)
-                        # print(f"classification_output[:, :, class_id] ({classification_output[:, :, class_id].shape}): {classification_output[:, :, class_id]}")
-                        # print(f"leftness_output[:, :, 0] ({leftness_output[:, :, 0].shape}): {leftness_output[:, :, 0]}")
-                        # print("transformed_anchors", transformed_anchors.shape)
-                        # print("classification_output", classification_output.shape)
-                        # print("classification_output", leftness_output.shape)
-                        # print(f"classification_output[:, :, class_id]: {classification_output[:, :, class_id]}")
-                        # print(f"leftness_output[:, :, 0].sigmoid(): {leftness_output[:, :, 0].sigmoid()}")
-
                         scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0].sigmoid())
                         #scores = torch.squeeze(classification_output[:, :, class_id])
                     else:
