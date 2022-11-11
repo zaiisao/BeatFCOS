@@ -152,7 +152,7 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou
 #         normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors,\
 #         normalized_l_r_bboxes_for_all_anchors
 
-radius = 1.5
+radius = 2.5
 def get_fcos_positives(jth_annotations, anchors_list, class_id):
     #print(f"jth_annotations ({jth_annotations.shape}):\n{jth_annotations}")
     #print(f"anchors_list ({len(anchors_list)}):\n{anchors_list}")
@@ -211,8 +211,6 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         l_stars_to_bboxes_for_anchors_per_level =  anchor_points_per_level_nx1 - l_annotations_per_class_1xm
         r_stars_to_bboxes_for_anchors_per_level =  r_annotations_per_class_1xm - anchor_points_per_level_nx1
 
-        
-       
         # Use dict to display the results for anchors:
         # https://hckcksrl.medium.com/python-zip-%EB%82%B4%EC%9E%A5%ED%95%A8%EC%88%98-95ad2997990
         # https://stackoverflow.com/questions/55486631/iterate-over-two-pytorch-tensors-at-once
