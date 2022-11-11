@@ -152,7 +152,7 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou
 #         normalized_l_star_for_all_anchors, normalized_r_star_for_all_anchors,\
 #         normalized_l_r_bboxes_for_all_anchors
 
-radius = 2.5
+radius = 1.5#2.5
 def get_fcos_positives(jth_annotations, anchors_list, class_id):
     #print(f"jth_annotations ({jth_annotations.shape}):\n{jth_annotations}")
     #print(f"anchors_list ({len(anchors_list)}):\n{anchors_list}")
@@ -571,8 +571,8 @@ class RegressionLoss(nn.Module):
                 normalized_positive_l_star, normalized_positive_r_star = \
                     get_fcos_positives(jth_annotations, anchors_list, class_id=class_id)
 
-                normalized_l_r_bboxes_for_all_anchors = torch.stack((
-                    normalized_positive_l_star,
+                normalized_l_r_for_all_anchors = torch.stack((
+                    -normalized_positive_l_star,
                     normalized_positive_r_star
                 ), dim=1)
 
@@ -596,11 +596,11 @@ class RegressionLoss(nn.Module):
                 #   normalized_bboxes_for_all_anchors: shape = (N,2)
                 # print(f"normalized_l_r_bboxes_for_all_anchors ({normalized_l_r_bboxes_for_all_anchors[positive_anchor_indices_per_class].shape}):\n{normalized_l_r_bboxes_for_all_anchors[positive_anchor_indices_per_class]}")
 
-                positive_anchor_regression_giou = torch.clamp(calc_giou(
-                    normalized_l_r_bboxes_for_all_anchors[positive_anchor_indices_per_class], #MJ: normalized_bboxes_for_all_anchors is the bbxes for the positive anchors already!
+                positive_anchor_regression_giou = calc_giou(
+                    normalized_l_r_for_all_anchors[positive_anchor_indices_per_class], #MJ: normalized_bboxes_for_all_anchors is the bbxes for the positive anchors already!
                     #normalized_bboxes_for_all_anchors,
                     jth_regression[positive_anchor_indices_per_class, :2] #MJ:  jth_regression[positive_anchor_indices_per_class, :2] =  t_(x, y) in the FCOS paper formula 2
-                ), min=-1, max=1)
+                )
                 #print(f"positive_anchor_regression_giou ({positive_anchor_regression_giou.shape}):\n{positive_anchor_regression_giou}")
 
                 regression_losses_for_positive_anchors = \
@@ -839,7 +839,7 @@ class LeftnessLoss(nn.Module):
             #print(left_loss.min(), left_loss.max())
 
             #leftness_losses.append(left_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
-            leftness_losses_batch.append(torch.nan_to_num(leftness_loss.mean(), nan=0.0))
+            leftness_losses_batch.append(leftness_loss.mean())
 
         # if self.fcos:
         #     return torch.stack(leftness_losses).sum(dim=0)
