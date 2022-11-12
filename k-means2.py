@@ -124,8 +124,8 @@ def kmeans(boxes, k):
         if(last_cluster == current_nearest).all():
             break # The model is converged
         for cluster in range(k):
-            #clusters[cluster] = np.mean(boxes[current_nearest == cluster], axis=0)
-            clusters[cluster] = np.max(boxes[current_nearest == cluster], axis=0)
+            clusters[cluster] = np.mean(boxes[current_nearest == cluster], axis=0)
+            #clusters[cluster] = np.max(boxes[current_nearest == cluster], axis=0)
 
         last_cluster = current_nearest
 

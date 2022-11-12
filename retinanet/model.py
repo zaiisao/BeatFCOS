@@ -148,42 +148,29 @@ class ClassificationModel(nn.Module):
         self.output_act = nn.Sigmoid()
 
     def forward(self, x):
-        print(f"x: {x.shape}")
         out = self.conv1(x)
-        print(f"out: {out.shape}")
         out = self.act1(out)
-        print(f"out: {out.shape}")
 
         out = self.conv2(out)
-        print(f"out: {out.shape}")
         out = self.act2(out)
-        print(f"out: {out.shape}")
 
         out = self.conv3(out)
-        print(f"out: {out.shape}")
         out = self.act3(out)
-        print(f"out: {out.shape}")
 
         out = self.conv4(out)
-        print(f"out: {out.shape}")
         out = self.act4(out)
-        print(f"out: {out.shape}")
 
         out = self.output(out)
-        print(f"out: {out.shape}")
         out = self.output_act(out)
-        print(f"out: {out.shape}")
 
         # out is B x C x L, with C = n_classes + n_anchors
         out1 = out.permute(0, 2, 1)
-        print(f"out1: {out1.shape}")
 
         #batch_size, width, height, channels = out1.shape
         batch_size, length, channels = out1.shape
 
         #out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
         out2 = out1.view(batch_size, length, self.num_anchors, self.num_classes)
-        print(f"out2.contiguous().view(x.shape[0], -1, self.num_classes).shape: {out2.contiguous().view(x.shape[0], -1, self.num_classes).shape}")
 
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
@@ -448,17 +435,17 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     class_two_positive_indicators = positive_indicators
                     either_is_positive_indicators = torch.logical_or(class_one_positive_indicators, class_two_positive_indicators)
 
-                    torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
-                    for feature_map_index, _ in enumerate(feature_maps):
-                        concatenated_output = torch.cat((
-                            class_one_cls_targets[either_is_positive_indicators, 0].unsqueeze(dim=1),
-                            cls_targets[either_is_positive_indicators, 1].unsqueeze(dim=1),
-                            class_one_reg_targets[either_is_positive_indicators],
-                            reg_targets[either_is_positive_indicators],
-                            levels_for_all_anchors[either_is_positive_indicators].unsqueeze(dim=1)
-                        ), dim=1)
-                        print(f"concatenated_output {feature_map_index} {concatenated_output.shape}:\n{concatenated_output}")
-                    torch.set_printoptions(sci_mode=True, edgeitems=3)
+                    # torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
+                    # for feature_map_index, _ in enumerate(feature_maps):
+                    #     concatenated_output = torch.cat((
+                    #         class_one_cls_targets[either_is_positive_indicators, 0].unsqueeze(dim=1),
+                    #         cls_targets[either_is_positive_indicators, 1].unsqueeze(dim=1),
+                    #         class_one_reg_targets[either_is_positive_indicators],
+                    #         reg_targets[either_is_positive_indicators],
+                    #         levels_for_all_anchors[either_is_positive_indicators].unsqueeze(dim=1)
+                    #     ), dim=1)
+                    #     print(f"concatenated_output {feature_map_index} {concatenated_output.shape}:\n{concatenated_output}")
+                    # torch.set_printoptions(sci_mode=True, edgeitems=3)
 
             #downbeat_weight = 0.6
 

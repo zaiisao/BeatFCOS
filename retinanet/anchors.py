@@ -19,7 +19,7 @@ class Anchors(nn.Module):
 
         #audio_downsampling_factor = 256
         audio_downsampling_factor = 128
-        self.sizes = [x * 22050 / audio_downsampling_factor for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882]]
+        self.sizes = [x * 22050 / audio_downsampling_factor for x in [0.33906588, 0.5731122, 1.18389907, 1.93154902, 2.59802203]]
 
         if self.fcos:            
             #self.sizes = [0 for x in self.pyramid_levels]
@@ -31,11 +31,11 @@ class Anchors(nn.Module):
     def forward(self, base_image_shape):
         # We need the shape of the base level image to compute the anchor points on each feature map
         #base_image_shape = base_image.shape[2:] # The base image is at the level of 2**7 stride, that is, the number of data samples is 2**14
-        print(f"base_image_shape: {base_image_shape}")
+        #print(f"base_image_shape: {base_image_shape}")
         base_image_spacial_shape = base_image_shape[2:] # The base level image shape (B, C, W) = (B, C, 2**12) during training
-        print(f"base_image_spacial_shape: {base_image_spacial_shape}")
+        #print(f"base_image_spacial_shape: {base_image_spacial_shape}")
         base_image_shape_array = np.array(base_image_spacial_shape)
-        print(f"base_image_shape_array: {base_image_shape_array}")
+        #print(f"base_image_shape_array: {base_image_shape_array}")
 
         # feature_map_shapes = [
         #     (base_image_shape + 2 ** (x - self.base_level) - 1) // (2 ** (x - self.base_level))

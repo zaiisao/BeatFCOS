@@ -173,19 +173,21 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
 
     # sizes is the size of the bboxes on the base level which is the downsampled audio at level 2**7
     #sizes = [x * audio_target_rate for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882, float("inf")]]
-    sizes = [
-        [-1, 2.23147392],
-        [2.23147392, 2.62519274],
-        [2.62519274, 3.74199546],
-        [3.74199546, 5.78800454],
-        [5.78800454, 1000],
-    ]
+    # sizes = [
+    #     [-1, 2.23147392],
+    #     [2.23147392, 2.62519274],
+    #     [2.62519274, 3.74199546],
+    #     [3.74199546, 5.78800454],
+    #     [5.78800454, 1000],
+    # ]
 
-    # level 0: -172.265625, 384.4062495
-    # level 1: 384.4062495, 452.2304681015625
-    # level 2: 452.2304681015625, 644.6171866640625
-    # level 3: 644.6171866640625, 997.0742195859375
-    # level 4: 997.0742195859375, 172265.625
+    sizes = [
+        [-1, 0.45608904],
+        [0.45608904, 0.878505635],
+        [0.878505635, 1.557724045],
+        [1.557724045, 2.264785525],
+        [2.264785525, 1000],
+    ]
 
     # sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
     # print(f"sorted_bbox_indices ({sorted_bbox_indices.shape}):\n{sorted_bbox_indices}")
@@ -270,7 +272,7 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         #print(f"lower_size for level {i}: {lower_size}")
         #print(f"upper_size for level {i}: {upper_size}")
 
-        torch.set_printoptions(edgeitems=10000000, sci_mode=False)
+        # torch.set_printoptions(edgeitems=10000000, sci_mode=False)
         #print(f"l_stars_to_bboxes_for_anchors_per_level {l_stars_to_bboxes_for_anchors_per_level.shape}:\n{l_stars_to_bboxes_for_anchors_per_level}")
         #max_offsets_to_regress_for_anchor_points = torch.maximum(l_stars_to_bboxes_for_anchors_per_level, r_stars_to_bboxes_for_anchors_per_level)
         #print(f"max_offsets_to_regress_for_anchor_points {max_offsets_to_regress_for_anchor_points.shape}:\n{max_offsets_to_regress_for_anchor_points}")
@@ -324,12 +326,12 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         gt_area_for_anchors_matrix[is_anchor_points_within_bbox_range_per_level == 0] = INF
 
         min_areas_for_anchors, argmin_boolean_indices_to_bboxes_for_anchors = gt_area_for_anchors_matrix.min(1)
-        torch.set_printoptions(edgeitems=100000000, sci_mode=False)
-        print(f"areas_of_bboxes:\n{areas_of_bboxes}")
+        # torch.set_printoptions(edgeitems=100000000, sci_mode=False)
+        # print(f"areas_of_bboxes:\n{areas_of_bboxes}")
         #print(f"is_anchor_points_in_radii_per_level, level {i}, class {class_id}: {is_anchor_points_in_radii_per_level.nonzero()}")
         #print(f"is_anchor_points_within_bbox_range_per_level, level {i}, class {class_id}: {is_anchor_points_within_bbox_range_per_level.nonzero()}")
         #print(f"min_areas_for_anchors == INF, level {i}, class {class_id}: {(min_areas_for_anchors == INF)}")
-        torch.set_printoptions(edgeitems=3, sci_mode=True)
+        # torch.set_printoptions(edgeitems=3, sci_mode=True)
 
         #assigned_annotations_for_anchors_per_level = annotations_per_class[argmax_boolean_indices_to_bboxes_for_anchors]
 
