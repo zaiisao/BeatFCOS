@@ -356,8 +356,6 @@ if __name__ == '__main__':
                 traceback.print_exc()
                 continue
 
-            break # for debugging
-
         print('Evaluating dataset')
         # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
         beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat(val_dataloader, retinanet)
