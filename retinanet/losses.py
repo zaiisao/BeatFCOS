@@ -494,6 +494,10 @@ class FocalLoss(nn.Module):
             # assigned_annotations[positive_anchor_indices_per_class, 2] is the class ID of the gt bboxes assigned to positive anchors 
             class_targets[positive_anchor_indices_per_class, assigned_annotations[positive_anchor_indices_per_class, 2].long()] = 1
 
+            #torch.set_printoptions(edgeitems=10000000)
+            #print(f"class_targets nonzero for {class_id}:\n{class_targets.nonzero()[:, 0]}")
+            #torch.set_printoptions(edgeitems=3)
+
             if torch.cuda.is_available():
                 alpha_factor = torch.ones(class_targets.shape).cuda() * alpha
             else:
@@ -596,6 +600,10 @@ class RegressionLoss(nn.Module):
                 #   normalized_bboxes_for_all_anchors: shape = (N,2)
                 # print(f"normalized_l_r_bboxes_for_all_anchors ({normalized_l_r_bboxes_for_all_anchors[positive_anchor_indices_per_class].shape}):\n{normalized_l_r_bboxes_for_all_anchors[positive_anchor_indices_per_class]}")
 
+                #torch.set_printoptions(edgeitems=10000000)
+                #print(f"positive_anchor_indices_per_class.nonzero() for {class_id}:\n{positive_anchor_indices_per_class.nonzero().squeeze()}")
+                #print(f"normalized_l_r_for_all_anchors[positive_anchor_indices_per_class] for {class_id}:\n{normalized_l_r_for_all_anchors[positive_anchor_indices_per_class]}")
+                #torch.set_printoptions(edgeitems=3)
                 positive_anchor_regression_giou = calc_giou(
                     normalized_l_r_for_all_anchors[positive_anchor_indices_per_class], #MJ: normalized_bboxes_for_all_anchors is the bbxes for the positive anchors already!
                     #normalized_bboxes_for_all_anchors,

@@ -176,7 +176,7 @@ class ClassificationModel(nn.Module):
 
 #MJ: https://pseudo-lab.github.io/pytorch-guide/docs/ch03-1.html
 class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defined in our code using tcn
-    def __init__(self, num_classes, block, layers, fcos=False, reg_loss_type="l1", **kwargs):
+    def __init__(self, num_classes, block, layers, fcos=False, reg_loss_type="l1", downbeat_weight=0.6, **kwargs):
         #self.inplanes = 64
 
         self.inplanes = 256
@@ -184,6 +184,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         super(ResNet, self).__init__()
 
         self.fcos = fcos
+        self.downbeat_weight = downbeat_weight
 
         # self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         # self.bn1 = nn.BatchNorm2d(64)
@@ -410,17 +411,17 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 regression_losses_batch_all_classes.append(class_regression_loss_batch)
                 # END for class_id in range(number_of_classes)
 
-            downbeat_weight = 0.6
+            #downbeat_weight = 0.6
 
-            focal_losses_batch_all_classes[0] *= downbeat_weight
-            regression_losses_batch_all_classes[0] *= downbeat_weight
+            focal_losses_batch_all_classes[0] *= self.downbeat_weight
+            regression_losses_batch_all_classes[0] *= self.downbeat_weight
 
-            focal_losses_batch_all_classes[1] *= (1 - downbeat_weight)
-            regression_losses_batch_all_classes[1] *= (1 - downbeat_weight)
+            focal_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
+            regression_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
 
             if self.fcos:
-                leftness_losses_batch_all_classes[0] *= downbeat_weight
-                leftness_losses_batch_all_classes[1] *= (1 - downbeat_weight)
+                leftness_losses_batch_all_classes[0] *= self.downbeat_weight
+                leftness_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
                 leftness_loss = torch.stack(leftness_losses_batch_all_classes).sum(dim=0)
 
             focal_loss_class_mean = torch.stack(focal_losses_batch_all_classes).sum(dim=0)  #MJ: stack: https://sanghyu.tistory.com/85

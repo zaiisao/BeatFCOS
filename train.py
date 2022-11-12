@@ -92,6 +92,7 @@ parser.add_argument('--norm_type', type=str, default='BatchNorm')
 parser.add_argument('--act_type', type=str, default='PReLU')
 parser.add_argument('--fcos', action='store_true')
 parser.add_argument('--reg_loss_type', type=str, default='l1')
+parser.add_argument('--downbeat_weight', type=float, default=0.6)
 
 # THIS LINE IS KEY TO PULL THE MODEL NAME
 temp_args, _ = parser.parse_known_args()
