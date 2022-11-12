@@ -148,29 +148,42 @@ class ClassificationModel(nn.Module):
         self.output_act = nn.Sigmoid()
 
     def forward(self, x):
+        print(f"x: {x.shape}")
         out = self.conv1(x)
+        print(f"out: {out.shape}")
         out = self.act1(out)
+        print(f"out: {out.shape}")
 
         out = self.conv2(out)
+        print(f"out: {out.shape}")
         out = self.act2(out)
+        print(f"out: {out.shape}")
 
         out = self.conv3(out)
+        print(f"out: {out.shape}")
         out = self.act3(out)
+        print(f"out: {out.shape}")
 
         out = self.conv4(out)
+        print(f"out: {out.shape}")
         out = self.act4(out)
+        print(f"out: {out.shape}")
 
         out = self.output(out)
+        print(f"out: {out.shape}")
         out = self.output_act(out)
+        print(f"out: {out.shape}")
 
         # out is B x C x L, with C = n_classes + n_anchors
         out1 = out.permute(0, 2, 1)
+        print(f"out1: {out1.shape}")
 
         #batch_size, width, height, channels = out1.shape
         batch_size, length, channels = out1.shape
 
         #out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
         out2 = out1.view(batch_size, length, self.num_anchors, self.num_classes)
+        print(f"out2.contiguous().view(x.shape[0], -1, self.num_classes).shape: {out2.contiguous().view(x.shape[0], -1, self.num_classes).shape}")
 
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
@@ -229,7 +242,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         # self.anchors = Anchors(base_level=8, fcos=self.fcos)
 
-        self.anchors = Anchors(base_level=8, fcos=self.fcos) 
+        #self.anchors = Anchors(base_level=8, fcos=self.fcos) 
+        self.anchors = Anchors(fcos=self.fcos)
          #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
          #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
 
@@ -300,7 +314,12 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # With 8 layers, each with stride 2, we downsample the signal by a factor of 2^8 = 256,
         # which, given an input sample rate of 22.05 kHz produces an output signal with a
         # sample rate of 86 Hz
-        tcn_layers = self.dstcn(audio_batch, 3)
+
+        # audio_batch is the original audio sampled at 22050 Hz
+        number_of_backbone_layers = 3
+        base_image_level = 7    # The image at level 7 is the downsampled base on which the regression targets are defined
+                                # and the feature map strides are defined relative to it
+        tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
 
         # The following is the 1D version of RetinaNet
         # x = self.conv1(audio_batch)
@@ -315,7 +334,13 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         # feature_maps = list of five feature maps
         #feature_maps = self.fpn([x2, x3, x4])
-        feature_maps = self.fpn(tcn_layers[-3:])
+        #feature_maps = self.fpn(tcn_layers[-3:])
+
+        # the base_level_image is the image level on which the regression targets are defined and the feature map strides are defined relative to it
+        x2 = tcn_layers[-3]
+        x3 = tcn_layers[-2]
+        x4 = tcn_layers[-1]
+        feature_maps = self.fpn([x2, x3, x4])
 
         if self.fcos:
             classification_outputs = [self.classificationModel(feature_map) for feature_map in feature_maps]
@@ -332,7 +357,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             regression_outputs = [self.regressionModel(feature_map) for feature_map in feature_maps]
 
         # anchors_list is the list of all anchor points on the feature maps if self.fcos is true
-        anchors_list = self.anchors(tcn_layers[-3])
+        #anchors_list = self.anchors(tcn_layers[-3])
+        anchors_list = self.anchors(base_level_image_shape)
         #number_of_classes = classification_outputs.size(dim=2)
         # All classification outputs should be the same so we just pick the 0th one
         number_of_classes = classification_outputs[0].size(dim=2)
@@ -374,9 +400,12 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             #     #return focal_loss, regression_loss, leftness_loss
             # else:
             focal_losses_batch_all_classes, regression_losses_batch_all_classes, leftness_losses_batch_all_classes = [], [], []
-
+            class_one_cls_targets = None
+            class_one_reg_targets = None
+            class_one_positive_indicators = None
+            class_two_positive_indicators = None
             for class_id in range(number_of_classes):
-                class_focal_loss_batch = self.focalLoss(
+                class_focal_loss_batch, cls_targets, positive_indicators, levels_for_all_anchors = self.focalLoss(
 
                     torch.cat(classification_outputs, dim=1), #MJ: cat:  https://sanghyu.tistory.com/85
                      #MJ:  x_{i} in classification_outputs has shape (B,W_{i},C), W= the number of anchor points in feature map i
@@ -389,7 +418,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     class_id
                 ) #class_focal_loss: the batch mean loss of class_id: shape = (1,) because we used Keepdim=True when we return the batch mean loss for all the anchor points
 
-                class_regression_loss_batch = self.regressionLoss(
+                class_regression_loss_batch, reg_targets = self.regressionLoss(
                     torch.cat(regression_outputs, dim=1),
                     anchors_list,#[anchors  for anchors in anchors_list],
                     annotations,
@@ -410,6 +439,26 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 focal_losses_batch_all_classes.append(class_focal_loss_batch)
                 regression_losses_batch_all_classes.append(class_regression_loss_batch)
                 # END for class_id in range(number_of_classes)
+
+                if class_id == 0:
+                    class_one_cls_targets = cls_targets
+                    class_one_reg_targets = reg_targets
+                    class_one_positive_indicators = positive_indicators
+                else:
+                    class_two_positive_indicators = positive_indicators
+                    either_is_positive_indicators = torch.logical_or(class_one_positive_indicators, class_two_positive_indicators)
+
+                    torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
+                    for feature_map_index, _ in enumerate(feature_maps):
+                        concatenated_output = torch.cat((
+                            class_one_cls_targets[either_is_positive_indicators, 0].unsqueeze(dim=1),
+                            cls_targets[either_is_positive_indicators, 1].unsqueeze(dim=1),
+                            class_one_reg_targets[either_is_positive_indicators],
+                            reg_targets[either_is_positive_indicators],
+                            levels_for_all_anchors[either_is_positive_indicators].unsqueeze(dim=1)
+                        ), dim=1)
+                        print(f"concatenated_output {feature_map_index} {concatenated_output.shape}:\n{concatenated_output}")
+                    torch.set_printoptions(sci_mode=True, edgeitems=3)
 
             #downbeat_weight = 0.6
 
@@ -451,7 +500,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 finalAnchorBoxesIndexes = finalAnchorBoxesIndexes.cuda()
                 finalAnchorBoxesCoordinates = finalAnchorBoxesCoordinates.cuda()
 
-            for i, classification_output in enumerate(classification_outputs):
+            for i, classification_output in enumerate(classification_outputs):  # i ranges over the level of feature maps.
+                                                                                # The classification output list represents the classification outputs for each feature map
                 regression_output = regression_outputs[i]
 
                 if self.fcos:
@@ -459,11 +509,11 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
                 for class_id in range(classification_output.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
                     # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
-
+                    stride = 2**(i + 1)
                     if self.fcos:
                         transformed_anchors = torch.stack((
-                            anchors_list[i] - regression_output[0, :, 0] * 2**i,
-                            anchors_list[i] + regression_output[0, :, 1] * 2**i
+                            anchors_list[i] - regression_output[0, :, 0] * stride,
+                            anchors_list[i] + regression_output[0, :, 1] * stride
                         ), dim=1).unsqueeze(dim=0)
 
                         scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0])

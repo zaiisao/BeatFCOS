@@ -161,14 +161,19 @@ class dsTCNModel(torch.nn.Module):
     #     #x = torch.sigmoid(x)
 
     #     return x
-    def forward(self, x, last_count): #MJ: last_count =3: get the last 3 blocks (i=7,8,9) from the tcn model
+    def forward(self, x, last_count, base_image_level): #MJ: last_count =3: get the last 3 blocks (i=7,8,9) from the tcn model
         results = []
+        start_level_for_fpn = len(self.blocks) - last_count # 10 - (3 + 1) = 6th layer is the layer for the base image
+        base_level_image_shape = None
         for i, block in enumerate(self.blocks): #i starts from 0
             x = block(x)
-            if i >= len(self.blocks) - last_count:  #MJ: i >= 10-3 =7: blocks 7,8,9 are gotten
+            if i >= start_level_for_fpn:  #MJ: i >= 10-3 =7: blocks 7,8,9 are gotten
                 results.append(x)
 
-        return results
+            if i == base_image_level - 1:
+                base_level_image_shape = x.shape
+
+        return results, base_level_image_shape
 
     def compute_receptive_field(self):
         """ Compute the receptive field in samples."""

@@ -60,7 +60,8 @@ parser.add_argument('--carnatic_audio_dir', type=str, default=None)
 parser.add_argument('--carnatic_annot_dir', type=str, default=None)
 parser.add_argument('--preload', action="store_true")
 parser.add_argument('--audio_sample_rate', type=int, default=44100)
-parser.add_argument('--target_factor', type=int, default=256) # block 하나당 곱하기 2
+# parser.add_argument('--target_factor', type=int, default=256) # block 하나당 곱하기 2
+parser.add_argument('--target_factor', type=int, default=128) # block 하나당 곱하기 2
 parser.add_argument('--shuffle', type=bool, default=True)
 parser.add_argument('--train_subset', type=str, default='train')
 parser.add_argument('--val_subset', type=str, default='val')
@@ -354,6 +355,8 @@ if __name__ == '__main__':
                 print(e)
                 traceback.print_exc()
                 continue
+
+            break # for debugging
 
         print('Evaluating dataset')
         # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)

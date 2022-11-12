@@ -6,17 +6,20 @@ import torch.nn as nn
 
 class Anchors(nn.Module):
     # def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
-    def __init__(self, fcos=False, base_level=0): # We use base level 8
+    def __init__(self, fcos=False): # We use base level 8
         super(Anchors, self).__init__()
 
         self.fcos = fcos
-        self.base_level = base_level
 
-        self.pyramid_levels = [8, 9, 10, 11, 12] # Actual strides we use are [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
-        self.strides = [2 ** (x - self.base_level) for x in self.pyramid_levels]
+        #self.pyramid_levels = [8, 9, 10, 11, 12] # Actual strides we use are [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
+        self.pyramid_levels = [1, 2, 3, 4, 5]
+        # # (1, 2, 3, 4, 5) with base_level=0. Actual strides are [2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4, 2 ** 5]
+        self.strides = [2 ** x for x in self.pyramid_levels]
         # self.strides = [2 ** x for x in self.pyramid_levels]
 
-        self.sizes = [x * 22050 / 256 for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882]]
+        #audio_downsampling_factor = 256
+        audio_downsampling_factor = 128
+        self.sizes = [x * 22050 / audio_downsampling_factor for x in [2.23147392, 2.62519274, 3.74199546, 5.78800454, 8.02371882]]
 
         if self.fcos:            
             #self.sizes = [0 for x in self.pyramid_levels]
@@ -24,12 +27,23 @@ class Anchors(nn.Module):
         else:
             self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
 
-    def forward(self, base_image):
-        base_image_shape = base_image.shape[2:]
-        base_image_shape = np.array(base_image_shape)
+    #def forward(self, base_image):
+    def forward(self, base_image_shape):
+        # We need the shape of the base level image to compute the anchor points on each feature map
+        #base_image_shape = base_image.shape[2:] # The base image is at the level of 2**7 stride, that is, the number of data samples is 2**14
+        print(f"base_image_shape: {base_image_shape}")
+        base_image_spacial_shape = base_image_shape[2:] # The base level image shape (B, C, W) = (B, C, 2**12) during training
+        print(f"base_image_spacial_shape: {base_image_spacial_shape}")
+        base_image_shape_array = np.array(base_image_spacial_shape)
+        print(f"base_image_shape_array: {base_image_shape_array}")
+
+        # feature_map_shapes = [
+        #     (base_image_shape + 2 ** (x - self.base_level) - 1) // (2 ** (x - self.base_level))
+        #     for x in self.pyramid_levels
+        # ]
 
         feature_map_shapes = [
-            (base_image_shape + 2 ** (x - self.base_level) - 1) // (2 ** (x - self.base_level))
+            (base_image_shape_array + (2 ** x) - 1) // (2 ** x)
             for x in self.pyramid_levels
         ]
 
@@ -37,7 +51,10 @@ class Anchors(nn.Module):
 
         for idx, p in enumerate(self.pyramid_levels):
             anchors = generate_anchors(base_size=self.sizes[idx], scales=self.scales)
-            shifted_anchors = shift(feature_map_shapes[idx], self.strides[idx], anchors, fcos=self.fcos)
+            shifted_anchors = shift(idx, feature_map_shapes[idx], self.strides[idx], anchors, fcos=self.fcos)
+            # np.set_printoptions(edgeitems=1000000, suppress=True)
+            # print(f"shifted_anchors for level {idx} ({shifted_anchors.shape}): {shifted_anchors}")
+            # np.set_printoptions(edgeitems=3, suppress=False)
             #shifted_anchors_expanded = np.tile(np.expand_dims(shifted_anchors, axis=0), (2, 1, 1))
 
             if torch.cuda.is_available():
@@ -106,7 +123,7 @@ def anchors_for_shape(
     return all_anchors
 
 
-def shift(feature_map_shapes, stride, anchors, fcos=False): # create one anchor point for each location on the feature map i
+def shift(idx, feature_map_shapes, stride, anchors, fcos=False): # create one anchor point for each location on the feature map i
     shift_x = (np.arange(0, feature_map_shapes[0]) + 0.5) * stride # feature_map_shapes[0] is the ith feature map x resolution
     # shift_x is the x resolution of the ith feature map projected back to the base image
 
@@ -128,4 +145,3 @@ def shift(feature_map_shapes, stride, anchors, fcos=False): # create one anchor 
         all_anchors = (all_anchors[:, 0] + all_anchors[:, 1]) / 2
 
     return all_anchors
-
