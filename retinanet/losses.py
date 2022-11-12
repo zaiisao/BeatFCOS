@@ -679,6 +679,7 @@ class RegressionLoss(nn.Module):
                 #print(f"normalized_l_r_for_all_anchors for {class_id}:\n{normalized_l_r_for_all_anchors}")
                 #print(f"normalized_l_r_for_all_anchors[positive_anchor_indices_per_class] for {class_id}:\n{normalized_l_r_for_all_anchors[positive_anchor_indices_per_class]}")
                 #torch.set_printoptions(edgeitems=3)
+                jth_regression[positive_anchor_indices_per_class, 0] *= -1
                 positive_anchor_regression_giou = calc_giou(
                     normalized_l_r_for_all_anchors[positive_anchor_indices_per_class], #MJ: normalized_bboxes_for_all_anchors is the bbxes for the positive anchors already!
                     #normalized_bboxes_for_all_anchors,
