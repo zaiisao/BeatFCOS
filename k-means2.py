@@ -252,20 +252,20 @@ def get_clusters(num_clusters):
                 #    beat_times.append(float(beat_time))
                 beat_times.append(float(beat_time))
 
-            for beat_index, current_beat_location in enumerate(beat_times[:-1]):
-                next_beat_location = beat_times[beat_index + 1]
+            # for beat_index, current_beat_location in enumerate(beat_times[:-1]):
+            #     next_beat_location = beat_times[beat_index + 1]
 
-                beat_length = (next_beat_location - current_beat_location) #* 22050
-                annotation_dims.append(beat_length)
-                beat_intervals.append(beat_length)
+            #     beat_length = (next_beat_location - current_beat_location) #* 22050
+            #     annotation_dims.append(beat_length)
+            #     beat_intervals.append(beat_length)
                 #print(downbeat_length)
 
-            # for downbeat_index, current_downbeat_location in enumerate(downbeat_times[:-1]):
-            #     next_downbeat_location = downbeat_times[downbeat_index + 1]
+            for downbeat_index, current_downbeat_location in enumerate(downbeat_times[:-1]):
+                next_downbeat_location = downbeat_times[downbeat_index + 1]
 
-            #     downbeat_length = (next_downbeat_location - current_downbeat_location)# * 22050
-            #     annotation_dims.append(downbeat_length)
-            #     downbeat_intervals.append(downbeat_length)
+                downbeat_length = (next_downbeat_location - current_downbeat_location)# * 22050
+                annotation_dims.append(downbeat_length)
+                downbeat_intervals.append(downbeat_length)
                 #print(downbeat_length)
             #break
         #print(f"beat lengths: {[ '%.2f' % elem for elem in beat_intervals ]}")

@@ -189,6 +189,37 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         [2.264785525, 1000],
     ]
 
+    # Sizes were calculated as follows:
+    # b_k where k = [1, 2]: beat k-means values when calculating all beat interval lengths (2 in total)
+    #
+    # b_1 = 0.33737285, b_2 = 0.57180136
+    #
+    # b_k where k = [3, 4, 5]: downbeat k-means values when calculating all downbeat interval lengths (3 in total)
+    #
+    # b_3 = 1.18389907, b_4 = 1.93154902, b_5 = 2.59802203
+    #
+    # Why 3 for downbeat and 2 for regular beat?
+    # There is much more size variation for downbeat interval lengths, requiring more sizes dedicated to downbeats.
+    #
+    # K-means values were calculated using Ballroom and Hainsworth datasets.
+    #
+    # We don't want to choose the k-means values themselves as the cutoff points, but instead between clusters.
+    # Objects centered around the cluster are expected to be similar to one another, so it is unproductive to set
+    # the limits to the center, splitting each side to be trained on different levels despite all being similar.
+    # Thus, m_k is the the middle of two clusters and calculated as follows:
+    #
+    # m_i = b_(i + 1)/2 - b_i/2
+    # m_1 = 0.57180136/2 - 0.33737285/2 = 0.117214255
+    # m_2 = 1.18389907/2 - 0.57180136/2 = 0.306048855
+    # m_3 = 1.93154902/2 - 1.18389907/2 = 0.373824975
+    # m_4 = 2.59802203/2 - 1.93154902/2 = 0.333236505
+    #
+    # [-1, b_1 + m_1]           = [-1, 0.33737285 + 0.117214255]                        = [-1, 0.45608904]
+    # [b_1 + m_1, b_2 + m_2]    = [0.33737285 + 0.117214255, 0.57180136 + 0.306048855]  = [0.45608904, 0.878505635]
+    # [b_2 + m_2, b_3 + m_3]    = [0.57180136 + 0.306048855, 1.18389907 + 0.373824975]  = [0.878505635, 1.557724045]
+    # [b_3 + m_3, b_4 + m_4]    = [1.18389907 + 0.373824975, 1.93154902 + 0.333236505]  = [1.557724045, 2.264785525]
+    # [b_4 + m_4, 1000]         = [1.93154902 + 0.333236505, 1000]                      = [2.264785525, 1000]
+
     # sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
     # print(f"sorted_bbox_indices ({sorted_bbox_indices.shape}):\n{sorted_bbox_indices}")
     # bbox_annotations_per_class = bbox_annotations_per_class[sorted_bbox_indices]
