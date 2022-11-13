@@ -333,11 +333,11 @@ def evaluate_beat(dataset, model, threshold=0.05):
 
 
             print(f"{index}/{len(dataset)} {metadata['Filename']}")
-            print("LEFT")
+            #print("LEFT")
             print(f"BEAT (F-measure): {beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_left['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_left['F-measure']:0.3f}")
-            print("RIGHT")
-            print(f"BEAT (F-measure): {beat_scores_right['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_right['F-measure']:0.3f}")
+            #print("RIGHT")
+            #print(f"BEAT (F-measure): {beat_scores_right['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_right['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_right['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_right['F-measure']:0.3f}")
             # print("AVERAGE")
             # print(f"BEAT (F-measure): {beat_scores_average['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_average['F-measure']:0.3f}")
@@ -395,8 +395,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
 
         left_beat_mean_f_measure = np.mean([result['beat_scores_left']['F-measure'] for result in results])
         left_downbeat_mean_f_measure = np.mean([result['downbeat_scores_left']['F-measure'] for result in results])
-        right_beat_mean_f_measure = np.mean([result['beat_scores_right']['F-measure'] for result in results])
-        right_downbeat_mean_f_measure = np.mean([result['downbeat_scores_right']['F-measure'] for result in results])
+        #right_beat_mean_f_measure = np.mean([result['beat_scores_right']['F-measure'] for result in results])
+        #right_downbeat_mean_f_measure = np.mean([result['downbeat_scores_right']['F-measure'] for result in results])
         # average_beat_mean_f_measure = np.mean([result['beat_scores_average']['F-measure'] for result in results])
         # average_downbeat_mean_f_measure = np.mean([result['downbeat_scores_average']['F-measure'] for result in results])
         # weighted_beat_mean_f_measure = np.mean([result['beat_scores_weighted']['F-measure'] for result in results])
@@ -406,8 +406,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
 
         print(f"Average left beat F-measure: {left_beat_mean_f_measure:0.3f}")
         print(f"Average left downbeat F-measure: {left_downbeat_mean_f_measure:0.3f}")
-        print(f"Average right beat F-measure: {right_beat_mean_f_measure:0.3f}")
-        print(f"Average right downbeat F-measure: {right_downbeat_mean_f_measure:0.3f}")
+        #print(f"Average right beat F-measure: {right_beat_mean_f_measure:0.3f}")
+        #print(f"Average right downbeat F-measure: {right_downbeat_mean_f_measure:0.3f}")
         # print(f"Average average beat F-measure: {average_beat_mean_f_measure:0.3f}")
         # print(f"Average average downbeat F-measure: {average_downbeat_mean_f_measure:0.3f}")
         # print(f"Average weighted beat F-measure: {weighted_beat_mean_f_measure:0.3f}")
