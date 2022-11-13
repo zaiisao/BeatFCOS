@@ -279,9 +279,9 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         # is_anchor_points_within_bbox_range_per_level shape is (N, M)
 
         # Put L and R stars into a single tensor so that we can calculate max
-        bbox_l_r_targets_per_image = torch.stack([l_stars_to_bboxes_for_anchors_per_level, r_stars_to_bboxes_for_anchors_per_level], dim=1)
-        max_bbox_targets_per_image, _ = bbox_l_r_targets_per_image.max(dim=1)
-        #print(f"max_bbox_targets_per_image ({max_bbox_targets_per_image.shape}):\n{max_bbox_targets_per_image}")
+        bbox_l_r_targets_per_image = torch.stack([l_stars_to_bboxes_for_anchors_per_level, r_stars_to_bboxes_for_anchors_per_level], dim=2)
+        max_bbox_targets_per_image, _ = bbox_l_r_targets_per_image.max(dim=2)
+        # print(f"bbox_l_r_targets_per_image ({bbox_l_r_targets_per_image.shape}):\n{bbox_l_r_targets_per_image}")
 
         # is_anchor_points_within_bbox_range_per_level = torch.logical_and(
         #     max_offsets_to_regress_for_anchor_points >= lower_size,
