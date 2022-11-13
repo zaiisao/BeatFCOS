@@ -297,7 +297,7 @@ def get_fcos_positives(jth_annotations, anchors_list, class_id):
         #lower_size = sizes[i][0] * audio_target_rate
         #upper_size = sizes[i][1] * audio_target_rate
 
-        size_of_interest_per_level = anchor_points_per_level.new_tensor(sizes[i]) * audio_target_rate
+        size_of_interest_per_level = anchor_points_per_level.new_tensor([sizes[i][0] * audio_target_rate, sizes[i][1] * audio_target_rate])
         size_of_interest_for_anchors_per_level = size_of_interest_per_level[None].expand(anchor_points_per_level.size(dim=0), -1)
 
         #print(f"lower_size for level {i}: {lower_size}")
