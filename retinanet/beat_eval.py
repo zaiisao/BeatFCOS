@@ -76,36 +76,36 @@ def evaluate(pred, target, target_sample_rate, use_dbn=False):
     p_beats = pred[0,:]
     p_downbeats = pred[1,:]
 
-    ref_beats, est_beats, _ = find_beats(t_beats.numpy(), 
-                                        p_beats.numpy(), 
-                                        beat_type="beat",
-                                        sample_rate=target_sample_rate)
+    # ref_beats, est_beats, _ = find_beats(t_beats.numpy(), 
+    #                                     p_beats.numpy(), 
+    #                                     beat_type="beat",
+    #                                     sample_rate=target_sample_rate)
 
-    ref_downbeats, est_downbeats, _ = find_beats(t_downbeats.numpy(), 
-                                                p_downbeats.numpy(), 
-                                                beat_type="downbeat",
-                                                sample_rate=target_sample_rate)
+    # ref_downbeats, est_downbeats, _ = find_beats(t_downbeats.numpy(), 
+    #                                             p_downbeats.numpy(), 
+    #                                             beat_type="downbeat",
+    #                                             sample_rate=target_sample_rate)
 
-    if use_dbn:
-        beat_dbn = madmom.features.beats.DBNBeatTrackingProcessor(
-            min_bpm=55,
-            max_bpm=215,
-            transition_lambda=100,
-            fps=target_sample_rate,
-            online=False)
+    # if use_dbn:
+    #     beat_dbn = madmom.features.beats.DBNBeatTrackingProcessor(
+    #         min_bpm=55,
+    #         max_bpm=215,
+    #         transition_lambda=100,
+    #         fps=target_sample_rate,
+    #         online=False)
 
-        downbeat_dbn = madmom.features.beats.DBNBeatTrackingProcessor(
-            min_bpm=10,
-            max_bpm=75,
-            transition_lambda=100,
-            fps=target_sample_rate,
-            online=False)
+    #     downbeat_dbn = madmom.features.beats.DBNBeatTrackingProcessor(
+    #         min_bpm=10,
+    #         max_bpm=75,
+    #         transition_lambda=100,
+    #         fps=target_sample_rate,
+    #         online=False)
 
-        beat_pred = pred[0,:].clamp(1e-8, 1-1e-8).view(-1).numpy()
-        downbeat_pred = pred[1,:].clamp(1e-8, 1-1e-8).view(-1).numpy()
+    #     beat_pred = pred[0,:].clamp(1e-8, 1-1e-8).view(-1).numpy()
+    #     downbeat_pred = pred[1,:].clamp(1e-8, 1-1e-8).view(-1).numpy()
 
-        est_beats = beat_dbn.process_offline(beat_pred)
-        est_downbeats = downbeat_dbn.process_offline(downbeat_pred)
+    #     est_beats = beat_dbn.process_offline(beat_pred)
+    #     est_downbeats = downbeat_dbn.process_offline(downbeat_pred)
 
     # evaluate beats - trim beats before 5 seconds.
     ref_beats = mir_eval.beat.trim_beats(ref_beats)
@@ -133,6 +133,11 @@ def evaluate_beat(dataset, model, threshold=0.05):
             audio, target, metadata = data
             #audio, target = data
 
+            if torch.cuda.is_available():
+                # move data to GPU
+                audio = audio.to('cuda')
+                target = target.to('cuda')
+
             # if we have metadata, it is only during evaluation where batch size is always 1
             metadata = metadata[0]
 
@@ -141,11 +146,6 @@ def evaluate_beat(dataset, model, threshold=0.05):
             target_length = -(audio.size(dim=2) // -2**nblocks) * 2**nblocks
             audio_pad = (0, target_length - audio.size(dim=2))
             audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
-
-            if torch.cuda.is_available():
-                # move data to GPU
-                audio = audio.to('cuda')
-                target = target.to('cuda')
 
             # run network
             if torch.cuda.is_available():
@@ -170,17 +170,20 @@ def evaluate_beat(dataset, model, threshold=0.05):
             #length = audio.size(dim=2) // 256
             length = audio.size(dim=2) // 128
 
-            wavebeat_format_pred_left = torch.zeros((2, length))
-            wavebeat_format_pred_average = torch.zeros((2, length))
-            wavebeat_format_pred_right = torch.zeros((2, length))
-            wavebeat_format_pred_weighted = torch.zeros((2, length))
+            # wavebeat_format_pred_left = torch.zeros((2, length)).to(audio.device)
+            # wavebeat_format_pred_average = torch.zeros((2, length)).to(audio.device)
+            # wavebeat_format_pred_right = torch.zeros((2, length)).to(audio.device)
+            # wavebeat_format_pred_weighted = torch.zeros((2, length)).to(audio.device)
 
-            wavebeat_format_target = torch.zeros((2, length))
+            # wavebeat_format_target = torch.zeros((2, length)).to(audio.device)
 
-            box_scores_left = torch.zeros((2, length))
-            box_scores_right = torch.zeros((2, length))
+            # box_scores_left = torch.zeros((2, length)).to(audio.device)
+            # box_scores_right = torch.zeros((2, length)).to(audio.device)
 
-            first_pred_beat_index, first_pred_downbeat_index = None, None
+            beat_pred_left_positions = []
+            downbeat_pred_left_positions = []
+
+            # first_pred_beat_index, first_pred_downbeat_index = None, None
             last_pred_beat_index, last_pred_downbeat_index = None, None
             last_target_beat_index, last_target_downbeat_index = None, None
 
@@ -196,20 +199,25 @@ def evaluate_beat(dataset, model, threshold=0.05):
 
                 # if beat (label 1), first row (index 0)
                 # if downbeat (label 0), second row (index 1)
-                row = 1 - label
+                # row = 1 - label
                 left_position_index = int(box[0])
                 right_position_index = int(box[1])
 
-                wavebeat_format_pred_left[row, min(left_position_index, length - 1)] = 1
-                wavebeat_format_pred_right[row, min(right_position_index, length - 1)] = 1
+                if label == 0:
+                    downbeat_pred_left_positions.append(left_position_index * 128 / 22050)
+                elif label == 1:
+                    beat_pred_left_positions.append(left_position_index * 128 / 22050)
 
-                box_scores_left[row, min(left_position_index, length - 1)] = score
-                box_scores_right[row, min(right_position_index, length - 1)] = score
+                # wavebeat_format_pred_left[row, min(left_position_index, length - 1)] = 1
+                # wavebeat_format_pred_right[row, min(right_position_index, length - 1)] = 1
 
-                if label == 0 and (first_pred_downbeat_index is None or left_position_index < first_pred_downbeat_index):
-                    first_pred_downbeat_index = left_position_index
-                elif label == 1 and (first_pred_beat_index is None or left_position_index < first_pred_beat_index):
-                    first_pred_beat_index = left_position_index
+                # box_scores_left[row, min(left_position_index, length - 1)] = score
+                # box_scores_right[row, min(right_position_index, length - 1)] = score
+
+                # if label == 0 and (first_pred_downbeat_index is None or left_position_index < first_pred_downbeat_index):
+                #     first_pred_downbeat_index = left_position_index
+                # elif label == 1 and (first_pred_beat_index is None or left_position_index < first_pred_beat_index):
+                #     first_pred_beat_index = left_position_index
 
                 if label == 0 and (last_pred_downbeat_index is None or right_position_index > last_pred_downbeat_index):
                     last_pred_downbeat_index = right_position_index
@@ -217,19 +225,21 @@ def evaluate_beat(dataset, model, threshold=0.05):
                     last_pred_beat_index = right_position_index
 
             if last_pred_beat_index is not None:
-                wavebeat_format_pred_left[0, min(last_pred_beat_index, length - 1)] = 1
+                #wavebeat_format_pred_left[0, min(last_pred_beat_index, length - 1)] = 1
+                beat_pred_left_positions.append(last_pred_beat_index * 128 / 22050)
 
             if last_pred_downbeat_index is not None:
-                wavebeat_format_pred_left[1, min(last_pred_downbeat_index, length - 1)] = 1
+                #wavebeat_format_pred_left[1, min(last_pred_downbeat_index, length - 1)] = 1
+                downbeat_pred_left_positions.append(last_pred_downbeat_index * 128 / 22050)
 
-            if first_pred_beat_index is not None:
-                wavebeat_format_pred_right[0, min(first_pred_beat_index, length - 1)] = 1
+            # if first_pred_beat_index is not None:
+            #     wavebeat_format_pred_right[0, min(first_pred_beat_index, length - 1)] = 1
 
-            if first_pred_downbeat_index is not None:
-                wavebeat_format_pred_right[1, min(first_pred_downbeat_index, length - 1)] = 1
+            # if first_pred_downbeat_index is not None:
+            #     wavebeat_format_pred_right[1, min(first_pred_downbeat_index, length - 1)] = 1
 
-            box_scores_left = torch.nn.functional.pad(box_scores_left[box_scores_left != 0], (1, 1), "constant", 1)
-            box_scores_right = torch.nn.functional.pad(box_scores_right[box_scores_right != 0], (1, 1), "constant", 1)
+            # box_scores_left = torch.nn.functional.pad(box_scores_left[box_scores_left != 0], (1, 1), "constant", 1)
+            # box_scores_right = torch.nn.functional.pad(box_scores_right[box_scores_right != 0], (1, 1), "constant", 1)
 
             # positive_bbox_indices_left = wavebeat_format_pred_left.nonzero()
             # positive_bbox_indices_right = wavebeat_format_pred_right.nonzero()
@@ -254,54 +264,88 @@ def evaluate_beat(dataset, model, threshold=0.05):
             #     index_pair[1] = torch.nan_to_num(index_pair[1], nan=0.5)
             #     wavebeat_format_pred_weighted[index_pair[0].long(), index_pair[1].long()] = 1
 
+
+            beat_target_left_positions = []
+            downbeat_target_left_positions = []
             # construct target tensor
             for beat_interval in target[0]:
                 label = int(beat_interval[2])
-                row = 1 - label
+                # row = 1 - label
 
                 left_position_index = int(beat_interval[0])
                 right_position_index = int(beat_interval[1])
 
-                wavebeat_format_target[row, min(left_position_index, length - 1)] = 1
+                # wavebeat_format_target[row, min(left_position_index, length - 1)] = 1
+                if label == 0:
+                    downbeat_target_left_positions.append(left_position_index * 128 / 22050)
+                elif label == 1:
+                    beat_target_left_positions.append(left_position_index * 128 / 22050)
 
                 if label == 0 and (last_target_downbeat_index is None or right_position_index > last_target_downbeat_index):
                     last_target_downbeat_index = right_position_index
                 elif label == 1 and (last_target_beat_index is None or right_position_index > last_target_beat_index):
                     last_target_beat_index = right_position_index
 
-            wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
-            wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
+            #wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
+            #wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
+            beat_target_left_positions.append(last_target_beat_index * 128 / 22050)
+
+            downbeat_target_left_positions.append(last_target_downbeat_index * 128 / 22050)
 
             #target_sample_rate = 22050 // 256
-            target_sample_rate = 22050 // 128
+            # target_sample_rate = 22050 // 128
 
-            beat_scores_left, downbeat_scores_left = evaluate(wavebeat_format_pred_left.view(2,-1),  
-                                                    wavebeat_format_target.view(2,-1), 
-                                                    target_sample_rate,
-                                                    use_dbn=False)
+            scores = scores.cpu()
+            labels = labels.cpu()
+            boxes  = boxes.cpu()
+            
+            # beat_scores_left, downbeat_scores_left = evaluate(wavebeat_format_pred_left.view(2,-1),  
+            #                                         wavebeat_format_target.view(2,-1), 
+            #                                         target_sample_rate,
+            #                                         use_dbn=False)
+            beat_target_left_positions = np.array(beat_target_left_positions)
+            beat_pred_left_positions = np.array(beat_pred_left_positions)
+            downbeat_target_left_positions = np.array(downbeat_target_left_positions)
+            downbeat_pred_left_positions = np.array(downbeat_pred_left_positions)
 
-            try:
-                dbn_beat_scores_left, dbn_downbeat_scores_left = evaluate(wavebeat_format_pred_left.view(2,-1), 
-                                                        wavebeat_format_target.view(2,-1), 
-                                                        target_sample_rate,
-                                                        use_dbn=True)
-            except:
-                dbn_beat_scores_left = { 'F-measure': 0 }
-                dbn_downbeat_scores_left = { 'F-measure': 0 }
+            beat_target_left_positions.sort()
+            beat_pred_left_positions.sort()
+            downbeat_target_left_positions.sort()
+            downbeat_pred_left_positions.sort()
+            # print(beat_target_left_positions)
+            # print(beat_pred_left_positions)
 
-            beat_scores_right, downbeat_scores_right = evaluate(wavebeat_format_pred_right.view(2,-1),  
-                                                    wavebeat_format_target.view(2,-1), 
-                                                    target_sample_rate,
-                                                    use_dbn=False)
+            beat_target_left_positions = mir_eval.beat.trim_beats(beat_target_left_positions)
+            beat_pred_left_positions = mir_eval.beat.trim_beats(beat_pred_left_positions)
+            beat_scores = mir_eval.beat.evaluate(beat_target_left_positions, beat_pred_left_positions)
 
-            try:
-                dbn_beat_scores_right, dbn_downbeat_scores_right = evaluate(wavebeat_format_pred_right.view(2,-1), 
-                                                        wavebeat_format_target.view(2,-1), 
-                                                        target_sample_rate,
-                                                        use_dbn=True)
-            except:
-                dbn_beat_scores_right = { 'F-measure': 0 }
-                dbn_downbeat_scores_right = { 'F-measure': 0 }
+            # evaluate downbeats - trim beats before 5 seconds.
+            downbeat_target_left_positions = mir_eval.beat.trim_beats(downbeat_target_left_positions)
+            downbeat_pred_left_positions = mir_eval.beat.trim_beats(downbeat_pred_left_positions)
+            downbeat_scores = mir_eval.beat.evaluate(downbeat_target_left_positions, downbeat_pred_left_positions)
+
+            # try:
+            #     dbn_beat_scores_left, dbn_downbeat_scores_left = evaluate(wavebeat_format_pred_left.view(2,-1), 
+            #                                             wavebeat_format_target.view(2,-1), 
+            #                                             target_sample_rate,
+            #                                             use_dbn=True)
+            # except:
+            #     dbn_beat_scores_left = { 'F-measure': 0 }
+            #     dbn_downbeat_scores_left = { 'F-measure': 0 }
+
+            # beat_scores_right, downbeat_scores_right = evaluate(wavebeat_format_pred_right.view(2,-1),  
+            #                                         wavebeat_format_target.view(2,-1), 
+            #                                         target_sample_rate,
+            #                                         use_dbn=False)
+
+            # try:
+            #     dbn_beat_scores_right, dbn_downbeat_scores_right = evaluate(wavebeat_format_pred_right.view(2,-1), 
+            #                                             wavebeat_format_target.view(2,-1), 
+            #                                             target_sample_rate,
+            #                                             use_dbn=True)
+            # except:
+            #     dbn_beat_scores_right = { 'F-measure': 0 }
+            #     dbn_downbeat_scores_right = { 'F-measure': 0 }
 
             # beat_scores_average, downbeat_scores_average = evaluate(wavebeat_format_pred_average.view(2,-1),  
             #                                         wavebeat_format_target.view(2,-1), 
@@ -333,8 +377,9 @@ def evaluate_beat(dataset, model, threshold=0.05):
 
 
             print(f"{index}/{len(dataset)} {metadata['Filename']}")
+            print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f}")
             #print("LEFT")
-            print(f"BEAT (F-measure): {beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_left['F-measure']:0.3f}")
+            # print(f"BEAT (F-measure): {beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_left['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_left['F-measure']:0.3f}")
             #print("RIGHT")
             #print(f"BEAT (F-measure): {beat_scores_right['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_right['F-measure']:0.3f}")
@@ -346,10 +391,10 @@ def evaluate_beat(dataset, model, threshold=0.05):
             # print(f"BEAT (F-measure): {beat_scores_weighted['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_weighted['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_weighted['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_weighted['F-measure']:0.3f}\n")
 
-            beat_scores = beat_scores_left
-            downbeat_scores = downbeat_scores_left
-            dbn_beat_scores = dbn_beat_scores_left
-            dbn_downbeat_scores = dbn_downbeat_scores_left
+            # beat_scores = beat_scores_left
+            # downbeat_scores = downbeat_scores_left
+            # dbn_beat_scores = dbn_beat_scores_left
+            # dbn_downbeat_scores = dbn_downbeat_scores_left
 
             if boxes.shape[0] > 0:
                 # change to (x, y, w, h) (MS COCO standard)
@@ -374,10 +419,12 @@ def evaluate_beat(dataset, model, threshold=0.05):
                         #'category_id': dataset.label_to_coco_label(label),
                         'score': float(score),
                         'bbox': box.tolist(),
-                        'beat_scores_left': beat_scores_left,
-                        'downbeat_scores_left': downbeat_scores_left,
-                        'beat_scores_right': beat_scores_right,
-                        'downbeat_scores_right': downbeat_scores_right,
+                        'beat_scores': beat_scores,
+                        'downbeat_scores': downbeat_scores,
+                        # 'beat_scores_left': beat_scores_left,
+                        # 'downbeat_scores_left': downbeat_scores_left,
+                        # 'beat_scores_right': beat_scores_right,
+                        # 'downbeat_scores_right': downbeat_scores_right,
                         # 'beat_scores_average': beat_scores_average,
                         # 'downbeat_scores_average': downbeat_scores_average,
                         # 'beat_scores_weighted': beat_scores_weighted,
@@ -393,8 +440,10 @@ def evaluate_beat(dataset, model, threshold=0.05):
         # if not len(results):
         #     return
 
-        left_beat_mean_f_measure = np.mean([result['beat_scores_left']['F-measure'] for result in results])
-        left_downbeat_mean_f_measure = np.mean([result['downbeat_scores_left']['F-measure'] for result in results])
+        beat_mean_f_measure = np.mean([result['beat_scores']['F-measure'] for result in results])
+        downbeat_mean_f_measure = np.mean([result['downbeat_scores']['F-measure'] for result in results])
+        # left_beat_mean_f_measure = np.mean([result['beat_scores_left']['F-measure'] for result in results])
+        # left_downbeat_mean_f_measure = np.mean([result['downbeat_scores_left']['F-measure'] for result in results])
         #right_beat_mean_f_measure = np.mean([result['beat_scores_right']['F-measure'] for result in results])
         #right_downbeat_mean_f_measure = np.mean([result['downbeat_scores_right']['F-measure'] for result in results])
         # average_beat_mean_f_measure = np.mean([result['beat_scores_average']['F-measure'] for result in results])
@@ -404,8 +453,10 @@ def evaluate_beat(dataset, model, threshold=0.05):
         #dbn_beat_mean_f_measure = np.mean([result['dbn_beat_scores']['F-measure'] for result in results])
         #dbn_downbeat_mean_f_measure = np.mean([result['dbn_downbeat_scores']['F-measure'] for result in results])
 
-        print(f"Average left beat F-measure: {left_beat_mean_f_measure:0.3f}")
-        print(f"Average left downbeat F-measure: {left_downbeat_mean_f_measure:0.3f}")
+        print(f"Average beat F-measure: {beat_mean_f_measure:0.3f}")
+        print(f"Average downbeat F-measure: {downbeat_mean_f_measure:0.3f}")
+        # print(f"Average left beat F-measure: {left_beat_mean_f_measure:0.3f}")
+        # print(f"Average left downbeat F-measure: {left_downbeat_mean_f_measure:0.3f}")
         #print(f"Average right beat F-measure: {right_beat_mean_f_measure:0.3f}")
         #print(f"Average right downbeat F-measure: {right_downbeat_mean_f_measure:0.3f}")
         # print(f"Average average beat F-measure: {average_beat_mean_f_measure:0.3f}")
@@ -418,6 +469,6 @@ def evaluate_beat(dataset, model, threshold=0.05):
 
         model.train()
 
-        beat_mean_f_measure = left_beat_mean_f_measure#average_beat_mean_f_measure
-        downbeat_mean_f_measure = left_downbeat_mean_f_measure#average_downbeat_mean_f_measure
+        # beat_mean_f_measure = left_beat_mean_f_measure#average_beat_mean_f_measure
+        # downbeat_mean_f_measure = left_downbeat_mean_f_measure#average_downbeat_mean_f_measure
         return beat_mean_f_measure, downbeat_mean_f_measure, 0, 0#dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure
