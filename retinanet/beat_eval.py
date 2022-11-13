@@ -167,7 +167,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
             # print progress
             #print('{}/{}'.format(index, len(dataset)), end='\r')
 
-            length = audio.size(dim=2) // 256
+            #length = audio.size(dim=2) // 256
+            length = audio.size(dim=2) // 128
 
             wavebeat_format_pred_left = torch.zeros((2, length))
             wavebeat_format_pred_average = torch.zeros((2, length))
@@ -271,7 +272,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
             wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
             wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
 
-            target_sample_rate = 22050 // 256
+            #target_sample_rate = 22050 // 256
+            target_sample_rate = 22050 // 128
 
             beat_scores_left, downbeat_scores_left = evaluate(wavebeat_format_pred_left.view(2,-1),  
                                                     wavebeat_format_target.view(2,-1), 
