@@ -4,7 +4,7 @@ import torch
 import math
 import torch.utils.model_zoo as model_zoo
 #from torchvision.ops import nms
-from retinanet.utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes, nms_2d, soft_nms, soft_nms_from_pseudocode
+from retinanet.utils import BasicBlock, Bottleneck, BBoxTransform, AnchorPointTransform, ClipBoxes, nms_2d, soft_nms, soft_nms_from_pseudocode
 from retinanet.anchors import Anchors
 from retinanet import losses
 from retinanet.dstcn import dsTCNModel
@@ -237,6 +237,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         
 
         self.regressBoxes = BBoxTransform()
+        self.anchor_point_transform = AnchorPointTransform()
 
         self.clipBoxes = ClipBoxes()
 
@@ -330,7 +331,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         feature_maps = self.fpn([x2, x3, x4])
 
         if self.fcos:
-            classification_outputs = [self.classificationModel(feature_map) for feature_map in feature_maps]
+            classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
             regression_outputs = []
             leftness_outputs = []
 
@@ -339,6 +340,9 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
                 regression_outputs.append(bbx_regression_output)
                 leftness_outputs.append(leftness_regression_output)
+
+            regression_outputs = torch.cat(regression_outputs, dim=1)
+            leftness_outputs = torch.cat(leftness_outputs, dim=1)
         else:
             classification_outputs = [self.classificationModel(feature_map) for feature_map in feature_maps]
             regression_outputs = [self.regressionModel(feature_map) for feature_map in feature_maps]
@@ -348,7 +352,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         anchors_list = self.anchors(base_level_image_shape)
         #number_of_classes = classification_outputs.size(dim=2)
         # All classification outputs should be the same so we just pick the 0th one
-        number_of_classes = classification_outputs[0].size(dim=2)
+        number_of_classes = classification_outputs.size(dim=2)
 
         if self.training:
             # Return the loss if training
@@ -476,73 +480,94 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             # transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_outputs)
             # transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
 
+            all_anchors = torch.cat(anchors_list, dim=0)
+
             finalResult = [[], [], []]
 
             finalScores = torch.Tensor([])
             finalAnchorBoxesIndexes = torch.Tensor([]).long()
             finalAnchorBoxesCoordinates = torch.Tensor([])
+            strides_for_all_anchors = torch.zeros(0)
 
             if torch.cuda.is_available():
                 finalScores = finalScores.cuda()
                 finalAnchorBoxesIndexes = finalAnchorBoxesIndexes.cuda()
                 finalAnchorBoxesCoordinates = finalAnchorBoxesCoordinates.cuda()
+                strides_for_all_anchors = stride_for_all_anchors.cuda()
 
-            for i, classification_output in enumerate(classification_outputs):  # i ranges over the level of feature maps.
-                                                                                # The classification output list represents the classification outputs for each feature map
-                regression_output = regression_outputs[i]
+            if self.fcos:
+                for i, anchors_per_level in enumerate(anchors_list):    # i ranges over the level of feature maps.
+                    # size_of_interest_per_level = anchor_points_per_level.new_tensor([sizes[i][0] * audio_target_rate, sizes[i][1] * audio_target_rate])
+                    # size_of_interest_for_anchors_per_level = size_of_interest_per_level[None].expand(anchor_points_per_level.size(dim=0), -1)
 
+                    stride_per_level = torch.tensor(2**(i + 1))
+                    stride_for_anchors_per_level = stride_per_level[None].expand(anchors_per_level.size(dim=0))
+                    # print(f"stride_per_level {stride_per_level.shape}:\n{stride_per_level}")
+                    # print(f"stride_per_level[None] {stride_per_level[None].shape}:\n{stride_per_level[None]}")
+                    # print(f"stride_for_anchors_per_level {stride_for_anchors_per_level.shape}:\n{stride_for_anchors_per_level}")
+                    strides_for_all_anchors = torch.cat((strides_for_all_anchors, stride_for_anchors_per_level), dim=0)
+                # print(f"strides_for_all_anchors {strides_for_all_anchors.shape}: {strides_for_all_anchors}")
+
+                # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
+                # stride = 2**(i + 1)
+
+                # transformed_anchors = torch.stack((
+                #     anchors_list[i] - regression_output[0, :, 0] * stride,
+                #     anchors_list[i] + regression_output[0, :, 1] * stride
+                # ), dim=1).unsqueeze(dim=0)
+
+                transformed_regression_boxes = self.anchor_point_transform(all_anchors, regression_outputs, strides_for_all_anchors)
+
+                #scores = torch.squeeze(classification_output[:, :, class_id])
+            else:
+                transformed_regression_boxes = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), torch.cat(regression_outputs, dim=1))
+
+            transformed_regression_boxes = self.clipBoxes(transformed_regression_boxes, audio_batch)
+
+            for class_id in range(classification_outputs.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
                 if self.fcos:
-                    leftness_output = leftness_outputs[i]
+                    scores = classification_outputs[:, :, class_id] * leftness_outputs[:, :, 0]
+                else:
+                    scores = classification_outputs[:, :, class_id]
 
-                for class_id in range(classification_output.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
-                    # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
-                    stride = 2**(i + 1)
-                    if self.fcos:
-                        transformed_anchors = torch.stack((
-                            anchors_list[i] - regression_output[0, :, 0] * stride,
-                            anchors_list[i] + regression_output[0, :, 1] * stride
-                        ), dim=1).unsqueeze(dim=0)
+                scores_over_thresh = (scores > 0.05)
+                if scores_over_thresh.sum() == 0:
+                    # no boxes to NMS, just continue
+                    continue
 
-                        scores = torch.squeeze(classification_output[:, :, class_id] * leftness_output[:, :, 0])
-                        #scores = torch.squeeze(classification_output[:, :, class_id])
-                    else:
-                        transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), torch.cat(regression_outputs, dim=1))
-                        scores = torch.squeeze(torch.cat(classification_outputs, dim=1)[:, :, class_id])
+                # print(f"scores: {scores.shape}")
+                scores = scores[scores_over_thresh]
+                #anchorBoxes = torch.squeeze(transformed_regression_boxes)
+                # print(f"transformed_regression_boxes: {transformed_regression_boxes.shape}")
+                # print(f"scores_over_thresh: {scores_over_thresh.shape}")
+                regression_boxes = transformed_regression_boxes[scores_over_thresh]
+                # anchors_nms_idx = nms(anchorBoxes, scores, 0.5)
 
-                    transformed_anchors = self.clipBoxes(transformed_anchors, audio_batch)
+                # anchors_nms_idx is a tensor of anchor indices, sorted by score,
+                # after removal of overlapping boxes with lower score
 
-                    scores_over_thresh = (scores > 0.05)
-                    if scores_over_thresh.sum() == 0:
-                        # no boxes to NMS, just continue
-                        continue
+                iou_threshold = 0.1 # During NMS, if the IoU of two adjacent predicted boxes is less than IoU threshold, the two boxes are considered to be different beats
+                                    # Otherwise both predictions are considered redundant so that one is removed.
+                anchors_nms_idx = nms_2d(regression_boxes, scores, iou_threshold)
 
-                    scores = scores[scores_over_thresh]
-                    anchorBoxes = torch.squeeze(transformed_anchors)
-                    anchorBoxes = anchorBoxes[scores_over_thresh]
-                    # anchors_nms_idx = nms(anchorBoxes, scores, 0.5)
+                # print(f"torchvision indices:\n{anchors_nms_idx}")
+                # print(f"torchvision boxes:\n{torch.cat((anchorBoxes[anchors_nms_idx], scores[anchors_nms_idx].unsqueeze(dim=1)), dim=1)}")
 
-                    # anchors_nms_idx is a tensor of anchor indices, sorted by score,
-                    # after removal of overlapping boxes with lower score
-                    anchors_nms_idx = nms_2d(anchorBoxes, scores, 0.1)
+                #anchors_nms_idx = soft_nms(anchorBoxes, scores, sigma=0.2, use_regular_nms=True)
+                #print(f"anchors_nms_idx:\n{anchorBoxes[anchors_nms_idx]}")
+                #print(f"anchors_nms_idx2:\n{anchorBoxes[anchors_nms_idx2]}")
 
-                    # print(f"torchvision indices:\n{anchors_nms_idx}")
-                    # print(f"torchvision boxes:\n{torch.cat((anchorBoxes[anchors_nms_idx], scores[anchors_nms_idx].unsqueeze(dim=1)), dim=1)}")
+                finalResult[0].extend(scores[anchors_nms_idx])
+                finalResult[1].extend(torch.tensor([class_id] * anchors_nms_idx.shape[0]))
+                finalResult[2].extend(regression_boxes[anchors_nms_idx])
 
-                    #anchors_nms_idx = soft_nms(anchorBoxes, scores, sigma=0.2, use_regular_nms=True)
-                    #print(f"anchors_nms_idx:\n{anchorBoxes[anchors_nms_idx]}")
-                    #print(f"anchors_nms_idx2:\n{anchorBoxes[anchors_nms_idx2]}")
+                finalScores = torch.cat((finalScores, scores[anchors_nms_idx]))
+                finalAnchorBoxesIndexesValue = torch.tensor([class_id] * anchors_nms_idx.shape[0])
+                if torch.cuda.is_available():
+                    finalAnchorBoxesIndexesValue = finalAnchorBoxesIndexesValue.cuda()
 
-                    finalResult[0].extend(scores[anchors_nms_idx])
-                    finalResult[1].extend(torch.tensor([class_id] * anchors_nms_idx.shape[0]))
-                    finalResult[2].extend(anchorBoxes[anchors_nms_idx])
-
-                    finalScores = torch.cat((finalScores, scores[anchors_nms_idx]))
-                    finalAnchorBoxesIndexesValue = torch.tensor([class_id] * anchors_nms_idx.shape[0])
-                    if torch.cuda.is_available():
-                        finalAnchorBoxesIndexesValue = finalAnchorBoxesIndexesValue.cuda()
-
-                    finalAnchorBoxesIndexes = torch.cat((finalAnchorBoxesIndexes, finalAnchorBoxesIndexesValue))
-                    finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, anchorBoxes[anchors_nms_idx]))
+                finalAnchorBoxesIndexes = torch.cat((finalAnchorBoxesIndexes, finalAnchorBoxesIndexesValue))
+                finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, regression_boxes[anchors_nms_idx]))
 
             return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates]
 

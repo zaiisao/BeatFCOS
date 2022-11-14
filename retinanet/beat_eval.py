@@ -150,13 +150,13 @@ def evaluate_beat(dataset, model, threshold=0.05):
             # run network
             if torch.cuda.is_available():
                 #scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
-                scores, labels, boxes = model((audio, target))
+                predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
             else:
                 #scores, labels, boxes = model(audio.permute(2, 0, 1).float().unsqueeze(dim=0))
-                scores, labels, boxes = model((audio, target))
-            scores = scores.cpu()
-            labels = labels.cpu()
-            boxes  = boxes.cpu()
+                predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
+            predicted_scores = predicted_scores.cpu()
+            predicted_labels = predicted_labels.cpu()
+            predicted_boxes  = predicted_boxes.cpu()
 
             # correct boxes for image scale
             #boxes /= scale
@@ -183,30 +183,41 @@ def evaluate_beat(dataset, model, threshold=0.05):
             beat_pred_left_positions = []
             downbeat_pred_left_positions = []
 
-            # first_pred_beat_index, first_pred_downbeat_index = None, None
+            beat_pred_right_positions = []
+            downbeat_pred_right_positions = []
+
+            first_pred_beat_index, first_pred_downbeat_index = None, None
             last_pred_beat_index, last_pred_downbeat_index = None, None
             last_target_beat_index, last_target_downbeat_index = None, None
 
             # construct pred tensor
-            for box_id in range(boxes.shape[0]):
-                score = float(scores[box_id])
-                label = int(labels[box_id])
-                box = boxes[box_id, :]
+            for box_id in range(predicted_boxes.shape[0]):
+                predicted_score = float(predicted_scores[box_id])
+                predicted_label = int(predicted_labels[box_id])
+                predicted_box = predicted_boxes[box_id, :]
 
                 # scores are sorted, so we can break
-                if score < threshold:
+                if predicted_score < threshold:
                     continue
 
                 # if beat (label 1), first row (index 0)
                 # if downbeat (label 0), second row (index 1)
                 # row = 1 - label
-                left_position_index = int(box[0])
-                right_position_index = int(box[1])
+                left_position_index = int(predicted_box[0])
+                right_position_index = int(predicted_box[1])
 
-                if label == 0:
+                # We obtained the base level audio from the original audio sampled at 22050 Hz by downsampling 2**7 (128)
+                # and on that base level audio the gt beat intervals are defined.
+                #
+                # left_position_index * 128 is the position of the beat location on the base level audio.
+                # In order to get the time of that location, we need to divide it by 22050 Hz
+
+                if predicted_label == 0:
                     downbeat_pred_left_positions.append(left_position_index * 128 / 22050)
-                elif label == 1:
+                    downbeat_pred_right_positions.append(right_position_index * 128 / 22050)
+                elif predicted_label == 1:
                     beat_pred_left_positions.append(left_position_index * 128 / 22050)
+                    beat_pred_right_positions.append(right_position_index * 128 / 22050)
 
                 # wavebeat_format_pred_left[row, min(left_position_index, length - 1)] = 1
                 # wavebeat_format_pred_right[row, min(right_position_index, length - 1)] = 1
@@ -214,14 +225,14 @@ def evaluate_beat(dataset, model, threshold=0.05):
                 # box_scores_left[row, min(left_position_index, length - 1)] = score
                 # box_scores_right[row, min(right_position_index, length - 1)] = score
 
-                # if label == 0 and (first_pred_downbeat_index is None or left_position_index < first_pred_downbeat_index):
-                #     first_pred_downbeat_index = left_position_index
-                # elif label == 1 and (first_pred_beat_index is None or left_position_index < first_pred_beat_index):
-                #     first_pred_beat_index = left_position_index
+                if predicted_label == 0 and (first_pred_downbeat_index is None or left_position_index < first_pred_downbeat_index):
+                    first_pred_downbeat_index = left_position_index
+                elif predicted_label == 1 and (first_pred_beat_index is None or left_position_index < first_pred_beat_index):
+                    first_pred_beat_index = left_position_index
 
-                if label == 0 and (last_pred_downbeat_index is None or right_position_index > last_pred_downbeat_index):
+                if predicted_label == 0 and (last_pred_downbeat_index is None or right_position_index > last_pred_downbeat_index):
                     last_pred_downbeat_index = right_position_index
-                elif label == 1 and (last_pred_beat_index is None or right_position_index > last_pred_beat_index):
+                elif predicted_label == 1 and (last_pred_beat_index is None or right_position_index > last_pred_beat_index):
                     last_pred_beat_index = right_position_index
 
             if last_pred_beat_index is not None:
@@ -295,9 +306,9 @@ def evaluate_beat(dataset, model, threshold=0.05):
             #target_sample_rate = 22050 // 256
             # target_sample_rate = 22050 // 128
 
-            scores = scores.cpu()
-            labels = labels.cpu()
-            boxes  = boxes.cpu()
+            predicted_scores = predicted_scores.cpu()
+            predicted_labels = predicted_labels.cpu()
+            predicted_boxes  = predicted_boxes.cpu()
             
             # beat_scores_left, downbeat_scores_left = evaluate(wavebeat_format_pred_left.view(2,-1),  
             #                                         wavebeat_format_target.view(2,-1), 
@@ -307,6 +318,16 @@ def evaluate_beat(dataset, model, threshold=0.05):
             beat_pred_left_positions = np.array(beat_pred_left_positions)
             downbeat_target_left_positions = np.array(downbeat_target_left_positions)
             downbeat_pred_left_positions = np.array(downbeat_pred_left_positions)
+
+            # beat_pred_right_positions = np.array(beat_pred_right_positions)
+            # downbeat_pred_right_positions = np.array(downbeat_pred_right_positions)
+
+            # beat_left_and_length = np.stack((
+            #     beat_pred_left_positions,
+            #     beat_pred_right_positions - beat_pred_left_positions
+            # ), axis=1)
+            # beat_left_and_length = beat_left_and_length[beat_left_and_length[:, 0].argsort()]
+            #print(f"Beat time and length\n{beat_left_and_length}")
 
             beat_target_left_positions.sort()
             beat_pred_left_positions.sort()
@@ -396,20 +417,20 @@ def evaluate_beat(dataset, model, threshold=0.05):
             # dbn_beat_scores = dbn_beat_scores_left
             # dbn_downbeat_scores = dbn_downbeat_scores_left
 
-            if boxes.shape[0] > 0:
+            if predicted_boxes.shape[0] > 0:
                 # change to (x, y, w, h) (MS COCO standard)
                 #boxes[:, 2] -= boxes[:, 0]
                 #boxes[:, 3] -= boxes[:, 1]
 
                 # compute predicted labels and scores
                 #for box, score, label in zip(boxes[0], scores[0], labels[0]):
-                for box_id in range(boxes.shape[0]):
-                    score = float(scores[box_id])
-                    label = int(labels[box_id])
-                    box = boxes[box_id, :]
+                for box_id in range(predicted_boxes.shape[0]):
+                    predicted_score = float(predicted_scores[box_id])
+                    predicted_label = int(predicted_labels[box_id])
+                    predicted_box = predicted_boxes[box_id, :]
 
                     # scores are sorted, so we can break
-                    if score < threshold:
+                    if predicted_score < threshold:
                         # break
                         continue
 
@@ -417,8 +438,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
                     image_result = {
                         'image_id': metadata["Filename"],
                         #'category_id': dataset.label_to_coco_label(label),
-                        'score': float(score),
-                        'bbox': box.tolist(),
+                        'score': float(predicted_score),
+                        'bbox': predicted_box.tolist(),
                         'beat_scores': beat_scores,
                         'downbeat_scores': downbeat_scores,
                         # 'beat_scores_left': beat_scores_left,

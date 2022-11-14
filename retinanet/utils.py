@@ -201,6 +201,31 @@ class BBoxTransform(nn.Module):
 
         return pred_boxes
 
+class AnchorPointTransform(nn.Module):
+    def __init__(self):
+        super(AnchorPointTransform, self).__init__()
+
+    def forward(self, all_anchors, regression_outputs, strides_for_all_anchors):
+        # regression_outputs[:, :, 0] shape is (B, number of anchors)
+        # regression_outputs[:, :, 1] shape is (B, number of anchors)
+        # all_anchors shape is (number of anchors,) -> (None, number of anchors)
+        # strides_for_all_anchors shape is (number of anchors,) -> (None, number of anchors)
+
+        # print(f"all_anchors[None] shape: {all_anchors[None].shape}")
+        # print(f"regression_outputs shape: {regression_outputs.shape}")
+        # print(f"regression_outputs[:, :, 0] shape: {regression_outputs[:, :, 0].shape}")
+        # print(f"strides_for_all_anchors[None] shape: {strides_for_all_anchors[None].shape}")
+
+        transformed_regressions_x1 = all_anchors[None] - regression_outputs[:, :, 0] * strides_for_all_anchors[None]
+        transformed_regressions_x2 = all_anchors[None] + regression_outputs[:, :, 1] * strides_for_all_anchors[None]
+
+        transformed_regression_boxes = torch.stack((
+            transformed_regressions_x1, # (B, num of anchors, 1)
+            transformed_regressions_x2  # (B, num of anchors, 1)
+        ), dim=2)
+
+        return transformed_regression_boxes
+
 
 class ClipBoxes(nn.Module):
 
