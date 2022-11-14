@@ -150,10 +150,11 @@ def evaluate_beat(dataset, model, threshold=0.05):
             # run network
             if torch.cuda.is_available():
                 #scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
-                predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
+                #predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
+                predicted_scores, predicted_labels, predicted_boxes, losses = model((audio, target))
             else:
                 #scores, labels, boxes = model(audio.permute(2, 0, 1).float().unsqueeze(dim=0))
-                predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
+                predicted_scores, predicted_labels, predicted_boxes, losses = model((audio, target))
             predicted_scores = predicted_scores.cpu()
             predicted_labels = predicted_labels.cpu()
             predicted_boxes  = predicted_boxes.cpu()
@@ -300,7 +301,6 @@ def evaluate_beat(dataset, model, threshold=0.05):
             #wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
             #wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
             beat_target_left_positions.append(last_target_beat_index * 128 / 22050)
-
             downbeat_target_left_positions.append(last_target_downbeat_index * 128 / 22050)
 
             #target_sample_rate = 22050 // 256
@@ -333,8 +333,11 @@ def evaluate_beat(dataset, model, threshold=0.05):
             beat_pred_left_positions.sort()
             downbeat_target_left_positions.sort()
             downbeat_pred_left_positions.sort()
-            # print(beat_target_left_positions)
-            # print(beat_pred_left_positions)
+
+            print(f"beat_pred_left_positions: {beat_pred_left_positions}")
+            print(f"beat_target_left_positions: {beat_target_left_positions}")
+            print(f"downbeat_pred_left_positions: {downbeat_pred_left_positions}")
+            print(f"downbeat_target_left_positions: {downbeat_target_left_positions}")
 
             beat_target_left_positions = mir_eval.beat.trim_beats(beat_target_left_positions)
             beat_pred_left_positions = mir_eval.beat.trim_beats(beat_pred_left_positions)
@@ -398,7 +401,7 @@ def evaluate_beat(dataset, model, threshold=0.05):
 
 
             print(f"{index}/{len(dataset)} {metadata['Filename']}")
-            print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f}")
+            print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f} | CLS: {losses[0]:0.3f} | REG: {losses[1]:0.3f} | LFT: {losses[2]:0.3f}")
             #print("LEFT")
             # print(f"BEAT (F-measure): {beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_left['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_left['F-measure']:0.3f}")

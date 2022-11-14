@@ -354,7 +354,9 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # All classification outputs should be the same so we just pick the 0th one
         number_of_classes = classification_outputs.size(dim=2)
 
-        if self.training:
+        should_return_loss_during_eval = True
+
+        if self.training or should_return_loss_during_eval:
             # Return the loss if training
             #if self.training:
             # if self.fcos:
@@ -391,14 +393,16 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             #     #return focal_loss, regression_loss, leftness_loss
             # else:
             focal_losses_batch_all_classes, regression_losses_batch_all_classes, leftness_losses_batch_all_classes = [], [], []
-            class_one_cls_targets = None
-            class_one_reg_targets = None
-            class_one_positive_indicators = None
-            class_two_positive_indicators = None
+            class_one_cls_targets, class_one_reg_targets = None, None
+            class_one_positive_indicators, class_two_positive_indicators = None, None
+
             for class_id in range(number_of_classes):
+                # cls_targets is the classification target
+                # positive_indicators and levels_for_all_anchors are debug values.
+                # These two are not specific to focal loss but are values that all three losses identically find.
                 class_focal_loss_batch, cls_targets, positive_indicators, levels_for_all_anchors = self.focalLoss(
 
-                    torch.cat(classification_outputs, dim=1), #MJ: cat:  https://sanghyu.tistory.com/85
+                    classification_outputs, #MJ: cat:  https://sanghyu.tistory.com/85
                      #MJ:  x_{i} in classification_outputs has shape (B,W_{i},C), W= the number of anchor points in feature map i
                      # torch.cat(classification_outputs, dim=1) has shape (B, sum(W_{i}, i=0, 4), 2);
                      #  classification_output[b, loc,0] = 0 or 1 = the downbeat classifier at anchor point loc;
@@ -409,8 +413,9 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     class_id
                 ) #class_focal_loss: the batch mean loss of class_id: shape = (1,) because we used Keepdim=True when we return the batch mean loss for all the anchor points
 
+                # reg_targets is the regression target
                 class_regression_loss_batch, reg_targets = self.regressionLoss(
-                    torch.cat(regression_outputs, dim=1),
+                    regression_outputs,
                     anchors_list,#[anchors  for anchors in anchors_list],
                     annotations,
                     class_id
@@ -418,7 +423,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
                 if self.fcos:
                     class_leftness_loss_batch = self.leftnessLoss(
-                        torch.cat(leftness_outputs, dim=1),
+                        leftness_outputs,
                         anchors_list,#[anchors for anchors in anchors_list],
                         annotations,
                         class_id
@@ -432,24 +437,30 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 # END for class_id in range(number_of_classes)
 
                 if class_id == 0:
+                    # For debugging, we want to produce the massive debug matrix.
+                    # But we need to find the first class targets first, and then the second class, then generate.
                     class_one_cls_targets = cls_targets
                     class_one_reg_targets = reg_targets
                     class_one_positive_indicators = positive_indicators
                 else:
+                    # Since we look at class_id in order, by the time it reached this else it would have already
+                    # gone through class_id == 0 and be looking at class_id == 0.
+                    # By this time we have enough data required to produce the giant debug matrix
+
                     class_two_positive_indicators = positive_indicators
                     either_is_positive_indicators = torch.logical_or(class_one_positive_indicators, class_two_positive_indicators)
 
-                    # torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
-                    # for feature_map_index, _ in enumerate(feature_maps):
-                    #     concatenated_output = torch.cat((
-                    #         class_one_cls_targets[either_is_positive_indicators, 0].unsqueeze(dim=1),
-                    #         cls_targets[either_is_positive_indicators, 1].unsqueeze(dim=1),
-                    #         class_one_reg_targets[either_is_positive_indicators],
-                    #         reg_targets[either_is_positive_indicators],
-                    #         levels_for_all_anchors[either_is_positive_indicators].unsqueeze(dim=1)
-                    #     ), dim=1)
-                    #     print(f"concatenated_output {feature_map_index} {concatenated_output.shape}:\n{concatenated_output}")
-                    # torch.set_printoptions(sci_mode=True, edgeitems=3)
+                    torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
+                    for feature_map_index, _ in enumerate(feature_maps):
+                        concatenated_output = torch.cat((
+                            class_one_cls_targets[either_is_positive_indicators, 0].unsqueeze(dim=1),   # CLASS 1 CLASSIFICATION
+                            cls_targets[either_is_positive_indicators, 1].unsqueeze(dim=1),             # CLASS 2 CLASSIFICATION
+                            class_one_reg_targets[either_is_positive_indicators],                       # CLASS 1 REGRESSION
+                            reg_targets[either_is_positive_indicators],                                 # CLASS 2 REGRESSION
+                            levels_for_all_anchors[either_is_positive_indicators].unsqueeze(dim=1)      # PYRAMID LEVEL
+                        ), dim=1)
+                        print(f"concatenated_output {feature_map_index} {concatenated_output.shape}:\n{concatenated_output}")
+                    torch.set_printoptions(sci_mode=True, edgeitems=3)
 
             #downbeat_weight = 0.6
 
@@ -468,13 +479,14 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             #torch.stack(focal_losses_all_classes):  shape =(2,1)
             regression_loss_class_mean = torch.stack(regression_losses_batch_all_classes).sum(dim=0)
 
-            #return focal_loss, regression_loss
+            if self.training:
+                if self.fcos:
+                   return focal_loss_class_mean, regression_loss_class_mean, leftness_loss
+                else:
+                   return focal_loss_class_mean, regression_loss_class_mean
 
-            if self.fcos:
-                return focal_loss_class_mean, regression_loss_class_mean, leftness_loss
-            else:
-                return focal_loss_class_mean, regression_loss_class_mean
-        else:
+        # else:
+        if not self.training:
             # Start of evaluation mode
 
             # transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_outputs)
@@ -569,7 +581,13 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 finalAnchorBoxesIndexes = torch.cat((finalAnchorBoxesIndexes, finalAnchorBoxesIndexesValue))
                 finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, regression_boxes[anchors_nms_idx]))
 
-            return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates]
+            eval_losses = (
+                focal_loss_class_mean.item(),
+                regression_loss_class_mean.item(),
+                leftness_loss.item()
+            )
+
+            return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates, eval_losses]
 
 def resnet18(num_classes, **kwargs):
     """Constructs a ResNet-18 model."""
