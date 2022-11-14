@@ -3,6 +3,7 @@ import mir_eval
 import numpy as np
 import scipy.signal
 import torch
+from retinanet.utils import calc_iou
 
 def find_beats(t, p, 
                 smoothing=127, 
@@ -235,6 +236,29 @@ def evaluate_beat(dataset, model, threshold=0.05):
                     last_pred_downbeat_index = right_position_index
                 elif predicted_label == 1 and (last_pred_beat_index is None or right_position_index > last_pred_beat_index):
                     last_pred_beat_index = right_position_index
+
+            beat_intervals = predicted_boxes[predicted_labels == 1]
+            sorted_beat_intervals = beat_intervals[beat_intervals[:, 0].sort()[1]]
+            beat_ious = torch.zeros(1, 0).to(sorted_beat_intervals.device)
+
+            downbeat_intervals = predicted_boxes[predicted_labels == 0]
+            sorted_downbeat_intervals = downbeat_intervals[downbeat_intervals[:, 0].sort()[1]]
+            downbeat_ious = torch.zeros(1, 0).to(downbeat_intervals.device)
+
+            for beat_index, beat_interval in enumerate(sorted_beat_intervals[:-1]):
+                next_beat_interval = sorted_beat_intervals[beat_index + 1]
+
+                beat_iou = calc_iou(beat_interval[None], next_beat_interval[None])
+                beat_ious = torch.cat((beat_ious, beat_iou), dim=1)
+
+            for downbeat_index, downbeat_interval in enumerate(sorted_downbeat_intervals[:-1]):
+                next_downbeat_interval = sorted_downbeat_intervals[downbeat_index + 1]
+
+                downbeat_iou = calc_iou(downbeat_interval[None], next_downbeat_interval[None])
+                downbeat_ious = torch.cat((downbeat_ious, downbeat_iou), dim=1)
+
+            print(f"Beat IoUs: {beat_ious}")
+            print(f"Downbeat IoUs: {downbeat_ious}")
 
             if last_pred_beat_index is not None:
                 #wavebeat_format_pred_left[0, min(last_pred_beat_index, length - 1)] = 1
