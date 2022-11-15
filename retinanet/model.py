@@ -7,6 +7,7 @@ import torch.utils.model_zoo as model_zoo
 from retinanet.utils import BasicBlock, Bottleneck, BBoxTransform, AnchorPointTransform, ClipBoxes, nms_2d, soft_nms, soft_nms_from_pseudocode
 from retinanet.anchors import Anchors
 from retinanet import losses
+from retinanet.losses2 import CombinedLoss
 from retinanet.dstcn import dsTCNModel
 
 model_urls = {
@@ -234,8 +235,6 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
          #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
          #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
 
-        
-
         self.regressBoxes = BBoxTransform()
         self.anchor_point_transform = AnchorPointTransform()
 
@@ -244,6 +243,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         self.focalLoss = losses.FocalLoss(fcos=self.fcos)
         self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, weight=1, num_anchors=num_anchors)
         self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
+
+        self.combined_loss = CombinedLoss()
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
@@ -396,6 +397,11 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             class_one_cls_targets, class_one_reg_targets = None, None
             class_one_positive_indicators, class_two_positive_indicators = None, None
 
+            # This combined loss will eventually replace the legacy losses we have been using
+            # classification_loss2, regression_loss2, leftness_loss2 = self.combined_loss(
+            #     classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
+            # )
+
             for class_id in range(number_of_classes):
                 # cls_targets is the classification target
                 # positive_indicators and levels_for_all_anchors are debug values.
@@ -450,17 +456,17 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     class_two_positive_indicators = positive_indicators
                     either_is_positive_indicators = torch.logical_or(class_one_positive_indicators, class_two_positive_indicators)
 
-                    torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
-                    for feature_map_index, _ in enumerate(feature_maps):
-                        concatenated_output = torch.cat((
-                            class_one_cls_targets[either_is_positive_indicators, 0].unsqueeze(dim=1),   # CLASS 1 CLASSIFICATION
-                            cls_targets[either_is_positive_indicators, 1].unsqueeze(dim=1),             # CLASS 2 CLASSIFICATION
-                            class_one_reg_targets[either_is_positive_indicators],                       # CLASS 1 REGRESSION
-                            reg_targets[either_is_positive_indicators],                                 # CLASS 2 REGRESSION
-                            levels_for_all_anchors[either_is_positive_indicators].unsqueeze(dim=1)      # PYRAMID LEVEL
-                        ), dim=1)
-                        print(f"concatenated_output {feature_map_index} {concatenated_output.shape}:\n{concatenated_output}")
-                    torch.set_printoptions(sci_mode=True, edgeitems=3)
+                    # torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
+                    # for feature_map_index, _ in enumerate(feature_maps):
+                    #     concatenated_output = torch.cat((
+                    #         class_one_cls_targets[either_is_positive_indicators, 0].unsqueeze(dim=1),   # CLASS 1 CLASSIFICATION
+                    #         cls_targets[either_is_positive_indicators, 1].unsqueeze(dim=1),             # CLASS 2 CLASSIFICATION
+                    #         class_one_reg_targets[either_is_positive_indicators],                       # CLASS 1 REGRESSION
+                    #         reg_targets[either_is_positive_indicators],                                 # CLASS 2 REGRESSION
+                    #         levels_for_all_anchors[either_is_positive_indicators].unsqueeze(dim=1)      # PYRAMID LEVEL
+                    #     ), dim=1)
+                    #     print(f"concatenated_output {feature_map_index} {concatenated_output.shape}:\n{concatenated_output}")
+                    # torch.set_printoptions(sci_mode=True, edgeitems=3)
 
             #downbeat_weight = 0.6
 
