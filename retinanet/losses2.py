@@ -453,6 +453,7 @@ class AdjacencyConstraintLoss(nn.Module):
         # the downbeats with their corresponding first beat objects; they will share the same regression
         # box x1 position value.
         # For downbeats, the column is repeated; for beats, the row is repeated
+        print(downbeat_target_x1s_for_anchors[:, None])
         downbeat_position_repeated = downbeat_target_x1s_for_anchors[:, None].repeat(1, num_beats)
         beat_position_repeated = beat_target_x1s_for_anchors[None, :].repeat(num_downbeats, 1)
 

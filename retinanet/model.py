@@ -586,7 +586,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, regression_boxes[anchors_nms_idx]))
 
             eval_losses = (
-                focal_loss.item(),
+                classification_loss.item(),
                 regression_loss.item(),
                 leftness_loss.item(),
                 adjacency_constraint_loss.item()
