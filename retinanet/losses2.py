@@ -410,37 +410,15 @@ class AdjacencyConstraintLoss(nn.Module):
         super(AdjacencyConstraintLoss, self).__init__()
         self.anchor_point_transform = AnchorPointTransform()
 
-    def forward(
+    def calculate_downbeat_and_beat_x1_loss(
         self,
-        jth_classification_targets,
-        jth_regression_pred,
-        jth_regression_targets,
-        jth_positive_anchors,
-        jth_positive_anchor_strides
+        transformed_target_regression_boxes,
+        transformed_pred_regression_boxes,
+        downbeat_classifiers_for_anchors,
+        beat_classifiers_for_anchors,
     ):
-        # With the classification targets, we can easily figure out what anchor corresponds to what box type
-        # If jth_classification_targets[:, 0] is 1, the corresponding anchor is associated with a downbeat
-        # If jth_classification_targets[:, 1] is 1, the corresponding anchor is associated with a beat
-        num_downbeats = torch.sum(jth_classification_targets[:, 0], dtype=torch.int32).item()
-        num_beats = torch.sum(jth_classification_targets[:, 1], dtype=torch.int32).item()
-
-        # Given the regression prediction and targets which are in (l, r), produce (x1, x2) boxes
-        # Target boxes are used to match the downbeats with their corresponding first beats
-        transformed_target_regression_boxes = self.anchor_point_transform(
-            jth_positive_anchors,
-            jth_regression_targets[None],
-            jth_positive_anchor_strides
-        ).squeeze(dim=0)
-
-        # Prediction boxes are used to calculate the discrepancies between downbeats and corresponding first beats
-        transformed_pred_regression_boxes = self.anchor_point_transform(
-            jth_positive_anchors,
-            jth_regression_pred[None],
-            jth_positive_anchor_strides
-        ).squeeze(dim=0)
-
-        downbeat_classifiers_for_anchors = jth_classification_targets[:, 0] == 1
-        beat_classifiers_for_anchors = jth_classification_targets[:, 1] == 1
+        num_anchors_for_downbeats = torch.sum(downbeat_classifiers_for_anchors, dtype=torch.int32).item()
+        num_anchors_for_beats = torch.sum(beat_classifiers_for_anchors, dtype=torch.int32).item()
 
         downbeat_target_x1s_for_anchors = transformed_target_regression_boxes[downbeat_classifiers_for_anchors, 0]
         downbeat_pred_x1s_for_anchors = transformed_pred_regression_boxes[downbeat_classifiers_for_anchors, 0]
@@ -458,22 +436,109 @@ class AdjacencyConstraintLoss(nn.Module):
         downbeat_pred_x1s_for_anchors_dx1 = downbeat_pred_x1s_for_anchors[:, None]
         beat_pred_x1s_for_anchors_1xb = beat_pred_x1s_for_anchors[None, :]
 
-        downbeat_position_repeated_dxb = downbeat_target_x1s_for_anchors_dx1.repeat(1, num_beats)
-        beat_position_repeated_dxb = beat_target_x1s_for_anchors_1xb.repeat(num_downbeats, 1)
+        downbeat_position_repeated_dxb = downbeat_target_x1s_for_anchors_dx1.repeat(1, num_anchors_for_beats)
+        beat_position_repeated_dxb = beat_target_x1s_for_anchors_1xb.repeat(num_anchors_for_downbeats, 1)
 
-        downbeat_and_beat_x1_equivalency_matrix_dxb = downbeat_position_repeated_dxb == beat_position_repeated_dxb
+        downbeat_and_beat_x1_incidence_matrix_dxb = downbeat_position_repeated_dxb == beat_position_repeated_dxb
+        num_incidences = downbeat_and_beat_x1_incidence_matrix_dxb.sum()
 
         # Calculate the mean square error between all the downbeat prediction x1 and beat prediction x1
-        # and multiply this (D, B) result matrix with the equivalency matrix to remove all values where
+        # and multiply this (D, B) result matrix with the incidence matrix to remove all values where
         # the downbeat does not correspond with the beat
         downbeat_and_beat_x1_discrepancy_error_dxb =\
-            (downbeat_pred_x1s_for_anchors_dx1 - beat_pred_x1s_for_anchors_1xb) ** 2
-        downbeat_and_beat_x1_discrepancy_error_dxb *= downbeat_and_beat_x1_equivalency_matrix_dxb
+            torch.abs(downbeat_pred_x1s_for_anchors_dx1 - beat_pred_x1s_for_anchors_1xb) #(downbeat_pred_x1s_for_anchors_dx1 - beat_pred_x1s_for_anchors_1xb) ** 2
 
-        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error_dxb.sum() / num_downbeats
+        downbeat_and_beat_x1_discrepancy_error_dxb *= downbeat_and_beat_x1_incidence_matrix_dxb
+
+        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error_dxb.sum() / num_incidences
 
         return downbeat_and_beat_x1_loss
 
+    def calculate_x2_and_x1_loss(
+        self,
+        transformed_target_regression_boxes,
+        transformed_pred_regression_boxes,
+        classifiers_for_anchors
+    ):
+        num_anchors_for_class = torch.sum(classifiers_for_anchors, dtype=torch.int32).item()
+
+        class_target_x2s_for_anchors = transformed_target_regression_boxes[classifiers_for_anchors, 1]
+        class_pred_x2s_for_anchors = transformed_pred_regression_boxes[classifiers_for_anchors, 1]
+
+        class_target_x1s_for_anchors = transformed_target_regression_boxes[classifiers_for_anchors, 0]
+        class_pred_x1s_for_anchors = transformed_pred_regression_boxes[classifiers_for_anchors, 0]
+
+        class_target_x2s_for_anchors_nx1 = class_target_x2s_for_anchors[:, None]
+        class_target_x1s_for_anchors_1xn = class_target_x1s_for_anchors[None, :]
+        class_pred_x2s_for_anchors_nx1 = class_pred_x2s_for_anchors[:, None]
+        class_pred_x1s_for_anchors_1xn = class_pred_x1s_for_anchors[None, :]
+
+        class_position_x2s_repeated_nxn = class_target_x2s_for_anchors_nx1.repeat(1, num_anchors_for_class)
+        class_position_x1s_repeated_nxn = class_target_x1s_for_anchors_1xn.repeat(num_anchors_for_class, 1)
+
+        class_x2_and_x1_incidence_matrix_nxn = class_position_x2s_repeated_nxn == class_position_x1s_repeated_nxn
+        num_incidences = class_x2_and_x1_incidence_matrix_nxn.sum()
+
+        class_x2_and_x1_discrepancy_error_nxn =\
+            torch.abs(class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn)#(class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) ** 2
+        class_x2_and_x1_discrepancy_error_nxn *= class_x2_and_x1_incidence_matrix_nxn
+
+        class_x2_and_x1_loss = class_x2_and_x1_discrepancy_error_nxn.sum() / num_incidences
+
+        return class_x2_and_x1_loss
+
+    def forward(
+        self,
+        jth_classification_targets,
+        jth_regression_pred,
+        jth_regression_targets,
+        jth_positive_anchors,
+        jth_positive_anchor_strides
+    ):
+        # With the classification targets, we can easily figure out what anchor corresponds to what box type
+        # If jth_classification_targets[:, 0] is 1, the corresponding anchor is associated with a downbeat
+        # If jth_classification_targets[:, 1] is 1, the corresponding anchor is associated with a beat
+
+        downbeat_classifiers_for_anchors = jth_classification_targets[:, 0] == 1
+        beat_classifiers_for_anchors = jth_classification_targets[:, 1] == 1
+
+        # Given the regression prediction and targets which are in (l, r), produce (x1, x2) boxes
+        # Target boxes are used to match the downbeats with their corresponding first beats
+        transformed_target_regression_boxes = self.anchor_point_transform(
+            jth_positive_anchors,
+            jth_regression_targets[None],
+            jth_positive_anchor_strides
+        ).squeeze(dim=0)
+
+        # Prediction boxes are used to calculate the discrepancies between downbeats and corresponding first beats
+        transformed_pred_regression_boxes = self.anchor_point_transform(
+            jth_positive_anchors,
+            jth_regression_pred[None],
+            jth_positive_anchor_strides
+        ).squeeze(dim=0)
+
+        downbeat_and_beat_x1_loss = self.calculate_downbeat_and_beat_x1_loss(
+            transformed_target_regression_boxes,
+            transformed_pred_regression_boxes,
+            downbeat_classifiers_for_anchors,
+            beat_classifiers_for_anchors,
+        )
+
+        downbeat_x2_and_x1_loss = self.calculate_x2_and_x1_loss(
+            transformed_target_regression_boxes,
+            transformed_pred_regression_boxes,
+            downbeat_classifiers_for_anchors
+        )
+
+        beat_x2_and_x1_loss = self.calculate_x2_and_x1_loss(
+            transformed_target_regression_boxes,
+            transformed_pred_regression_boxes,
+            beat_classifiers_for_anchors
+        )
+
+        all_adjacency_constraint_losses = torch.stack((downbeat_and_beat_x1_loss, downbeat_x2_and_x1_loss, beat_x2_and_x1_loss))
+
+        return all_adjacency_constraint_losses.mean()
 
 class CombinedLoss(nn.Module):
     def __init__(self):
