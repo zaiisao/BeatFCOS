@@ -508,7 +508,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 finalScores = finalScores.cuda()
                 finalAnchorBoxesIndexes = finalAnchorBoxesIndexes.cuda()
                 finalAnchorBoxesCoordinates = finalAnchorBoxesCoordinates.cuda()
-                strides_for_all_anchors = stride_for_all_anchors.cuda()
+                strides_for_all_anchors = strides_for_all_anchors.cuda()
 
             if self.fcos:
                 for i, anchors_per_level in enumerate(anchors_list):    # i ranges over the level of feature maps.
