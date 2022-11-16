@@ -515,7 +515,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     # size_of_interest_per_level = anchor_points_per_level.new_tensor([sizes[i][0] * audio_target_rate, sizes[i][1] * audio_target_rate])
                     # size_of_interest_for_anchors_per_level = size_of_interest_per_level[None].expand(anchor_points_per_level.size(dim=0), -1)
 
-                    stride_per_level = torch.tensor(2**(i + 1))
+                    stride_per_level = torch.tensor(2**(i + 1)).to(strides_for_all_anchors.device)
                     stride_for_anchors_per_level = stride_per_level[None].expand(anchors_per_level.size(dim=0))
                     # print(f"stride_per_level {stride_per_level.shape}:\n{stride_per_level}")
                     # print(f"stride_per_level[None] {stride_per_level[None].shape}:\n{stride_per_level[None]}")
