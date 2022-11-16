@@ -556,7 +556,7 @@ class CombinedLoss(nn.Module):
                 jth_annotations
             )
 
-            strides_for_all_anchors = torch.zeros(0)
+            strides_for_all_anchors = torch.zeros(0).to(classifications.device)
             for i, anchors_per_level in enumerate(anchors_list):
                 stride_per_level = torch.tensor(2**(i + 1))
                 stride_for_anchors_per_level = stride_per_level[None].expand(anchors_per_level.size(dim=0))
