@@ -453,20 +453,24 @@ class AdjacencyConstraintLoss(nn.Module):
         # the downbeats with their corresponding first beat objects; they will share the same regression
         # box x1 position value.
         # For downbeats, the column is repeated; for beats, the row is repeated
-        print(downbeat_target_x1s_for_anchors[:, None])
-        downbeat_position_repeated = downbeat_target_x1s_for_anchors[:, None].repeat(1, num_beats)
-        beat_position_repeated = beat_target_x1s_for_anchors[None, :].repeat(num_downbeats, 1)
+        downbeat_target_x1s_for_anchors_dx1 = downbeat_target_x1s_for_anchors[:, None]
+        beat_target_x1s_for_anchors_1xb = beat_target_x1s_for_anchors[None, :]
+        downbeat_pred_x1s_for_anchors_dx1 = downbeat_pred_x1s_for_anchors[:, None]
+        beat_pred_x1s_for_anchors_1xb = beat_pred_x1s_for_anchors[None, :]
 
-        downbeat_and_beat_x1_equivalency_matrix = downbeat_position_repeated == beat_position_repeated
+        downbeat_position_repeated_dxb = downbeat_target_x1s_for_anchors_dx1.repeat(1, num_beats)
+        beat_position_repeated_dxb = beat_target_x1s_for_anchors_1xb.repeat(num_downbeats, 1)
+
+        downbeat_and_beat_x1_equivalency_matrix_dxb = downbeat_position_repeated_dxb == beat_position_repeated_dxb
 
         # Calculate the mean square error between all the downbeat prediction x1 and beat prediction x1
         # and multiply this (D, B) result matrix with the equivalency matrix to remove all values where
         # the downbeat does not correspond with the beat
-        downbeat_and_beat_x1_discrepancy_error =\
-            (downbeat_pred_x1s_for_anchors[:, None] - beat_pred_x1s_for_anchors[None, :]) ** 2
-        downbeat_and_beat_x1_discrepancy_error *= downbeat_and_beat_x1_equivalency_matrix
+        downbeat_and_beat_x1_discrepancy_error_dxb =\
+            (downbeat_pred_x1s_for_anchors_dx1 - beat_pred_x1s_for_anchors_1xb) ** 2
+        downbeat_and_beat_x1_discrepancy_error_dxb *= downbeat_and_beat_x1_equivalency_matrix_dxb
 
-        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error.sum() / num_downbeats
+        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error_dxb.sum() / num_downbeats
 
         return downbeat_and_beat_x1_loss
 
