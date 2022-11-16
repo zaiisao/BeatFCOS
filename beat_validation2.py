@@ -130,7 +130,7 @@ else:
     print("no checkpoint found")
 
 # setup the dataloaders
-train_datasets = []
+# train_datasets = []
 val_datasets = []
 
 for dataset in datasets:
@@ -153,19 +153,19 @@ for dataset in datasets:
     if not audio_dir or not annot_dir:
         continue
 
-    train_dataset = BeatDataset(audio_dir,
-                                    annot_dir,
-                                    dataset=dataset,
-                                    audio_sample_rate=args.audio_sample_rate,
-                                    target_factor=args.target_factor,
-                                    subset="train",
-                                    fraction=args.train_fraction,
-                                    augment=args.augment,
-                                    half=True,
-                                    preload=args.preload,
-                                    length=args.train_length,
-                                    dry_run=args.dry_run)
-    train_datasets.append(train_dataset)
+    # train_dataset = BeatDataset(audio_dir,
+    #                                 annot_dir,
+    #                                 dataset=dataset,
+    #                                 audio_sample_rate=args.audio_sample_rate,
+    #                                 target_factor=args.target_factor,
+    #                                 subset="train",
+    #                                 fraction=args.train_fraction,
+    #                                 augment=args.augment,
+    #                                 half=True,
+    #                                 preload=args.preload,
+    #                                 length=args.train_length,
+    #                                 dry_run=args.dry_run)
+    # train_datasets.append(train_dataset)
 
     val_dataset = BeatDataset(audio_dir,
                                  annot_dir,
@@ -180,15 +180,15 @@ for dataset in datasets:
                                  dry_run=args.dry_run)
     val_datasets.append(val_dataset)
 
-train_dataset_list = torch.utils.data.ConcatDataset(train_datasets)
+# train_dataset_list = torch.utils.data.ConcatDataset(train_datasets)
 val_dataset_list = torch.utils.data.ConcatDataset(val_datasets)
 
-train_dataloader = torch.utils.data.DataLoader(train_dataset_list, 
-                                                shuffle=args.shuffle,
-                                                batch_size=args.batch_size,
-                                                num_workers=args.num_workers,
-                                                pin_memory=True,
-                                                collate_fn=collater)
+# train_dataloader = torch.utils.data.DataLoader(train_dataset_list, 
+#                                                 shuffle=args.shuffle,
+#                                                 batch_size=args.batch_size,
+#                                                 num_workers=args.num_workers,
+#                                                 pin_memory=True,
+#                                                 collate_fn=collater)
 val_dataloader = torch.utils.data.DataLoader(val_dataset_list, 
                                             shuffle=args.shuffle,
                                             batch_size=1,
@@ -281,7 +281,7 @@ if __name__ == '__main__':
     retinanet.train()
     retinanet.module.freeze_bn()
 
-    print('Num training images: {}'.format(len(train_dataset_list)))
+    # print('Num training images: {}'.format(len(train_dataset_list)))
 
     if not os.path.exists("./checkpoints"):
         os.makedirs("./checkpoints")
@@ -292,103 +292,99 @@ if __name__ == '__main__':
     highest_beat_mean_f_measure = 0
     highest_downbeat_mean_f_measure = 0
 
-    for epoch_num in range(start_epoch, args.epochs):
-        retinanet.train()
-        retinanet.module.freeze_bn()
+    # for epoch_num in range(start_epoch, args.epochs):
+    #     retinanet.train()
+    #     retinanet.module.freeze_bn()
 
-        epoch_loss = []
+    #     epoch_loss = []
 
-        for iter_num, data in enumerate(train_dataloader):
-            audio, target = data
-            if use_gpu and torch.cuda.is_available():
-                audio = audio.cuda()
-                target = target.cuda()
+    #     for iter_num, data in enumerate(train_dataloader):
+    #         audio, target = data
+    #         if use_gpu and torch.cuda.is_available():
+    #             audio = audio.cuda()
+    #             target = target.cuda()
 
-            try:
-                optimizer.zero_grad()
+    #         try:
+    #             optimizer.zero_grad()
 
-                if args.fcos:
-                    classification_loss, regression_loss, leftness_loss = retinanet((audio, target))  # retinanet = model.resnet50(**dict_args)
-                                                                                                        # this calls the forward function of resnet50
-                else:
-                    classification_loss, regression_loss = retinanet((audio, target))
-                    leftness_loss = torch.zeros(1)
+    #             if args.fcos:
+    #                 classification_loss, regression_loss, leftness_loss = retinanet((audio, target))  # retinanet = model.resnet50(**dict_args)
+    #                                                                                                     # this calls the forward function of resnet50
+    #             else:
+    #                 classification_loss, regression_loss = retinanet((audio, target))
+    #                 leftness_loss = torch.zeros(1)
     
-                classification_loss = classification_loss.mean() * classification_loss_weight
-                regression_loss = regression_loss.mean() * regression_loss_weight
-                leftness_loss = leftness_loss.mean()
+    #             classification_loss = classification_loss.mean() * classification_loss_weight
+    #             regression_loss = regression_loss.mean() * regression_loss_weight
+    #             leftness_loss = leftness_loss.mean()
 
-                loss = classification_loss + regression_loss + leftness_loss
+    #             loss = classification_loss + regression_loss + leftness_loss
 
-                if bool(loss == 0):
-                    continue
+    #             if bool(loss == 0):
+    #                 continue
 
-                loss.backward()
-                # print(torch.abs(retinanet.module.classificationModel.output.weight.grad).sum())
-                # print(torch.abs(retinanet.module.regressionModel.regression.weight.grad).sum())
-                # if args.fcos:
-                #     print(torch.abs(retinanet.module.regressionModel.leftness.weight.grad).sum())
+    #             loss.backward()
+    #             # print(torch.abs(retinanet.module.classificationModel.output.weight.grad).sum())
+    #             # print(torch.abs(retinanet.module.regressionModel.regression.weight.grad).sum())
+    #             # if args.fcos:
+    #             #     print(torch.abs(retinanet.module.regressionModel.leftness.weight.grad).sum())
 
-                torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
+    #             torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
 
-                optimizer.step()
+    #             optimizer.step()
 
-                loss_hist.append(float(loss))
+    #             loss_hist.append(float(loss))
 
-                epoch_loss.append(float(loss))
+    #             epoch_loss.append(float(loss))
 
-                if args.fcos:
-                    print(
-                        'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Leftness loss: {:1.5f} | Running loss: {:1.5f}'.format(
-                            epoch_num, iter_num, float(classification_loss), float(regression_loss), float(leftness_loss), np.mean(loss_hist)))
-                else:
-                    print(
-                        'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
-                            epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
+    #             if args.fcos:
+    #                 print(
+    #                     'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Leftness loss: {:1.5f} | Running loss: {:1.5f}'.format(
+    #                         epoch_num, iter_num, float(classification_loss), float(regression_loss), float(leftness_loss), np.mean(loss_hist)))
+    #             else:
+    #                 print(
+    #                     'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
+    #                         epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
 
-                del classification_loss
-                del regression_loss
-                del leftness_loss
-            except KeyboardInterrupt:
-                sys.exit()
-            except Exception as e:
-                print(e)
-                traceback.print_exc()
-                continue
+    #             del classification_loss
+    #             del regression_loss
+    #             del leftness_loss
+    #         except KeyboardInterrupt:
+    #             sys.exit()
+    #         except Exception as e:
+    #             print(e)
+    #             traceback.print_exc()
+    #             continue
 
-        # End of: for iter_num, data in enumerate(train_dataloader)
+    print('Evaluating dataset')
+    # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
+    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat(val_dataloader, retinanet)
 
-        # Evaluate the evaluation dataset in each epoch
-        print('Evaluating dataset')
-        # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
-        score_threshold = 0.05
-        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat(val_dataloader, retinanet, score_threshold=score_threshold)
-
-        print(f"Epoch = {epoch_num} | Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
-        # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
-        # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
-        # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
+    print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+    # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
+    # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+    # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
         # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
-        scheduler.step(np.mean(epoch_loss))
+    #     scheduler.step(np.mean(epoch_loss))
 
-        should_save_checkpoint = False
-        if beat_mean_f_measure > highest_beat_mean_f_measure:
-            should_save_checkpoint = True
-            print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
-            highest_beat_mean_f_measure = beat_mean_f_measure
+    #     should_save_checkpoint = False
+    #     if beat_mean_f_measure > highest_beat_mean_f_measure:
+    #         should_save_checkpoint = True
+    #         print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
+    #         highest_beat_mean_f_measure = beat_mean_f_measure
 
-        if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
-            should_save_checkpoint = True
-            print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
-            highest_downbeat_mean_f_measure = downbeat_mean_f_measure
+    #     if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
+    #         should_save_checkpoint = True
+    #         print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
+    #         highest_downbeat_mean_f_measure = downbeat_mean_f_measure
 
-        should_save_checkpoint = True # FOR DEBUGGING
-        if should_save_checkpoint:
-            new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
-            print(f"Saving checkpoint at {new_checkpoint_path}")
-            torch.save(retinanet.state_dict(), new_checkpoint_path)
+    #     should_save_checkpoint = True # FOR DEBUGGING
+    #     if should_save_checkpoint:
+    #         new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
+    #         print(f"Saving checkpoint at {new_checkpoint_path}")
+    #         torch.save(retinanet.state_dict(), new_checkpoint_path)
 
-    retinanet.eval()
+    # retinanet.eval()
 
-    torch.save(retinanet, './checkpoints/model_final.pt')
+    # torch.save(retinanet, './checkpoints/model_final.pt')

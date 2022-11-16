@@ -120,7 +120,7 @@ def evaluate(pred, target, target_sample_rate, use_dbn=False):
 
     return beat_scores, downbeat_scores
 
-def evaluate_beat(dataset, model, threshold=0.05):
+def evaluate_beat(dataset, model, score_threshold=0.05):
     model.eval()
     
     with torch.no_grad():
@@ -148,14 +148,18 @@ def evaluate_beat(dataset, model, threshold=0.05):
             audio_pad = (0, target_length - audio.size(dim=2))
             audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
 
+            iou_threshold = 0.5
+
             # run network
-            if torch.cuda.is_available():
-                #scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
-                #predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
-                predicted_scores, predicted_labels, predicted_boxes, losses = model((audio, target))
-            else:
-                #scores, labels, boxes = model(audio.permute(2, 0, 1).float().unsqueeze(dim=0))
-                predicted_scores, predicted_labels, predicted_boxes, losses = model((audio, target))
+            # scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
+            # predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
+
+            predicted_scores, predicted_labels, predicted_boxes, losses = model(
+                (audio, target),
+                iou_threshold=iou_threshold,
+                score_threshold=score_threshold
+            )
+
             predicted_scores = predicted_scores.cpu()
             predicted_labels = predicted_labels.cpu()
             predicted_boxes  = predicted_boxes.cpu()
@@ -199,7 +203,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
                 predicted_box = predicted_boxes[box_id, :]
 
                 # scores are sorted, so we can break
-                if predicted_score < threshold:
+                # but this filtering is redundant, as the filtering is done within the evaluation part of the model
+                if predicted_score < score_threshold:
                     continue
 
                 # if beat (label 1), first row (index 0)
@@ -257,8 +262,8 @@ def evaluate_beat(dataset, model, threshold=0.05):
                 downbeat_iou = calc_iou(downbeat_interval[None], next_downbeat_interval[None])
                 downbeat_ious = torch.cat((downbeat_ious, downbeat_iou), dim=1)
 
-            print(f"Beat IoUs: {beat_ious}")
-            print(f"Downbeat IoUs: {downbeat_ious}")
+            # print(f"Beat IoUs: {beat_ious}")
+            # print(f"Downbeat IoUs: {downbeat_ious}")
 
             if last_pred_beat_index is not None:
                 #wavebeat_format_pred_left[0, min(last_pred_beat_index, length - 1)] = 1
@@ -358,10 +363,10 @@ def evaluate_beat(dataset, model, threshold=0.05):
             downbeat_target_left_positions.sort()
             downbeat_pred_left_positions.sort()
 
-            print(f"beat_pred_left_positions: {beat_pred_left_positions}")
-            print(f"beat_target_left_positions: {beat_target_left_positions}")
-            print(f"downbeat_pred_left_positions: {downbeat_pred_left_positions}")
-            print(f"downbeat_target_left_positions: {downbeat_target_left_positions}")
+            # print(f"beat_pred_left_positions: {beat_pred_left_positions}")
+            # print(f"beat_target_left_positions: {beat_target_left_positions}")
+            # print(f"downbeat_pred_left_positions: {downbeat_pred_left_positions}")
+            # print(f"downbeat_target_left_positions: {downbeat_target_left_positions}")
 
             beat_target_left_positions = mir_eval.beat.trim_beats(beat_target_left_positions)
             beat_pred_left_positions = mir_eval.beat.trim_beats(beat_pred_left_positions)
@@ -457,7 +462,7 @@ def evaluate_beat(dataset, model, threshold=0.05):
                     predicted_box = predicted_boxes[box_id, :]
 
                     # scores are sorted, so we can break
-                    if predicted_score < threshold:
+                    if predicted_score < score_threshold:
                         # break
                         continue
 

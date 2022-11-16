@@ -290,7 +290,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             if isinstance(layer, nn.BatchNorm1d):
                 layer.eval()
 
-    def forward(self, inputs):
+    def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05):
         # inputs = audio, target
         # self.training = len(inputs) == 2
 
@@ -355,9 +355,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # All classification outputs should be the same so we just pick the 0th one
         number_of_classes = classification_outputs.size(dim=2)
 
-        should_return_loss_during_eval = True
-
-        if self.training or should_return_loss_during_eval:
+        # This part is executed either during training or evaluation
+        if self.training or not self.training:
             # Return the loss if training
             #if self.training:
             # if self.fcos:
@@ -398,63 +397,62 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             class_one_positive_indicators, class_two_positive_indicators = None, None
 
             # This combined loss will eventually replace the legacy losses we have been using
-            # classification_loss2, regression_loss2, leftness_loss2 = self.combined_loss(
-            #     classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
-            # )
+            classification_loss, regression_loss, leftness_loss = self.combined_loss(
+                classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
+            )
 
-            for class_id in range(number_of_classes):
-                # cls_targets is the classification target
-                # positive_indicators and levels_for_all_anchors are debug values.
-                # These two are not specific to focal loss but are values that all three losses identically find.
-                class_focal_loss_batch, cls_targets, positive_indicators, levels_for_all_anchors = self.focalLoss(
+            # for class_id in range(number_of_classes):
+            #     # cls_targets is the classification target
+            #     # positive_indicators and levels_for_all_anchors are debug values.
+            #     # These two are not specific to focal loss but are values that all three losses identically find.
+            #     class_focal_loss_batch, cls_targets, positive_indicators, levels_for_all_anchors = self.focalLoss(
 
-                    classification_outputs, #MJ: cat:  https://sanghyu.tistory.com/85
-                     #MJ:  x_{i} in classification_outputs has shape (B,W_{i},C), W= the number of anchor points in feature map i
-                     # torch.cat(classification_outputs, dim=1) has shape (B, sum(W_{i}, i=0, 4), 2);
-                     #  classification_output[b, loc,0] = 0 or 1 = the downbeat classifier at anchor point loc;
-                     # classification_output[b, loc, 1] = 0 or 1 = the beat classifier at  anchor point loc
-                     # 
-                    anchors_list,#[anchors for anchors in anchors_list],
-                    annotations,
-                    class_id
-                ) #class_focal_loss: the batch mean loss of class_id: shape = (1,) because we used Keepdim=True when we return the batch mean loss for all the anchor points
+            #         classification_outputs, #MJ: cat:  https://sanghyu.tistory.com/85
+            #          #MJ:  x_{i} in classification_outputs has shape (B,W_{i},C), W= the number of anchor points in feature map i
+            #          # torch.cat(classification_outputs, dim=1) has shape (B, sum(W_{i}, i=0, 4), 2);
+            #          #  classification_output[b, loc,0] = 0 or 1 = the downbeat classifier at anchor point loc;
+            #          # classification_output[b, loc, 1] = 0 or 1 = the beat classifier at  anchor point loc
+            #          # 
+            #         anchors_list,#[anchors for anchors in anchors_list],
+            #         annotations,
+            #         class_id
+            #     ) #class_focal_loss: the batch mean loss of class_id: shape = (1,) because we used Keepdim=True when we return the batch mean loss for all the anchor points
 
-                # reg_targets is the regression target
-                class_regression_loss_batch, reg_targets = self.regressionLoss(
-                    regression_outputs,
-                    anchors_list,#[anchors  for anchors in anchors_list],
-                    annotations,
-                    class_id
-                )
+            #     # reg_targets is the regression target
+            #     class_regression_loss_batch, reg_targets = self.regressionLoss(
+            #         regression_outputs,
+            #         anchors_list,#[anchors  for anchors in anchors_list],
+            #         annotations,
+            #         class_id
+            #     )
 
-                if self.fcos:
-                    class_leftness_loss_batch = self.leftnessLoss(
-                        leftness_outputs,
-                        anchors_list,#[anchors for anchors in anchors_list],
-                        annotations,
-                        class_id
-                    )
+            #     if self.fcos:
+            #         class_leftness_loss_batch = self.leftnessLoss(
+            #             leftness_outputs,
+            #             anchors_list,#[anchors for anchors in anchors_list],
+            #             annotations,
+            #             class_id
+            #         )
 
-                    leftness_losses_batch_all_classes.append(class_leftness_loss_batch)
-                #if self.fcos:
+            #         leftness_losses_batch_all_classes.append(class_leftness_loss_batch)
 
-                focal_losses_batch_all_classes.append(class_focal_loss_batch)
-                regression_losses_batch_all_classes.append(class_regression_loss_batch)
-                # END for class_id in range(number_of_classes)
+            #     focal_losses_batch_all_classes.append(class_focal_loss_batch)
+            #     regression_losses_batch_all_classes.append(class_regression_loss_batch)
+            #     # END for class_id in range(number_of_classes)
 
-                if class_id == 0:
-                    # For debugging, we want to produce the massive debug matrix.
-                    # But we need to find the first class targets first, and then the second class, then generate.
-                    class_one_cls_targets = cls_targets
-                    class_one_reg_targets = reg_targets
-                    class_one_positive_indicators = positive_indicators
-                else:
-                    # Since we look at class_id in order, by the time it reached this else it would have already
-                    # gone through class_id == 0 and be looking at class_id == 0.
-                    # By this time we have enough data required to produce the giant debug matrix
+            #     if class_id == 0:
+            #         # For debugging, we want to produce the massive debug matrix.
+            #         # But we need to find the first class targets first, and then the second class, then generate.
+            #         class_one_cls_targets = cls_targets
+            #         class_one_reg_targets = reg_targets
+            #         class_one_positive_indicators = positive_indicators
+            #     else:
+            #         # Since we look at class_id in order, by the time it reached this else it would have already
+            #         # gone through class_id == 0 and be looking at class_id == 0.
+            #         # By this time we have enough data required to produce the giant debug matrix
 
-                    class_two_positive_indicators = positive_indicators
-                    either_is_positive_indicators = torch.logical_or(class_one_positive_indicators, class_two_positive_indicators)
+            #         class_two_positive_indicators = positive_indicators
+            #         either_is_positive_indicators = torch.logical_or(class_one_positive_indicators, class_two_positive_indicators)
 
                     # torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
                     # for feature_map_index, _ in enumerate(feature_maps):
@@ -470,28 +468,27 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
             #downbeat_weight = 0.6
 
-            focal_losses_batch_all_classes[0] *= self.downbeat_weight
-            regression_losses_batch_all_classes[0] *= self.downbeat_weight
+            # focal_losses_batch_all_classes[0] *= self.downbeat_weight
+            # regression_losses_batch_all_classes[0] *= self.downbeat_weight
 
-            focal_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
-            regression_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
+            # focal_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
+            # regression_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
 
-            if self.fcos:
-                leftness_losses_batch_all_classes[0] *= self.downbeat_weight
-                leftness_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
-                leftness_loss = torch.stack(leftness_losses_batch_all_classes).sum(dim=0)
+            # if self.fcos:
+            #     leftness_losses_batch_all_classes[0] *= self.downbeat_weight
+            #     leftness_losses_batch_all_classes[1] *= (1 - self.downbeat_weight)
+            #     leftness_loss = torch.stack(leftness_losses_batch_all_classes).sum(dim=0)
 
-            focal_loss_class_mean = torch.stack(focal_losses_batch_all_classes).sum(dim=0)  #MJ: stack: https://sanghyu.tistory.com/85
-            #torch.stack(focal_losses_all_classes):  shape =(2,1)
-            regression_loss_class_mean = torch.stack(regression_losses_batch_all_classes).sum(dim=0)
+            # focal_loss_class_mean = torch.stack(focal_losses_batch_all_classes).sum(dim=0)  #MJ: stack: https://sanghyu.tistory.com/85
+            # #torch.stack(focal_losses_all_classes):  shape =(2,1)
+            # regression_loss_class_mean = torch.stack(regression_losses_batch_all_classes).sum(dim=0)
 
             if self.training:
-                if self.fcos:
-                   return focal_loss_class_mean, regression_loss_class_mean, leftness_loss
-                else:
-                   return focal_loss_class_mean, regression_loss_class_mean
+               return classification_loss, regression_loss, leftness_loss
 
         # else:
+
+        # This part is executed only during evaluation
         if not self.training:
             # Start of evaluation mode
 
@@ -548,7 +545,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 else:
                     scores = classification_outputs[:, :, class_id]
 
-                scores_over_thresh = (scores > 0.05)
+                scores_over_thresh = (scores > score_threshold)
                 if scores_over_thresh.sum() == 0:
                     # no boxes to NMS, just continue
                     continue
@@ -564,9 +561,10 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 # anchors_nms_idx is a tensor of anchor indices, sorted by score,
                 # after removal of overlapping boxes with lower score
 
-                iou_threshold = 0.1 # During NMS, if the IoU of two adjacent predicted boxes is less than IoU threshold, the two boxes are considered to be different beats
-                                    # Otherwise both predictions are considered redundant so that one is removed.
+                # During NMS, if the IoU of two adjacent predicted boxes is less than IoU threshold, the two boxes are considered to be different beats
+                # Otherwise both predictions are considered redundant so that one is removed.
                 anchors_nms_idx = nms_2d(regression_boxes, scores, iou_threshold)
+                #anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=0.8, thresh=0.05)
 
                 # print(f"torchvision indices:\n{anchors_nms_idx}")
                 # print(f"torchvision boxes:\n{torch.cat((anchorBoxes[anchors_nms_idx], scores[anchors_nms_idx].unsqueeze(dim=1)), dim=1)}")
@@ -588,8 +586,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, regression_boxes[anchors_nms_idx]))
 
             eval_losses = (
-                focal_loss_class_mean.item(),
-                regression_loss_class_mean.item(),
+                focal_loss.item(),
+                regression_loss.item(),
                 leftness_loss.item()
             )
 
