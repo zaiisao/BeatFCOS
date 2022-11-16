@@ -397,7 +397,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             class_one_positive_indicators, class_two_positive_indicators = None, None
 
             # This combined loss will eventually replace the legacy losses we have been using
-            classification_loss, regression_loss, leftness_loss = self.combined_loss(
+            classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss = self.combined_loss(
                 classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
             )
 
@@ -484,7 +484,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             # regression_loss_class_mean = torch.stack(regression_losses_batch_all_classes).sum(dim=0)
 
             if self.training:
-               return classification_loss, regression_loss, leftness_loss
+               return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss
 
         # else:
 
@@ -588,7 +588,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             eval_losses = (
                 focal_loss.item(),
                 regression_loss.item(),
-                leftness_loss.item()
+                leftness_loss.item(),
+                adjacency_constraint_loss.item()
             )
 
             return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates, eval_losses]

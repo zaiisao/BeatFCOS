@@ -439,32 +439,35 @@ class AdjacencyConstraintLoss(nn.Module):
             jth_positive_anchor_strides
         ).squeeze(dim=0)
 
-        downbeat_anchor_classifier = jth_classification_targets[:, 0] == 1
-        beat_anchor_classifier = jth_classification_targets[:, 1] == 1
+        downbeat_classifiers_for_anchors = jth_classification_targets[:, 0] == 1
+        beat_classifiers_for_anchors = jth_classification_targets[:, 1] == 1
 
-        downbeat_target_x1 = transformed_target_regression_boxes[downbeat_anchor_classifier, 0]
-        downbeat_pred_x1 = transformed_pred_regression_boxes[downbeat_anchor_classifier, 0]
+        downbeat_target_x1s_for_anchors = transformed_target_regression_boxes[downbeat_classifiers_for_anchors, 0]
+        downbeat_pred_x1s_for_anchors = transformed_pred_regression_boxes[downbeat_classifiers_for_anchors, 0]
 
-        beat_target_x1 = transformed_target_regression_boxes[beat_anchor_classifier, 0]
-        beat_pred_x1 = transformed_pred_regression_boxes[beat_anchor_classifier, 0]
+        beat_target_x1s_for_anchors = transformed_target_regression_boxes[beat_classifiers_for_anchors, 0]
+        beat_pred_x1s_for_anchors = transformed_pred_regression_boxes[beat_classifiers_for_anchors, 0]
 
         # A matrix with the dimensions (D, B) where D is downbeat count and B is beat count is created
         # We repeat the beat and downbeat positions so that we can do elementwise comparison to match
         # the downbeats with their corresponding first beat objects; they will share the same regression
         # box x1 position value.
         # For downbeats, the column is repeated; for beats, the row is repeated
-        downbeat_position_repeated = downbeat_target_x1[:, None].repeat(1, num_beats)
-        beat_position_repeated = beat_target_x1[None, :].repeat(num_downbeats, 1)
+        downbeat_position_repeated = downbeat_target_x1s_for_anchors[:, None].repeat(1, num_beats)
+        beat_position_repeated = beat_target_x1s_for_anchors[None, :].repeat(num_downbeats, 1)
 
         downbeat_and_beat_x1_equivalency_matrix = downbeat_position_repeated == beat_position_repeated
 
         # Calculate the mean square error between all the downbeat prediction x1 and beat prediction x1
         # and multiply this (D, B) result matrix with the equivalency matrix to remove all values where
         # the downbeat does not correspond with the beat
-        downbeat_and_beat_x1_discrepancy_error = (downbeat_pred_x1[:, None] - beat_pred_x1[None, :]) ** 2
+        downbeat_and_beat_x1_discrepancy_error =\
+            (downbeat_pred_x1s_for_anchors[:, None] - beat_pred_x1s_for_anchors[None, :]) ** 2
         downbeat_and_beat_x1_discrepancy_error *= downbeat_and_beat_x1_equivalency_matrix
 
-        downbeat_and_beat_x1_loss = discrepancy_error.sum() / num_downbeats
+        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error.sum() / num_downbeats
+
+        return downbeat_and_beat_x1_loss
 
 
 class CombinedLoss(nn.Module):
@@ -510,6 +513,7 @@ class CombinedLoss(nn.Module):
         classification_losses_batch = []
         regression_losses_batch = []
         leftness_losses_batch = []
+        adjacency_constraint_losses_batch = []
 
         for j in range(batch_size):
             jth_classification_pred = classifications[j, :, :]   # (B, A, 2)
@@ -581,8 +585,10 @@ class CombinedLoss(nn.Module):
             classification_losses_batch.append(jth_classification_loss)
             regression_losses_batch.append(jth_regression_loss)
             leftness_losses_batch.append(jth_leftness_loss)
+            adjacency_constraint_losses_batch.append(jth_adjacency_constraint_loss)
 
         return \
             torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
             torch.stack(regression_losses_batch).mean(dim=0, keepdim=True), \
-            torch.stack(leftness_losses_batch).mean(dim=0, keepdim=True)
+            torch.stack(leftness_losses_batch).mean(dim=0, keepdim=True), \
+            torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True)

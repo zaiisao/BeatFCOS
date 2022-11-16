@@ -286,8 +286,9 @@ if __name__ == '__main__':
     if not os.path.exists("./checkpoints"):
         os.makedirs("./checkpoints")
 
-    classification_loss_weight = 0.6
-    regression_loss_weight = 0.4
+    classification_loss_weight = 1#0.6
+    regression_loss_weight = 1#0.4
+    adjacency_constraint_loss_weight = 0.01
 
     highest_beat_mean_f_measure = 0
     highest_downbeat_mean_f_measure = 0
@@ -308,8 +309,10 @@ if __name__ == '__main__':
                 optimizer.zero_grad()
 
                 if args.fcos:
-                    classification_loss, regression_loss, leftness_loss = retinanet((audio, target))  # retinanet = model.resnet50(**dict_args)
-                                                                                                        # this calls the forward function of resnet50
+                    classification_loss, regression_loss,\
+                    leftness_loss, adjacency_constraint_loss =\
+                        retinanet((audio, target)) # retinanet = model.resnet50(**dict_args)
+                                                   # this calls the forward function of resnet50
                 else:
                     classification_loss, regression_loss = retinanet((audio, target))
                     leftness_loss = torch.zeros(1)
@@ -317,8 +320,9 @@ if __name__ == '__main__':
                 classification_loss = classification_loss.mean() * classification_loss_weight
                 regression_loss = regression_loss.mean() * regression_loss_weight
                 leftness_loss = leftness_loss.mean()
+                adjacency_constraint_loss = adjacency_constraint_loss.mean() * adjacency_constraint_loss_weight
 
-                loss = classification_loss + regression_loss + leftness_loss
+                loss = classification_loss + regression_loss + leftness_loss + adjacency_constraint_loss
 
                 if bool(loss == 0):
                     continue
@@ -339,8 +343,11 @@ if __name__ == '__main__':
 
                 if args.fcos:
                     print(
-                        'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Leftness loss: {:1.5f} | Running loss: {:1.5f}'.format(
-                            epoch_num, iter_num, float(classification_loss), float(regression_loss), float(leftness_loss), np.mean(loss_hist)))
+                        'Epoch: {} | Iteration: {} | CLS: {:1.5f} | REG: {:1.5f} | LFT: {:1.5f} | ADJ: {:1.5f} | Running loss: {:1.5f}'.format(
+                            epoch_num, iter_num,
+                            float(classification_loss), float(regression_loss),
+                            float(leftness_loss), float(adjacency_constraint_loss), np.mean(loss_hist))
+                    )
                 else:
                     print(
                         'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
@@ -349,6 +356,7 @@ if __name__ == '__main__':
                 del classification_loss
                 del regression_loss
                 del leftness_loss
+                del adjacency_constraint_loss
             except KeyboardInterrupt:
                 sys.exit()
             except Exception as e:
