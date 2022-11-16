@@ -445,12 +445,11 @@ class AdjacencyConstraintLoss(nn.Module):
         # Calculate the mean square error between all the downbeat prediction x1 and beat prediction x1
         # and multiply this (D, B) result matrix with the incidence matrix to remove all values where
         # the downbeat does not correspond with the beat
-        downbeat_and_beat_x1_discrepancy_error_dxb =\
-            torch.abs(downbeat_pred_x1s_for_anchors_dx1 - beat_pred_x1s_for_anchors_1xb) #(downbeat_pred_x1s_for_anchors_dx1 - beat_pred_x1s_for_anchors_1xb) ** 2
+        downbeat_and_beat_x1_discrepancy_error_dxb = (downbeat_pred_x1s_for_anchors_dx1 - beat_pred_x1s_for_anchors_1xb) ** 2
 
         downbeat_and_beat_x1_discrepancy_error_dxb *= downbeat_and_beat_x1_incidence_matrix_dxb
 
-        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error_dxb.sum() / num_incidences
+        downbeat_and_beat_x1_loss = torch.sqrt(downbeat_and_beat_x1_discrepancy_error_dxb.sum() / num_incidences)
 
         return downbeat_and_beat_x1_loss
 
@@ -479,11 +478,10 @@ class AdjacencyConstraintLoss(nn.Module):
         class_x2_and_x1_incidence_matrix_nxn = class_position_x2s_repeated_nxn == class_position_x1s_repeated_nxn
         num_incidences = class_x2_and_x1_incidence_matrix_nxn.sum()
 
-        class_x2_and_x1_discrepancy_error_nxn =\
-            torch.abs(class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn)#(class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) ** 2
+        class_x2_and_x1_discrepancy_error_nxn = (class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) ** 2
         class_x2_and_x1_discrepancy_error_nxn *= class_x2_and_x1_incidence_matrix_nxn
 
-        class_x2_and_x1_loss = class_x2_and_x1_discrepancy_error_nxn.sum() / num_incidences
+        class_x2_and_x1_loss = torch.sqrt(class_x2_and_x1_discrepancy_error_nxn.sum() / num_incidences)
 
         return class_x2_and_x1_loss
 
