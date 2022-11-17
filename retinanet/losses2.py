@@ -468,6 +468,8 @@ class AdjacencyConstraintLoss(nn.Module):
             downbeat_and_beat_x1_discrepancy_error_N1xN2.sum() / torch.clamp(num_incidences_between_downbeats_and_beats, min=1.0)
         )
 
+        downbeat_and_beat_x1_loss = torch.nan_to_num(downbeat_and_beat_x1_loss)
+
         return downbeat_and_beat_x1_loss
 
     def calculate_x2_and_x1_loss(
@@ -502,6 +504,8 @@ class AdjacencyConstraintLoss(nn.Module):
         class_x2_and_x1_loss = torch.sqrt(
             class_x2_and_x1_discrepancy_error_nxn.sum() / torch.clamp(num_incidences_between_beats, min=1.0)
         )
+
+        class_x2_and_x1_loss = torch.nan_to_num(class_x2_and_x1_loss)
 
         return class_x2_and_x1_loss
 
