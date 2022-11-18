@@ -325,6 +325,9 @@ def soft_nms(dets, box_scores, sigma=0.5, thresh=0.05, use_regular_nms=False):
 
     return keep
 
+# def get_offset_limits(datasets):
+    
+
 # https://github.com/bharatsingh430/soft-nms/blob/b8e69bdf8df2ad53025c9d198ded909b50471d4f/lib/nms/cpu_nms.pyx
 # def soft_nms(boxes, sigma=0.5, iou_threshold=0.3, score_threshold=0.001, method=0):
 #     N = boxes.shape[0]

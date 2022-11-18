@@ -456,19 +456,21 @@ class AdjacencyConstraintLoss(nn.Module):
 
         downbeat_and_beat_x1_incidence_matrix_N1xN2 = downbeat_position_repeated_N1xN2 == beat_position_repeated_N1xN2
         num_incidences_between_downbeats_and_beats = downbeat_and_beat_x1_incidence_matrix_N1xN2.sum()
-        # print(f"num_incidences_between_downbeats_and_beats {num_incidences_between_downbeats_and_beats}")
+
+        if num_incidences_between_downbeats_and_beats == 0:
+            return torch.tensor(0).float().to(num_incidences_between_downbeats_and_beats.device)
 
         # Calculate the mean square error between all the downbeat prediction x1 and beat prediction x1
         # and multiply this (D, B) result matrix with the incidence matrix to remove all values where
         # the downbeat does not correspond with the beat
-        downbeat_and_beat_x1_discrepancy_error_N1xN2 = (downbeat_pred_x1s_for_anchors_N1x1 - beat_pred_x1s_for_anchors_1xN2) ** 2
+        downbeat_and_beat_x1_discrepancy_error_N1xN2 = torch.abs(
+            downbeat_pred_x1s_for_anchors_N1x1 - beat_pred_x1s_for_anchors_1xN2)
+
         downbeat_and_beat_x1_discrepancy_error_N1xN2 *= downbeat_and_beat_x1_incidence_matrix_N1xN2
 
         downbeat_and_beat_x1_loss = torch.sqrt(
             downbeat_and_beat_x1_discrepancy_error_N1xN2.sum() / torch.clamp(num_incidences_between_downbeats_and_beats, min=1.0)
         )
-
-        downbeat_and_beat_x1_loss = torch.nan_to_num(downbeat_and_beat_x1_loss)
 
         return downbeat_and_beat_x1_loss
 
@@ -495,17 +497,20 @@ class AdjacencyConstraintLoss(nn.Module):
         class_position_x1s_repeated_nxn = class_target_x1s_for_anchors_1xn.repeat(num_of_classes_for_positive_anchors, 1)
 
         class_x2_and_x1_incidence_matrix_nxn = class_position_x2s_repeated_nxn == class_position_x1s_repeated_nxn
-        num_incidences_between_beats = class_x2_and_x1_incidence_matrix_nxn.sum() # These beats can also be downbeats
-        # print(f"num_incidences_between_beats {num_incidences_between_beats}")
 
-        class_x2_and_x1_discrepancy_error_nxn = (class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) ** 2
+        num_incidences_between_beats = class_x2_and_x1_incidence_matrix_nxn.sum() # These can also be downbeats
+
+        if num_incidences_between_beats == 0:
+            return torch.tensor(0).float().to(num_incidences_between_beats.device)
+
+        class_x2_and_x1_discrepancy_error_nxn = torch.abs(
+            class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn)
+
         class_x2_and_x1_discrepancy_error_nxn *= class_x2_and_x1_incidence_matrix_nxn
 
         class_x2_and_x1_loss = torch.sqrt(
             class_x2_and_x1_discrepancy_error_nxn.sum() / torch.clamp(num_incidences_between_beats, min=1.0)
         )
-
-        class_x2_and_x1_loss = torch.nan_to_num(class_x2_and_x1_loss)
 
         return class_x2_and_x1_loss
 
@@ -560,7 +565,11 @@ class AdjacencyConstraintLoss(nn.Module):
             boolean_indices_to_beats_for_positive_anchors
         )
 
-        all_adjacency_constraint_losses = torch.stack((downbeat_and_beat_x1_loss, downbeat_x2_and_x1_loss, beat_x2_and_x1_loss))
+        all_adjacency_constraint_losses = torch.stack((
+            downbeat_and_beat_x1_loss,
+            downbeat_x2_and_x1_loss,
+            beat_x2_and_x1_loss
+        ))
 
         return all_adjacency_constraint_losses.mean()
 
@@ -597,6 +606,8 @@ class CombinedLoss(nn.Module):
 
         jth_leftness_targets = torch.sqrt(r_star/(l_star + r_star)).unsqueeze(dim=1)
 
+        #print(jth_classification_targets[positive_anchor_indices], jth_regression_targets[positive_anchor_indices], jth_leftness_targets[positive_anchor_indices])
+
         return jth_classification_targets, jth_regression_targets, jth_leftness_targets
 
     def forward(self, classifications, regressions, leftnesses, anchors_list, annotations):
@@ -624,6 +635,29 @@ class CombinedLoss(nn.Module):
             all_anchor_points = torch.cat(anchors_list, dim=0)
             num_positive_anchors = positive_anchor_indices.sum()
 
+            # torch.set_printoptions(sci_mode=False, profile="short")
+            # for annotation_number in range(jth_annotations.size(dim=0)):
+            #     annotation = jth_annotations[annotation_number]
+            #     anchors_responsible_for_this_annotation = torch.logical_and(
+            #         annotation[0] == assigned_annotations[positive_anchor_indices, 0],
+            #         annotation[1] == assigned_annotations[positive_anchor_indices, 1]
+            #     )
+
+            #     class_name = "Beat" if annotation[2] == 1 else "Downbeat"
+            #     print(f"BBOX {annotation_number} at {annotation} | {class_name} | {anchors_responsible_for_this_annotation.sum()} anchors | {levels[positive_anchor_indices][anchors_responsible_for_this_annotation]}")
+
+            #     #print(positive_anchor_indices)
+
+            # torch.set_printoptions(sci_mode=True, profile="default")
+
+            # torch.set_printoptions(edgeitems=10000000)
+            # print("normalized_annotations", normalized_annotations[positive_anchor_indices])
+            # print("l_star", l_star[positive_anchor_indices])
+            # print("r_star", r_star[positive_anchor_indices])
+            # print("normalized_l_star", normalized_l_star[positive_anchor_indices])
+            # print("normalized_r_star", normalized_r_star[positive_anchor_indices])
+            # torch.set_printoptions(edgeitems=3)
+
             jth_classification_targets, jth_regression_targets, jth_leftness_targets = self.get_jth_targets(
                 jth_classification_pred, jth_regression_pred, jth_leftness_pred,
                 positive_anchor_indices, normalized_annotations,
@@ -637,6 +671,8 @@ class CombinedLoss(nn.Module):
                 jth_annotations
             ) / num_positive_anchors
 
+            # print(jth_regression_targets[positive_anchor_indices])
+            # print(jth_leftness_targets[positive_anchor_indices])
             jth_regression_loss = self.regression_loss(
                 jth_regression_pred[positive_anchor_indices],
                 jth_regression_targets[positive_anchor_indices],
@@ -648,6 +684,9 @@ class CombinedLoss(nn.Module):
                 jth_leftness_targets[positive_anchor_indices],
                 jth_annotations
             )
+
+            if torch.isnan(jth_classification_loss).any():
+                raise ValueError
 
             strides_for_all_anchors = torch.zeros(0).to(classifications.device)
             for i, anchors_per_level in enumerate(anchors_list):
@@ -674,6 +713,18 @@ class CombinedLoss(nn.Module):
             # ), dim=1)
             # print(f"concatenated_output {concatenated_output.shape}:\n{concatenated_output}")
             # torch.set_printoptions(sci_mode=True, edgeitems=3)
+
+            # if torch.isnan(jth_regression_loss):
+            #     torch.set_printoptions(edgeitems=10000000)
+            #     print("jth regression pred", jth_regression_pred[positive_anchor_indices])
+            #     print("jth regression target", jth_regression_targets[positive_anchor_indices])
+            #     print("jth_annotations", jth_annotations)
+
+            # if torch.isnan(jth_leftness_loss):
+            #     torch.set_printoptions(edgeitems=10000000)
+            #     print("jth leftness pred", jth_leftness_pred[positive_anchor_indices])
+            #     print("jth leftness target", jth_leftness_targets[positive_anchor_indices])
+            #     print("jth_annotations", jth_annotations)
 
             classification_losses_batch.append(jth_classification_loss)
             regression_losses_batch.append(jth_regression_loss)

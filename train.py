@@ -288,7 +288,7 @@ if __name__ == '__main__':
 
     classification_loss_weight = 1#0.6
     regression_loss_weight = 1#0.4
-    adjacency_constraint_loss_weight = 0.01
+    adjacency_constraint_loss_weight = 1#0.01
 
     highest_beat_mean_f_measure = 0
     highest_downbeat_mean_f_measure = 0
