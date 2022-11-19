@@ -488,7 +488,7 @@ class AdjacencyConstraintLoss(nn.Module):
         # and multiply this (D, B) result matrix with the incidence matrix to remove all values where
         # the downbeat does not correspond with the beat
         downbeat_and_beat_x1_discrepancy_error_N1xN2 = torch.square(
-            (downbeat_pred_x1s_for_anchors_N1x1 - beat_pred_x1s_for_anchors_1xN2) / loss_divisor
+            (downbeat_pred_x1s_for_anchors_N1x1 - beat_pred_x1s_for_anchors_1xN2) / torch.clamp(loss_divisor, min=1.0)
         ) 
 
         downbeat_and_beat_x1_discrepancy_error_N1xN2 *= downbeat_and_beat_x1_incidence_matrix_N1xN2
@@ -530,7 +530,7 @@ class AdjacencyConstraintLoss(nn.Module):
             return torch.tensor(0).float().to(num_incidences_between_beats.device)
 
         class_x2_and_x1_discrepancy_error_nxn = torch.square(
-            (class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) / loss_divisor
+            (class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) / torch.clamp(loss_divisor, min=1.0)
         )
 
         class_x2_and_x1_discrepancy_error_nxn *= class_x2_and_x1_incidence_matrix_nxn
