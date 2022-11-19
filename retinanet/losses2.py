@@ -65,6 +65,13 @@ def get_fcos_positives(jth_annotations, anchors_list, beat_radius=1.5, downbeat_
     normalized_r_star_for_anchors = torch.zeros(0).to(jth_annotations.device)
     levels_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
 
+    is_anchor_points_in_left_of_bboxes = torch.zeros(0, dtype=torch.bool).to(jth_annotations.device)
+    is_anchor_points_within_bbox_range = torch.zeros(0, dtype=torch.bool).to(jth_annotations.device)
+    is_anchor_points_in_left_of_bboxes = torch.zeros(0).to(jth_annotations.device)
+    is_anchor_points_within_bbox_range = torch.zeros(0).to(jth_annotations.device)
+    size_of_interest_for_anchors = torch.zeros(0).to(jth_annotations.device)
+    max_l_r_targets_for_anchors = torch.zeros(0).to(jth_annotations.device)
+
     # strides_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
     # size_of_interests_for_anchors = torch.zeros(0).to(jth_annotations.device)
 
@@ -109,7 +116,7 @@ def get_fcos_positives(jth_annotations, anchors_list, beat_radius=1.5, downbeat_
         radius_per_class = (jth_annotations[:, 2] == 0) * downbeat_radius + (jth_annotations[:, 2] == 1) * beat_radius
         radius_limits_from_l_annotations = l_annotations_1xm + (radius_per_class * stride)
 
-        is_anchor_points_in_radii_per_level = torch.logical_and(
+        anchor_points_in_left_of_bboxes_per_level = torch.logical_and(
             torch.ge( anchor_points_per_level_nx1, l_annotations_1xm),
             torch.le( anchor_points_per_level_nx1, torch.minimum(r_annotations_1xm, radius_limits_from_l_annotations))
         )
@@ -154,8 +161,9 @@ def get_fcos_positives(jth_annotations, anchors_list, beat_radius=1.5, downbeat_
         # is_anchor_points_within_bbox_range_per_level shape is (N, M)
 
         # Put L and R stars into a single tensor so that we can calculate max
-        bbox_l_r_targets_per_image = torch.stack([l_stars_to_bboxes_for_anchors_per_level, r_stars_to_bboxes_for_anchors_per_level], dim=2)
-        max_bbox_targets_per_image, _ = bbox_l_r_targets_per_image.max(dim=2)
+        l_r_targets_for_anchors_per_level = torch.stack([l_stars_to_bboxes_for_anchors_per_level, r_stars_to_bboxes_for_anchors_per_level], dim=2)
+        # l_r_targets_for_anchors_per_level shape is (N, M, 2) where N is num of anchors and M is num of gt bboxes
+        max_l_r_targets_for_anchors_per_level, _ = l_r_targets_for_anchors_per_level.max(dim=2)
         # print(f"bbox_l_r_targets_per_image ({bbox_l_r_targets_per_image.shape}):\n{bbox_l_r_targets_per_image}")
 
         # is_anchor_points_within_bbox_range_per_level = torch.logical_and(
@@ -163,9 +171,9 @@ def get_fcos_positives(jth_annotations, anchors_list, beat_radius=1.5, downbeat_
         #     max_offsets_to_regress_for_anchor_points < upper_size
         # )
 
-        is_anchor_points_within_bbox_range_per_level = (
-            max_bbox_targets_per_image >= size_of_interest_for_anchors_per_level[:, [0]]
-        ) & (max_bbox_targets_per_image <= size_of_interest_for_anchors_per_level[:, [1]])
+        max_l_r_stars_for_anchor_points_within_bbox_range_per_level = (
+            max_l_r_targets_for_anchors_per_level >= size_of_interest_for_anchors_per_level[:, [0]]
+        ) & (max_l_r_targets_for_anchors_per_level <= size_of_interest_for_anchors_per_level[:, [1]])
         #print(f"is_anchor_points_within_bbox_range_per_level ({is_anchor_points_within_bbox_range_per_level.shape}):\n{is_anchor_points_within_bbox_range_per_level}")
 
         # print(f" max_offsets_to_regress_for_anchor_points (with level i=0 only):\n { max_offsets_to_regress_for_anchor_points}")
@@ -197,8 +205,8 @@ def get_fcos_positives(jth_annotations, anchors_list, beat_radius=1.5, downbeat_
         areas_of_bboxes = jth_annotations[:, 1] - jth_annotations[:, 0]
 
         gt_area_for_anchors_matrix = areas_of_bboxes[None].repeat(len(anchor_points_per_level), 1)
-        gt_area_for_anchors_matrix[is_anchor_points_in_radii_per_level == 0] = INF
-        gt_area_for_anchors_matrix[is_anchor_points_within_bbox_range_per_level == 0] = INF
+        gt_area_for_anchors_matrix[anchor_points_in_left_of_bboxes_per_level == 0] = INF
+        gt_area_for_anchors_matrix[max_l_r_stars_for_anchor_points_within_bbox_range_per_level == 0] = INF
         # Result shape for gt_area_for_anchors_matrix is (8192, 77) for example
         # 8192 is the resolution of the first feature map = the number of anchor points on the first feature map
         # There are 77 gt bboxes (beats and downbeats) on the current audio
@@ -284,10 +292,19 @@ def get_fcos_positives(jth_annotations, anchors_list, beat_radius=1.5, downbeat_
         normalized_r_star_for_anchors = torch.cat((normalized_r_star_for_anchors, normalized_r_star_for_anchors_per_level))
         levels_for_all_anchors = torch.cat((levels_for_all_anchors, levels_per_level))
 
+        # is_anchor_points_in_left_of_bboxes = torch.cat((is_anchor_points_in_left_of_bboxes, is_anchor_points_in_left_of_bboxes_per_level))
+        # is_anchor_points_within_bbox_range = torch.cat((is_anchor_points_within_bbox_range, max_l_r_stars_for_anchor_points_within_bbox_range_per_level))
+        # size_of_interest_for_anchors = torch.cat((size_of_interest_for_anchors, size_of_interest_for_anchors_per_level))
+        # max_l_r_targets_for_anchors = torch.cat((max_l_r_targets_for_anchors, max_l_r_targets_for_anchors_per_level))
+
     return boolean_indices_to_bboxes_for_positive_anchors,\
         assigned_annotations_for_anchors, normalized_annotations_for_anchors,\
         l_star_for_anchors, r_star_for_anchors,\
-        normalized_l_star_for_anchors, normalized_r_star_for_anchors, levels_for_all_anchors
+        normalized_l_star_for_anchors, normalized_r_star_for_anchors, levels_for_all_anchors#,\
+        # is_anchor_points_in_left_of_bboxes,\
+        # is_anchor_points_within_bbox_range,\
+        # size_of_interest_for_anchors,\
+        # max_l_r_targets_for_anchors
 
 class FocalLoss(nn.Module):
     def __init__(self):
@@ -474,9 +491,9 @@ class AdjacencyConstraintLoss(nn.Module):
 
         downbeat_and_beat_x1_discrepancy_error_N1xN2 *= downbeat_and_beat_x1_incidence_matrix_N1xN2
 
-        downbeat_and_beat_x1_loss = torch.sqrt(
-            downbeat_and_beat_x1_discrepancy_error_N1xN2.sum() / torch.clamp(num_incidences_between_downbeats_and_beats, min=1.0)
-        )
+        #downbeat_and_beat_x1_loss = torch.sqrt(
+        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error_N1xN2.sum() / torch.clamp(num_incidences_between_downbeats_and_beats, min=1.0)
+        #)
 
         return downbeat_and_beat_x1_loss
 
@@ -514,9 +531,9 @@ class AdjacencyConstraintLoss(nn.Module):
 
         class_x2_and_x1_discrepancy_error_nxn *= class_x2_and_x1_incidence_matrix_nxn
 
-        class_x2_and_x1_loss = torch.sqrt(
-            class_x2_and_x1_discrepancy_error_nxn.sum() / torch.clamp(num_incidences_between_beats, min=1.0)
-        )
+        #class_x2_and_x1_loss = torch.sqrt(
+        class_x2_and_x1_loss = class_x2_and_x1_discrepancy_error_nxn.sum() / torch.clamp(num_incidences_between_beats, min=1.0)
+        #)
 
         return class_x2_and_x1_loss
 
@@ -636,8 +653,7 @@ class CombinedLoss(nn.Module):
 
             positive_anchor_indices, assigned_annotations_for_anchors, normalized_annotations_for_anchors, \
             l_star_for_anchors, r_star_for_anchors, normalized_l_star_for_anchors, \
-            normalized_r_star_for_anchors, levels_for_anchors = \
-                get_fcos_positives(jth_annotations, anchors_list)
+            normalized_r_star_for_anchors, levels_for_anchors = get_fcos_positives(jth_annotations, anchors_list)
 
             all_anchor_points = torch.cat(anchors_list, dim=0)
             num_positive_anchors = positive_anchor_indices.sum()
@@ -647,13 +663,30 @@ class CombinedLoss(nn.Module):
             #     annotation = jth_annotations[annotation_id]
 
             #     # this annotation's x1 and x2 values match the x1 and x2 values in the annotations (gt bboxes) assigned to the positive anchor points
-            #     anchors_responsible_for_this_annotation = torch.logical_and(
+            #     positive_anchors_responsible_for_this_annotation = torch.logical_and(
             #         annotation[0] == assigned_annotations_for_anchors[positive_anchor_indices, 0],
             #         annotation[1] == assigned_annotations_for_anchors[positive_anchor_indices, 1]
-            #     )
+            #     ) # boolean tensor whose shape is (num positive anchors,)
+            #         # assigned_annotations_for_anchors[positive_anchor_indices, 0] shape is (num positive anchors,)
+
+            #     positive_anchor_points = torch.cat(anchors_list, dim=0)[positive_anchor_indices]
+            #     anchor_points_responsible_for_this_annotation = positive_anchor_points[positive_anchors_responsible_for_this_annotation]
+
+            #     levels_for_positive_anchors = levels_for_anchors[positive_anchor_indices]
+            #     num_responsible_anchors = positive_anchors_responsible_for_this_annotation.sum()
+
+            #     assert anchor_points_responsible_for_this_annotation.size(dim=0) == num_responsible_anchors
+
+            #     levels_for_responsible_positive_anchors = levels_for_positive_anchors[positive_anchors_responsible_for_this_annotation]
+
+            #     annotation_length = annotation[1] - annotation[0]
+            #     annotation_length_in_seconds = annotation_length * 128 / 22050
+
+            #     anchor_times_in_seconds = anchor_points_responsible_for_this_annotation * 128 / 22050
 
             #     class_name = "Beat" if annotation[2] == 1 else "Downbeat"
-            #     print(f"BBOX {annotation_id} at {annotation} | {class_name} | {anchors_responsible_for_this_annotation.sum()} anchors | {levels_for_anchors[positive_anchor_indices][anchors_responsible_for_this_annotation]}")
+            #     print(f"BBOX {annotation_id} at {annotation} | {annotation_length_in_seconds} | {class_name} | {num_responsible_anchors} anchors | anchor times: {anchor_times_in_seconds} | levels: {levels_for_responsible_positive_anchors}")
+            #     #print(f"BBOX {annotation_id} at {annotation} | {class_name} | {num_responsible_anchors} anchors | anchor times: {anchor_times_in_seconds} | annotation_length_in_seconds: {annotation_length_in_seconds} | levels: {levels_of_anchors_responsible_for_this_annotation}")
 
             #     #print(positive_anchor_indices)
 
