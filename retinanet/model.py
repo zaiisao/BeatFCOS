@@ -76,19 +76,19 @@ class RegressionModel(nn.Module):
     def __init__(self, num_features_in, num_anchors=3, feature_size=256, fcos=False):
         super(RegressionModel, self).__init__()
 
-        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1, bias=False)
         self.norm1 = nn.GroupNorm(32, feature_size)
         self.act1 = nn.ReLU()
 
-        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
         self.norm2 = nn.GroupNorm(32, feature_size)
         self.act2 = nn.ReLU()
 
-        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
         self.norm3 = nn.GroupNorm(32, feature_size)
         self.act3 = nn.ReLU()
 
-        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
         self.norm4 = nn.GroupNorm(32, feature_size)
         self.act4 = nn.ReLU()
 
@@ -141,19 +141,19 @@ class ClassificationModel(nn.Module):
         self.num_classes = num_classes
         self.num_anchors = num_anchors
 
-        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1, bias=False)
         self.norm1 = nn.GroupNorm(32, feature_size)
         self.act1 = nn.ReLU()
 
-        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
         self.norm2 = nn.GroupNorm(32, feature_size)
         self.act2 = nn.ReLU()
 
-        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
         self.norm3 = nn.GroupNorm(32, feature_size)
         self.act3 = nn.ReLU()
 
-        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
         self.norm4 = nn.GroupNorm(32, feature_size)
         self.act4 = nn.ReLU()
 
