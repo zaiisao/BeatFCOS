@@ -266,7 +266,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             if isinstance(m, nn.Conv1d):
                 n = m.kernel_size[0] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm1d):
+            elif isinstance(m, (nn.BatchNorm1d, nn.GroupNorm)):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
