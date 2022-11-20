@@ -264,8 +264,9 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
-                n = m.kernel_size[0] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                # n = m.kernel_size[0] * m.out_channels
+                # m.weight.data.normal_(0, math.sqrt(2. / n))
+                nn.init.kaiming_normal_(m.weight)
             elif isinstance(m, (nn.BatchNorm1d, nn.GroupNorm)):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
