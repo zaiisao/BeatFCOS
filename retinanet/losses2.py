@@ -5,7 +5,7 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou, AnchorPointTrans
 
 INF = 100000000
 
-def get_fcos_positives(jth_annotations, anchors_list, beat_radius=1.5, downbeat_radius=4.5):
+def get_fcos_positives(jth_annotations, anchors_list, beat_radius=2.0, downbeat_radius=4.5):
     #audio_downsampling_factor = 256
     audio_downsampling_factor = 128
     audio_target_rate = 22050 / audio_downsampling_factor
@@ -493,9 +493,7 @@ class AdjacencyConstraintLoss(nn.Module):
 
         downbeat_and_beat_x1_discrepancy_error_N1xN2 *= downbeat_and_beat_x1_incidence_matrix_N1xN2
 
-        #downbeat_and_beat_x1_loss = torch.sqrt(
-        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error_N1xN2.sum() / torch.clamp(num_incidences_between_downbeats_and_beats, min=1.0)
-        #)
+        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error_N1xN2.sum()
 
         return downbeat_and_beat_x1_loss
 
@@ -535,9 +533,7 @@ class AdjacencyConstraintLoss(nn.Module):
 
         class_x2_and_x1_discrepancy_error_nxn *= class_x2_and_x1_incidence_matrix_nxn
 
-        #class_x2_and_x1_loss = torch.sqrt(
-        class_x2_and_x1_loss = class_x2_and_x1_discrepancy_error_nxn.sum() / torch.clamp(num_incidences_between_beats, min=1.0)
-        #)
+        class_x2_and_x1_loss = class_x2_and_x1_discrepancy_error_nxn.sum()
 
         return class_x2_and_x1_loss
 
@@ -563,6 +559,15 @@ class AdjacencyConstraintLoss(nn.Module):
         max_downbeat_length = torch.max(downbeat_lengths)
         max_beat_length = torch.max(beat_lengths)
 
+        first_downbeat = torch.min(jth_annotations[jth_annotations[:, 2] == 0, 0])
+        last_downbeat = torch.max(jth_annotations[jth_annotations[:, 2] == 0, 1])
+        first_beat = torch.min(jth_annotations[jth_annotations[:, 2] == 1, 0])
+        last_beat = torch.max(jth_annotations[jth_annotations[:, 2] == 1, 1])
+
+        downbeat_and_beat_x1_loss_divisor = torch.max(last_beat, last_downbeat) - torch.min(first_beat, first_downbeat)
+        downbeat_x2_and_x1_loss_divisor = last_downbeat - first_downbeat
+        beat_x2_and_x1_loss_divisor = last_beat - first_beat
+
         # Given the regression prediction and targets which are in (l, r), produce (x1, x2) boxes
         # Target boxes are used to match the downbeats with their corresponding first beats
         transformed_target_regression_boxes = self.anchor_point_transform(
@@ -583,21 +588,21 @@ class AdjacencyConstraintLoss(nn.Module):
             transformed_pred_regression_boxes,
             boolean_indices_to_downbeats_for_positive_anchors,
             boolean_indices_to_beats_for_positive_anchors,
-            max_downbeat_length + max_beat_length,
+            downbeat_and_beat_x1_loss_divisor,
         )
 
         downbeat_x2_and_x1_loss = self.calculate_x2_and_x1_loss(
             transformed_target_regression_boxes,
             transformed_pred_regression_boxes,
             boolean_indices_to_downbeats_for_positive_anchors,
-            max_downbeat_length
+            downbeat_x2_and_x1_loss_divisor
         )
 
         beat_x2_and_x1_loss = self.calculate_x2_and_x1_loss(
             transformed_target_regression_boxes,
             transformed_pred_regression_boxes,
             boolean_indices_to_beats_for_positive_anchors,
-            max_beat_length
+            beat_x2_and_x1_loss_divisor
         )
 
         all_adjacency_constraint_losses = torch.stack((
@@ -697,6 +702,9 @@ class CombinedLoss(nn.Module):
             #     anchor_times_in_seconds = anchor_points_responsible_for_this_annotation * 128 / 22050
 
             #     class_name = "Beat" if annotation[2] == 1 else "Downbeat"
+            #     if num_responsible_anchors > 0:
+            #         continue
+
             #     print(f"BBOX {annotation_id} at {annotation} | {annotation_length_in_seconds} | {class_name} | {num_responsible_anchors} anchors | anchor times: {anchor_times_in_seconds} | levels: {levels_for_responsible_positive_anchors}")
             #     #print(f"BBOX {annotation_id} at {annotation} | {class_name} | {num_responsible_anchors} anchors | anchor times: {anchor_times_in_seconds} | annotation_length_in_seconds: {annotation_length_in_seconds} | levels: {levels_of_anchors_responsible_for_this_annotation}")
 
