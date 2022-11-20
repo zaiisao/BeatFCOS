@@ -76,20 +76,20 @@ class RegressionModel(nn.Module):
     def __init__(self, num_features_in, num_anchors=3, feature_size=256, fcos=False):
         super(RegressionModel, self).__init__()
 
-        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1, bias=False)
-        self.norm1 = nn.GroupNorm(32, feature_size)
+        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
+        #self.norm1 = nn.GroupNorm(32, feature_size)
         self.act1 = nn.ReLU()
 
-        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
-        self.norm2 = nn.GroupNorm(32, feature_size)
+        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        #self.norm2 = nn.GroupNorm(32, feature_size)
         self.act2 = nn.ReLU()
 
-        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
-        self.norm3 = nn.GroupNorm(32, feature_size)
+        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        #self.norm3 = nn.GroupNorm(32, feature_size)
         self.act3 = nn.ReLU()
 
-        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
-        self.norm4 = nn.GroupNorm(32, feature_size)
+        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        #self.norm4 = nn.GroupNorm(32, feature_size)
         self.act4 = nn.ReLU()
 
         #self.output = nn.Conv2d(feature_size, num_anchors * 4, kernel_size=3, padding=1)
@@ -101,19 +101,19 @@ class RegressionModel(nn.Module):
 
     def forward(self, x):
         out = self.conv1(x)
-        out = self.norm1(out)
+        #out = self.norm1(out)
         out = self.act1(out)
 
         out = self.conv2(out)
-        out = self.norm2(out)
+        #out = self.norm2(out)
         out = self.act2(out)
 
         out = self.conv3(out)
-        out = self.norm3(out)
+        #out = self.norm3(out)
         out = self.act3(out)
 
         out = self.conv4(out)
-        out = self.norm4(out)
+        #out = self.norm4(out)
         out = self.act4(out)
 
         regression = self.regression(out)
@@ -141,20 +141,20 @@ class ClassificationModel(nn.Module):
         self.num_classes = num_classes
         self.num_anchors = num_anchors
 
-        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1, bias=False)
-        self.norm1 = nn.GroupNorm(32, feature_size)
+        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
+        #self.norm1 = nn.GroupNorm(32, feature_size)
         self.act1 = nn.ReLU()
 
-        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
-        self.norm2 = nn.GroupNorm(32, feature_size)
+        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        #self.norm2 = nn.GroupNorm(32, feature_size)
         self.act2 = nn.ReLU()
 
-        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
-        self.norm3 = nn.GroupNorm(32, feature_size)
+        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        #self.norm3 = nn.GroupNorm(32, feature_size)
         self.act3 = nn.ReLU()
 
-        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1, bias=False)
-        self.norm4 = nn.GroupNorm(32, feature_size)
+        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        #self.norm4 = nn.GroupNorm(32, feature_size)
         self.act4 = nn.ReLU()
 
         self.output = nn.Conv1d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
@@ -162,19 +162,19 @@ class ClassificationModel(nn.Module):
 
     def forward(self, x):
         out = self.conv1(x)
-        out = self.norm1(out)
+        #out = self.norm1(out)
         out = self.act1(out)
 
         out = self.conv2(out)
-        out = self.norm2(out)
+        #out = self.norm2(out)
         out = self.act2(out)
 
         out = self.conv3(out)
-        out = self.norm3(out)
+        #out = self.norm3(out)
         out = self.act3(out)
 
         out = self.conv4(out)
-        out = self.norm4(out)
+        #out = self.norm4(out)
         out = self.act4(out)
 
         out = self.output(out)
@@ -264,9 +264,9 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
-                # n = m.kernel_size[0] * m.out_channels
-                # m.weight.data.normal_(0, math.sqrt(2. / n))
-                nn.init.kaiming_normal_(m.weight)
+                n = m.kernel_size[0] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+                # nn.init.kaiming_normal_(m.weight)
             elif isinstance(m, (nn.BatchNorm1d, nn.GroupNorm)):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
