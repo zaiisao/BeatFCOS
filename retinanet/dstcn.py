@@ -54,6 +54,9 @@ class dsTCNBlock(torch.nn.Module):
             self.norm1 = torch.nn.BatchNorm1d(out_ch)
             #self.norm2 = torch.nn.BatchNorm1d(out_ch)
             self.res_norm = torch.nn.BatchNorm1d(out_ch)
+        elif norm_type == "GroupNorm":
+            self.norm1 = torch.nn.GroupNorm(32, out_ch)
+            self.res_norm = torch.nn.GroupNorm(32, out_ch)
         else:
             self.norm1 = None
             self.res_norm = None
