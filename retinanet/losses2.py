@@ -5,7 +5,7 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou, AnchorPointTrans
 
 INF = 100000000
 
-def get_fcos_positives(jth_annotations, anchors_list, beat_radius=2.0, downbeat_radius=4.5):
+def get_fcos_positives(jth_annotations, anchors_list, beat_radius=2.5, downbeat_radius=4.5):
     #audio_downsampling_factor = 256
     audio_downsampling_factor = 128
     audio_target_rate = 22050 / audio_downsampling_factor
