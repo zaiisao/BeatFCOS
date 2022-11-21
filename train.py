@@ -272,7 +272,7 @@ if __name__ == '__main__':
 
     retinanet.training = True
 
-    optimizer = torch.optim.Adam(retinanet.parameters(), lr=args.lr, weight_decay=0.1) # Default weight decay is 0
+    optimizer = torch.optim.Adam(retinanet.parameters(), lr=args.lr) # Default weight decay is 0
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
 
