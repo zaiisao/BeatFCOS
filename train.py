@@ -387,7 +387,7 @@ if __name__ == '__main__':
         # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
         # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
-        print(f"Epoch = {epoch_num} | CLS: {np.mean(cls_losses)} | REG: {np.mean(reg_losses)} | LFT: {np.mean(lft_losses)} | ADJ: {np.mean(adj_losses)}")
+        print(f"Epoch = {epoch_num} | CLS: {np.mean(cls_losses):0.3f} | REG: {np.mean(reg_losses):0.3f} | LFT: {np.mean(lft_losses):0.3f} | ADJ: {np.mean(adj_losses):0.3f}")
         scheduler.step(np.mean(epoch_loss))
 
         should_save_checkpoint = False
