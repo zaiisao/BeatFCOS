@@ -20,13 +20,17 @@ def collater(data):
     if len(data[0]) > 2:
         metadata = [s[2] for s in data]
 
-    new_audios = torch.stack(audios)
+    new_audios = torch.stack(audios) # new_audios shape: (B, C, W) = (B, 1, num of audio samples)
 
     max_num_annots = max(annot.shape[0] for annot in annots)
     
     if max_num_annots > 0:
 
-        new_annots = torch.ones((len(annots), max_num_annots, 3)) * -1
+        new_annots = torch.ones((len(annots), max_num_annots, 3)) * -1  # new_annots shape: (B, max_num_annots, 3) = (B, W, C)
+                                                                        # in PyTorch, 2D tensors are written as (B, C, H, W)
+                                                                        #             1D tensors are written as (B, C, W)
+                                                                        # whereas the target or annotations are written as (B, H, W, C)
+                                                                        # new_annots[B, j, 2] = -1, which means it is a non-object
 
         if max_num_annots > 0:
             for idx, annot in enumerate(annots):
@@ -34,7 +38,7 @@ def collater(data):
                 if annot.shape[0] > 0:
                     new_annots[idx, :annot.shape[0], :] = annot
     else:
-        new_annots = torch.ones((len(annots), 1, 3)) * -1
+        new_annots = torch.ones((len(annots), 1, 3)) * -1 # new_annots shape: (B, 1, 3)
 
     #return {'img': padded_imgs, 'annot': annot_padded, 'scale': scales}
     if metadata is not None:

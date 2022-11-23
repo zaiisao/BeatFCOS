@@ -310,7 +310,7 @@ class FocalLoss(nn.Module):
     def __init__(self):
         super(FocalLoss, self).__init__()
 
-    def forward(self, jth_classification_pred, jth_classification_targets, jth_annotations):
+    def forward(self, jth_classification_pred, jth_classification_targets, jth_annotations, num_positive_anchors):
         alpha = 0.25
         gamma = 2.0
 
@@ -361,8 +361,8 @@ class FocalLoss(nn.Module):
         else:
             cls_loss = torch.where(torch.ne(jth_classification_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape))
 
-        #return cls_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0)
-        return cls_loss.sum()
+        return cls_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0)
+        #return cls_loss.sum()
 
 class RegressionLoss(nn.Module):
     def __init__(self, weight=1):
@@ -400,6 +400,13 @@ class LeftnessLoss(nn.Module):
 
     def forward(self, jth_leftness_pred, jth_leftness_targets, jth_annotations):
         jth_leftness_pred = torch.clamp(jth_leftness_pred, 1e-4, 1.0 - 1e-4)
+
+        # If there are gt bboxes on the current image, we set the regression loss of this image to 0
+        if jth_annotations.shape[0] == 0:
+            if torch.cuda.is_available():
+                return torch.tensor(0).float().cuda()
+            else:
+                return torch.tensor(0).float()
 
         bce = -(jth_leftness_targets * torch.log(jth_leftness_pred)\
             + (1.0 - jth_leftness_targets) * torch.log(1.0 - jth_leftness_pred))
@@ -568,20 +575,27 @@ class AdjacencyConstraintLoss(nn.Module):
         downbeat_x2_and_x1_loss_divisor = last_downbeat - first_downbeat
         beat_x2_and_x1_loss_divisor = last_beat - first_beat
 
+        jth_regression_targets_1xm = jth_regression_targets[None]
+        jth_regression_pred_1xn = jth_regression_pred[None]
+
         # Given the regression prediction and targets which are in (l, r), produce (x1, x2) boxes
         # Target boxes are used to match the downbeats with their corresponding first beats
-        transformed_target_regression_boxes = self.anchor_point_transform(
+        transformed_target_regression_boxes_batch = self.anchor_point_transform(
             jth_positive_anchor_points,
-            jth_regression_targets[None],
+            jth_regression_targets_1xm,
             jth_positive_anchor_strides
-        ).squeeze(dim=0)
+        ) # (B, num of anchors, 2) but here B is 1
+
+        transformed_target_regression_boxes = transformed_target_regression_boxes_batch[0, :, :]
 
         # Prediction boxes are used to calculate the discrepancies between downbeats and corresponding first beats
-        transformed_pred_regression_boxes = self.anchor_point_transform(
-            jth_positive_anchor_points,
-            jth_regression_pred[None],
+        transformed_pred_regression_boxes_batch = self.anchor_point_transform(
+            jth_positive_anchor_points, # ()
+            jth_regression_pred_1xn,
             jth_positive_anchor_strides
-        ).squeeze(dim=0)
+        )
+
+        transformed_pred_regression_boxes = transformed_pred_regression_boxes_batch[0, :, :]
 
         downbeat_and_beat_x1_loss = self.calculate_downbeat_and_beat_x1_loss(
             transformed_target_regression_boxes,
@@ -666,6 +680,9 @@ class CombinedLoss(nn.Module):
             jth_leftness_pred = leftnesses[j, :, :]              # (B, A, 1)
 
             jth_padded_annotations = annotations[j, :, :]
+
+            # The dummy gt boxes that are labeled as -1 are added to each image in the batch to make all the annotations have the same shape,
+            # so those gt boxes should be removed.
             jth_annotations = jth_padded_annotations[jth_padded_annotations[:, 2] != -1]
 
             positive_anchor_indices, assigned_annotations_for_anchors, normalized_annotations_for_anchors, \
@@ -730,8 +747,9 @@ class CombinedLoss(nn.Module):
             jth_classification_loss = self.classification_loss(
                 jth_classification_pred,
                 jth_classification_targets,
-                jth_annotations
-            ) / num_positive_anchors
+                jth_annotations,
+                num_positive_anchors
+            )
 
             # print(jth_regression_targets[positive_anchor_indices])
             # print(jth_leftness_targets[positive_anchor_indices])

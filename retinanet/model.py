@@ -266,11 +266,15 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             if isinstance(m, nn.Conv1d):
                 n = m.kernel_size[0] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2. / n))
+                m.bias.data.zero_()
                 # nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, (nn.BatchNorm1d, nn.GroupNorm)):
+            elif isinstance(m, (nn.BatchNorm1d, nn.GroupNorm)): # The batch normalization will become an identity transformation when
+                                                # its weight parameters and bias parameters are set to 1 and 0 respectively
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+        # End of for m in self.modules()
 
+        # The reinitialization of the final layer of the classification head
         prior = 0.01
 
         self.classificationModel.output.weight.data.fill_(0)
@@ -280,10 +284,10 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         self.regressionModel.regression.bias.data.fill_(0)
 
         self.regressionModel.leftness.weight.data.fill_(0)
-        #self.regressionModel.leftness.bias.data.fill_(0)
-        self.regressionModel.leftness.bias.data.fill_(-math.log((1.0 - prior) / prior))
+        self.regressionModel.leftness.bias.data.fill_(0)
+        #self.regressionModel.leftness.bias.data.fill_(-math.log((1.0 - prior) / prior))
 
-        self.freeze_bn()
+        # self.freeze_bn() # If we do not freeze the batch normalization layers, the layers will be trained as was done in WaveBeat
 
     def _make_layer(self, block, planes, blocks, stride=1): # planes = 64, 128, 256, 512 = output channels; blocks = 3,4,6,3
         downsample = None
@@ -548,6 +552,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 #     anchors_list[i] + regression_output[0, :, 1] * stride
                 # ), dim=1).unsqueeze(dim=0)
 
+                # anchor_point_transform function assumes that the regression_outputs have the batch dimension
                 transformed_regression_boxes = self.anchor_point_transform(all_anchors, regression_outputs, strides_for_all_anchors)
 
                 #scores = torch.squeeze(classification_output[:, :, class_id])

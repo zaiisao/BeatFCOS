@@ -26,7 +26,8 @@
                 "--fcos"
                 // "--checkpoints_dir", "checkpoints"
             ],
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "justMyCode": false
         },
         {
             "name": "Python: Current File",
@@ -34,7 +35,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": false
         }
     ]
 }

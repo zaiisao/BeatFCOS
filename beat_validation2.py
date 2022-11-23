@@ -279,7 +279,7 @@ if __name__ == '__main__':
     loss_hist = collections.deque(maxlen=500)
 
     retinanet.train()
-    retinanet.module.freeze_bn()
+    #retinanet.module.freeze_bn()
 
     # print('Num training images: {}'.format(len(train_dataset_list)))
 
