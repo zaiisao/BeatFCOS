@@ -326,10 +326,10 @@ if __name__ == '__main__':
                 leftness_loss = leftness_loss.mean()
                 adjacency_constraint_loss = adjacency_constraint_loss.mean() * adjacency_constraint_loss_weight
 
-                cls_losses.append(classification_loss)
-                reg_losses.append(regression_loss)
-                lft_losses.append(leftness_loss)
-                adj_losses.append(adjacency_constraint_loss)
+                cls_losses.append(classification_loss.item())
+                reg_losses.append(regression_loss.item())
+                lft_losses.append(leftness_loss.item())
+                adj_losses.append(adjacency_constraint_loss.item())
 
                 loss = classification_loss + regression_loss + leftness_loss + adjacency_constraint_loss
 
