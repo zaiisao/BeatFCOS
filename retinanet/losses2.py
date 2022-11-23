@@ -595,7 +595,7 @@ class AdjacencyConstraintLoss(nn.Module):
             jth_positive_anchor_strides
         )
 
-        transformed_pred_regression_boxes = transformed_pred_regression_boxes[0, :, :]
+        transformed_pred_regression_boxes = transformed_pred_regression_boxes_batch[0, :, :]
 
         downbeat_and_beat_x1_loss = self.calculate_downbeat_and_beat_x1_loss(
             transformed_target_regression_boxes,
