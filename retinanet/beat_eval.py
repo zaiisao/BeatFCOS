@@ -474,6 +474,11 @@ def evaluate_beat(dataset, model, score_threshold=0.05):
                         'bbox': predicted_box.tolist(),
                         'beat_scores': beat_scores,
                         'downbeat_scores': downbeat_scores,
+                        'cls_loss': losses[0],
+                        'reg_loss': losses[1],
+                        'lft_loss': losses[2],
+                        'adj_loss': losses[3],
+
                         # 'beat_scores_left': beat_scores_left,
                         # 'downbeat_scores_left': downbeat_scores_left,
                         # 'beat_scores_right': beat_scores_right,
@@ -495,6 +500,10 @@ def evaluate_beat(dataset, model, score_threshold=0.05):
 
         beat_mean_f_measure = np.mean([result['beat_scores']['F-measure'] for result in results])
         downbeat_mean_f_measure = np.mean([result['downbeat_scores']['F-measure'] for result in results])
+        cls_loss_mean = np.mean([result['cls_loss'] for result in results])
+        reg_loss_mean = np.mean([result['reg_loss'] for result in results])
+        lft_loss_mean = np.mean([result['lft_loss'] for result in results])
+        adj_loss_mean = np.mean([result['adj_loss'] for result in results])
         # left_beat_mean_f_measure = np.mean([result['beat_scores_left']['F-measure'] for result in results])
         # left_downbeat_mean_f_measure = np.mean([result['downbeat_scores_left']['F-measure'] for result in results])
         #right_beat_mean_f_measure = np.mean([result['beat_scores_right']['F-measure'] for result in results])
@@ -508,6 +517,7 @@ def evaluate_beat(dataset, model, score_threshold=0.05):
 
         print(f"Average beat F-measure: {beat_mean_f_measure:0.3f}")
         print(f"Average downbeat F-measure: {downbeat_mean_f_measure:0.3f}")
+        print(f"Average losses | CLS: {cls_loss_mean:0.3f} | REG: {reg_loss_mean:0.3f} | LFT: {lft_loss_mean:0.3f} | ADJ: {adj_loss_mean:0.3f}")
         # print(f"Average left beat F-measure: {left_beat_mean_f_measure:0.3f}")
         # print(f"Average left downbeat F-measure: {left_downbeat_mean_f_measure:0.3f}")
         #print(f"Average right beat F-measure: {right_beat_mean_f_measure:0.3f}")

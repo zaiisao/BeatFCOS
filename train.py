@@ -298,6 +298,10 @@ if __name__ == '__main__':
         #retinanet.module.freeze_bn()
 
         epoch_loss = []
+        cls_losses = []
+        reg_losses = []
+        lft_losses = []
+        adj_losses = []
 
         for iter_num, data in enumerate(train_dataloader):
             audio, target = data
@@ -321,6 +325,11 @@ if __name__ == '__main__':
                 regression_loss = regression_loss.mean() * regression_loss_weight
                 leftness_loss = leftness_loss.mean()
                 adjacency_constraint_loss = adjacency_constraint_loss.mean() * adjacency_constraint_loss_weight
+
+                cls_losses.append(classification_loss)
+                reg_losses.append(regression_loss)
+                lft_losses.append(leftness_loss)
+                adj_losses.append(adjacency_constraint_loss)
 
                 loss = classification_loss + regression_loss + leftness_loss + adjacency_constraint_loss
 
@@ -378,6 +387,7 @@ if __name__ == '__main__':
         # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
         # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
+        print(f"Epoch = {epoch_num} | CLS: {cls_losses.mean()} | REG: {reg_losses.mean()} | LFT: {lft_losses.mean()} | ADJ: {adj_losses.mean()}")
         scheduler.step(np.mean(epoch_loss))
 
         should_save_checkpoint = False
