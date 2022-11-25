@@ -167,7 +167,12 @@ class BeatDataset(torch.utils.data.Dataset):
                 annot_file = os.path.join(self.annot_dir, f"{filename}.BEAT.TXT")
                 self.annot_files.append(annot_file)
             elif self.dataset == "gtzan":
-                annot_file = os.path.join(self.annot_dir, f"{filename}.wav.txt")
+                # GTZAN dataset audio is named as "NUMBER1_GENRE.NUMBER2.wav"
+                # GTZAN dataset annot is named as "gtzan_GENRE_NUMBER2.wav"
+                # NUMBER1 always four digits and is only in the audio name, so we remove it
+                # (Notice the difference of . and _ so we replace only the first instance of . with _)
+                annot_file_name = f"gtzan{filename[4:].replace('.', '_', 1)}.beats"
+                annot_file = os.path.join(self.annot_dir, annot_file_name)
                 self.annot_files.append(annot_file)
             elif self.dataset == "smc":
                 annot_filepath = os.path.join(self.annot_dir, f"{filename}*.txt")
@@ -336,7 +341,7 @@ class BeatDataset(torch.utils.data.Dataset):
                 beat = 1 if int(line[2]) == 384 else 2
             elif self.dataset == "gtzan":
                 line = line.strip('\n')
-                time_sec, beat = line.split(' ')
+                time_sec, beat = line.split('\t')
             elif self.dataset == "smc":
                 line = line.strip('\n')
                 time_sec = line

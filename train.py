@@ -15,7 +15,7 @@ from os.path import join as ospj
 from retinanet import model
 from retinanet.dataloader import BeatDataset, collater
 from retinanet.dstcn import dsTCNModel
-from retinanet.beat_eval import evaluate_beat
+from retinanet.beat_eval import evaluate_beat_f_measure
 
 class Logger(object):
     """Log stdout messages."""
@@ -379,7 +379,7 @@ if __name__ == '__main__':
         print('Evaluating dataset')
         # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
         score_threshold = 0.05
-        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat(val_dataloader, retinanet, score_threshold=score_threshold)
+        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(val_dataloader, retinanet, score_threshold=score_threshold)
 
         print(f"Epoch = {epoch_num} | Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
         # print(f"Average beat score: {beat_mean_f_measure:0.3f}")

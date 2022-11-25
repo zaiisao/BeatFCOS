@@ -563,7 +563,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
             for class_id in range(classification_outputs.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
                 if self.fcos:
-                    scores = classification_outputs[:, :, class_id] * leftness_outputs[:, :, 0]
+                    scores = classification_outputs[:, :, class_id] * leftness_outputs[:, :, 0] # We predict the max number for beats will be less than the num of anchors
                 else:
                     scores = classification_outputs[:, :, class_id]
 

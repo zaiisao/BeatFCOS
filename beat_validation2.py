@@ -15,7 +15,7 @@ from os.path import join as ospj
 from retinanet import model
 from retinanet.dataloader import BeatDataset, collater
 from retinanet.dstcn import dsTCNModel
-from retinanet.beat_eval import evaluate_beat
+from retinanet.beat_eval import evaluate_beat_f_measure
 
 class Logger(object):
     """Log stdout messages."""
@@ -58,6 +58,10 @@ parser.add_argument('--rwc_popular_audio_dir', type=str, default=None)
 parser.add_argument('--rwc_popular_annot_dir', type=str, default=None)
 parser.add_argument('--carnatic_audio_dir', type=str, default=None)
 parser.add_argument('--carnatic_annot_dir', type=str, default=None)
+parser.add_argument('--gtzan_audio_dir', type=str, default=None)
+parser.add_argument('--gtzan_annot_dir', type=str, default=None)
+parser.add_argument('--smc_audio_dir', type=str, default=None)
+parser.add_argument('--smc_annot_dir', type=str, default=None)
 parser.add_argument('--preload', action="store_true")
 parser.add_argument('--audio_sample_rate', type=int, default=44100)
 # parser.add_argument('--target_factor', type=int, default=256) # block 하나당 곱하기 2
@@ -102,7 +106,7 @@ temp_args, _ = parser.parse_known_args()
 args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
-datasets = ["ballroom", "hainsworth"]
+datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
 
 # set the seed
 seed = 42
@@ -134,6 +138,7 @@ else:
 val_datasets = []
 
 for dataset in datasets:
+    subset = "val"
     if dataset == "beatles":
         audio_dir = args.beatles_audio_dir
         annot_dir = args.beatles_annot_dir
@@ -149,6 +154,14 @@ for dataset in datasets:
     elif dataset == "carnatic":
         audio_dir = args.carnatic_audio_dir
         annot_dir = args.carnatic_annot_dir
+    elif dataset == "gtzan":
+        audio_dir = args.gtzan_audio_dir
+        annot_dir = args.gtzan_annot_dir
+        subset = "full-val"
+    elif dataset == "smc":
+        audio_dir = args.smc_audio_dir
+        annot_dir = args.smc_annot_dir
+        subset = "full-val"
 
     if not audio_dir or not annot_dir:
         continue
@@ -172,7 +185,7 @@ for dataset in datasets:
                                  dataset=dataset,
                                  audio_sample_rate=args.audio_sample_rate,
                                  target_factor=args.target_factor,
-                                 subset="val",
+                                 subset=subset,
                                  augment=False,
                                  half=True,
                                  preload=args.preload,
@@ -358,7 +371,7 @@ if __name__ == '__main__':
 
     print('Evaluating dataset')
     # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
-    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat(val_dataloader, retinanet)
+    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(val_dataloader, retinanet)
 
     print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
     # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
