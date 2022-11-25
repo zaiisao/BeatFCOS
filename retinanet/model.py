@@ -84,13 +84,13 @@ class RegressionModel(nn.Module):
         self.norm2 = nn.GroupNorm(32, feature_size)
         self.act2 = nn.ReLU()
 
-        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.norm3 = nn.GroupNorm(32, feature_size)
-        self.act3 = nn.ReLU()
+        # self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        # self.norm3 = nn.GroupNorm(32, feature_size)
+        # self.act3 = nn.ReLU()
 
-        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.norm4 = nn.GroupNorm(32, feature_size)
-        self.act4 = nn.ReLU()
+        # self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        # self.norm4 = nn.GroupNorm(32, feature_size)
+        # self.act4 = nn.ReLU()
 
         #self.output = nn.Conv2d(feature_size, num_anchors * 4, kernel_size=3, padding=1)
         self.regression = nn.Conv1d(feature_size, num_anchors * 2, kernel_size=3, padding=1)
@@ -108,13 +108,13 @@ class RegressionModel(nn.Module):
         out = self.norm2(out)
         out = self.act2(out)
 
-        out = self.conv3(out)
-        out = self.norm3(out)
-        out = self.act3(out)
+        #out = self.conv3(out)
+        #out = self.norm3(out)
+        #out = self.act3(out)
 
-        out = self.conv4(out)
-        out = self.norm4(out)
-        out = self.act4(out)
+        #out = self.conv4(out)
+        #out = self.norm4(out)
+        #out = self.act4(out)
 
         regression = self.regression(out)
 
@@ -149,13 +149,13 @@ class ClassificationModel(nn.Module):
         self.norm2 = nn.GroupNorm(32, feature_size)
         self.act2 = nn.ReLU()
 
-        self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.norm3 = nn.GroupNorm(32, feature_size)
-        self.act3 = nn.ReLU()
+        # self.conv3 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        # self.norm3 = nn.GroupNorm(32, feature_size)
+        # self.act3 = nn.ReLU()
 
-        self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.norm4 = nn.GroupNorm(32, feature_size)
-        self.act4 = nn.ReLU()
+        # self.conv4 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        # self.norm4 = nn.GroupNorm(32, feature_size)
+        # self.act4 = nn.ReLU()
 
         self.output = nn.Conv1d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
         self.output_act = nn.Sigmoid()
@@ -169,13 +169,13 @@ class ClassificationModel(nn.Module):
         out = self.norm2(out)
         out = self.act2(out)
 
-        out = self.conv3(out)
-        out = self.norm3(out)
-        out = self.act3(out)
+        #out = self.conv3(out)
+        #out = self.norm3(out)
+        #out = self.act3(out)
 
-        out = self.conv4(out)
-        out = self.norm4(out)
-        out = self.act4(out)
+        #out = self.conv4(out)
+        #out = self.norm4(out)
+        #out = self.act4(out)
 
         out = self.output(out)
         out = self.output_act(out)
