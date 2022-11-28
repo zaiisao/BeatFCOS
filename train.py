@@ -79,13 +79,13 @@ parser.add_argument('--patience', type=int, default=40)
 # --- tcn model related ---
 parser.add_argument('--ninputs', type=int, default=1)
 parser.add_argument('--noutputs', type=int, default=2)
-parser.add_argument('--nblocks', type=int, default=10)
+parser.add_argument('--nblocks', type=int, default=8)
 parser.add_argument('--kernel_size', type=int, default=15)
 parser.add_argument('--stride', type=int, default=2)
-parser.add_argument('--dilation_growth', type=int, default=5)
+parser.add_argument('--dilation_growth', type=int, default=8)
 parser.add_argument('--channel_growth', type=int, default=1)
 parser.add_argument('--channel_width', type=int, default=32)
-parser.add_argument('--stack_size', type=int, default=5)
+parser.add_argument('--stack_size', type=int, default=4)
 parser.add_argument('--grouped', default=False, action='store_true')
 parser.add_argument('--causal', default=False, action="store_true")
 parser.add_argument('--skip_connections', default=False, action="store_true")
@@ -102,7 +102,8 @@ temp_args, _ = parser.parse_known_args()
 args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
-datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
+#datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
+datasets = ["ballroom"]
 
 # set the seed
 seed = 42
