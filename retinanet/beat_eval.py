@@ -1,4 +1,4 @@
-import madmom
+#import madmom
 import mir_eval
 import numpy as np
 import scipy.signal
@@ -130,24 +130,28 @@ def compute_overlap(a, b):
     -------
     overlaps: (N, K) ndarray of overlap between boxes and query_boxes
     """
-    area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+    #area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+    area = b[:, 1] - b[:, 0]
 
-    iw = np.minimum(np.expand_dims(a[:, 2], axis=1), b[:, 2]) - np.maximum(np.expand_dims(a[:, 0], 1), b[:, 0])
-    ih = np.minimum(np.expand_dims(a[:, 3], axis=1), b[:, 3]) - np.maximum(np.expand_dims(a[:, 1], 1), b[:, 1])
+    #iw = np.minimum(np.expand_dims(a[:, 2], axis=1), b[:, 2]) - np.maximum(np.expand_dims(a[:, 0], 1), b[:, 0])
+    iw = np.minimum(np.expand_dims(a[:, 1], axis=1), b[:, 1]) - np.maximum(np.expand_dims(a[:, 0], 1), b[:, 0])
+    #ih = np.minimum(np.expand_dims(a[:, 3], axis=1), b[:, 3]) - np.maximum(np.expand_dims(a[:, 1], 1), b[:, 1])
 
     iw = np.maximum(iw, 0)
-    ih = np.maximum(ih, 0)
+    #ih = np.maximum(ih, 0)
 
-    ua = np.expand_dims((a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1]), axis=1) + area - iw * ih
+    #ua = np.expand_dims((a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1]), axis=1) + area - iw * ih
+    ua = np.expand_dims(a[:, 1] - a[:, 0], axis=1) + area - iw
 
     ua = np.maximum(ua, np.finfo(float).eps)
 
-    intersection = iw * ih
+    #intersection = iw * ih
+    intersection = iw
 
     return intersection / ua
 
 
-def _compute_ap(recall, precision):
+def compute_ap(recall, precision):
     """ Compute the average precision, given the recall and precision curves.
     Code originally from https://github.com/rbgirshick/py-faster-rcnn.
     # Arguments
@@ -173,27 +177,63 @@ def _compute_ap(recall, precision):
     ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     return ap
 
+def get_results_from_model(audio, target, model, iou_threshold=0.5, score_threshold=0.05):
+    #data = dataset[index]
+    #scale = data['scale']
+    #audio, target = data
 
-def _get_detections(dataloader, model_outputs, num_classes=2, score_threshold=0.05, max_detections=100, save_path=None):
+    if torch.cuda.is_available():
+        # move data to GPU
+        audio = audio.to('cuda')
+        target = target.to('cuda')
+
+    nblocks = 10
+
+    target_length = -(audio.size(dim=2) // -2**nblocks) * 2**nblocks
+    audio_pad = (0, target_length - audio.size(dim=2))
+    audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
+
+    # run network
+    # scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
+    # predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
+
+    predicted_scores, predicted_labels, predicted_boxes, losses = model(
+        (audio, target),
+        iou_threshold=iou_threshold,
+        score_threshold=score_threshold
+    )
+
+    predicted_scores = predicted_scores.cpu()
+    predicted_labels = predicted_labels.cpu()
+    predicted_boxes  = predicted_boxes.cpu()
+    
+    return predicted_scores, predicted_labels, predicted_boxes, losses
+
+def get_detections(dataloader, model, num_classes, score_threshold=0.05, max_detections=10000000):
     """ Get the detections from the retinanet using the generator.
     The result is a list of lists such that the size is:
         all_detections[num_images][num_classes] = detections[num_detections, 4 + num_classes]
     # Arguments
         dataset         : The generator used to run images through the retinanet.
-        retinanet           : The retinanet to run on the images.
+        model           : The model to run on the images.
         score_threshold : The score confidence threshold to use.
         max_detections  : The maximum number of detections to use per image.
         save_path       : The path to save the images with visualized detections to.
     # Returns
         A list of lists containing the detections for each image in the generator.
     """
-    all_detections = [[None for i in range(num_classes)] for j in range(len(dataset))]
+    all_detections = [[None for i in range(num_classes)] for j in range(len(dataloader))]
 
-    retinanet.eval()
+    model.eval()
     
     with torch.no_grad():
-        for index, data in enumerate(dataloader):            
-            scores, labels, boxes = model_outputs
+        for index, data in enumerate(dataloader):
+            audio, target, metadata = data
+
+            # if we have metadata, it is only during evaluation where batch size is always 1
+            metadata = metadata[0]
+        
+            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model)
             # scale = data['scale']
 
             # # run network
@@ -209,35 +249,35 @@ def _get_detections(dataloader, model_outputs, num_classes=2, score_threshold=0.
             # boxes /= scale
 
             # select indices which have a score above the threshold
-            indices = np.where(scores > score_threshold)[0]
+            indices = np.where(predicted_scores > score_threshold)[0]
             if indices.shape[0] > 0:
                 # select those scores
-                scores = scores[indices]
+                predicted_scores = predicted_scores[indices]
 
                 # find the order with which to sort the scores
-                scores_sort = np.argsort(-scores)[:max_detections]
+                scores_sort = np.argsort(-predicted_scores)[:max_detections]
 
                 # select detections
-                image_boxes      = boxes[indices[scores_sort], :]
-                image_scores     = scores[scores_sort]
-                image_labels     = labels[indices[scores_sort]]
+                image_boxes      = predicted_boxes[indices[scores_sort], :]
+                image_scores     = predicted_scores[scores_sort]
+                image_labels     = predicted_labels[indices[scores_sort]]
                 image_detections = np.concatenate([image_boxes, np.expand_dims(image_scores, axis=1), np.expand_dims(image_labels, axis=1)], axis=1)
 
                 # copy detections to all_detections
-                for label in range(dataset.num_classes()):
+                for label in range(num_classes):
                     all_detections[index][label] = image_detections[image_detections[:, -1] == label, :-1]
             else:
                 # copy detections to all_detections
-                for label in range(dataset.num_classes()):
+                for label in range(num_classes):
                     #all_detections[index][label] = np.zeros((0, 5))
                     all_detections[index][label] = np.zeros((0, 3))
 
-            print('{}/{}'.format(index + 1, len(dataset)), end='\r')
+            print('{}/{}'.format(index + 1, len(dataloader)), end='\r')
 
     return all_detections
 
 
-def _get_annotations(dataloader, num_classes=2):
+def get_annotations(dataloader, num_classes):
     """ Get the ground truth annotations from the generator.
     The result is a list of lists such that the size is:
         all_detections[num_images][num_classes] = annotations[num_detections, 5]
@@ -248,45 +288,50 @@ def _get_annotations(dataloader, num_classes=2):
     """
     all_annotations = [[None for i in range(num_classes)] for j in range(len(dataloader))]
 
-    for i in range(len(dataloader)):
+    #for i in range(len(dataloader)):
+    for i, data in enumerate(dataloader):
+        _, batch_annotations, _ = data
+        annotations = batch_annotations[0].cpu().numpy()
         # load the annotations
-        annotations = generator.load_annotations(i)
+        #annotations = dataloader.load_annotations(i)
 
         # copy detections to all_annotations
-        for label in range(generator.num_classes()):
+        for label in range(num_classes):
             #all_annotations[i][label] = annotations[annotations[:, 4] == label, :4].copy()
-            all_annotations[i][label] = annotations[annotations[:, 4] == label, :2].copy()
+            all_annotations[i][label] = annotations[annotations[:, 2] == label, :2].copy()
 
-        print('{}/{}'.format(i + 1, len(generator)), end='\r')
+        print('{}/{}'.format(i + 1, len(dataloader)), end='\r')
 
     return all_annotations
 
 def evaluate_beat_ap(
     dataloader,
     model,
+    num_classes=2,
     iou_threshold=0.5,
     score_threshold=0.05,
     max_detections=100
 ):
-    all_detections = _get_detections(dataloader, model, score_threshold=score_threshold, max_detections=max_detections)
-    all_annotations = _get_annotations(dataloader)
+    all_detections = get_detections(dataloader, model, num_classes, score_threshold=score_threshold, max_detections=max_detections)
+    all_annotations = get_annotations(dataloader, num_classes)
     
     average_precisions = {}
 
-    for label in range(generator.num_classes()):
+    for label in range(num_classes):
         false_positives = np.zeros((0,))
         true_positives  = np.zeros((0,))
         scores          = np.zeros((0,))
         num_annotations = 0.0
 
-        for i in range(len(generator)):
+        for i in range(len(dataloader)):
             detections           = all_detections[i][label]
             annotations          = all_annotations[i][label]
             num_annotations     += annotations.shape[0]
             detected_annotations = []
 
             for d in detections:
-                scores = np.append(scores, d[4])
+                #scores = np.append(scores, d[4])
+                scores = np.append(scores, d[2])
 
                 if annotations.shape[0] == 0:
                     false_positives = np.append(false_positives, 1)
@@ -324,31 +369,36 @@ def evaluate_beat_ap(
         precision = true_positives / np.maximum(true_positives + false_positives, np.finfo(np.float64).eps)
 
         # compute average precision
-        average_precision  = _compute_ap(recall, precision)
+        average_precision  = compute_ap(recall, precision)
         average_precisions[label] = average_precision, num_annotations
 
 
     print('\nmAP:')
-    for label in range(generator.num_classes()):
-        label_name = generator.label_to_name(label)
+    for label in range(num_classes):
+        #label_name = dataloader.label_to_name(label)
+        if label == 0:
+            label_name = "Downbeat"
+        elif label == 1:
+            label_name = "Beat"
+        else:
+            raise NotImplementedError
+
         print('{}: {}'.format(label_name, average_precisions[label][0]))
         print("Precision: ",precision[-1])
         print("Recall: ",recall[-1])
-        
-        if save_path!=None:
-            plt.plot(recall,precision)
-            # naming the x axis 
-            plt.xlabel('Recall') 
-            # naming the y axis 
-            plt.ylabel('Precision') 
 
-            # giving a title to my graph 
-            plt.title('Precision Recall curve') 
+        # if save_path!=None:
+        #     plt.plot(recall,precision)
+        #     # naming the x axis 
+        #     plt.xlabel('Recall') 
+        #     # naming the y axis 
+        #     plt.ylabel('Precision') 
 
-            # function to show the plot
-            plt.savefig(save_path+'/'+label_name+'_precision_recall.jpg')
+        #     # giving a title to my graph 
+        #     plt.title('Precision Recall curve') 
 
-
+        #     # function to show the plot
+        #     plt.savefig(save_path+'/'+label_name+'_precision_recall.jpg')
 
     return average_precisions
 
@@ -358,43 +408,15 @@ def evaluate_beat_f_measure(dataloader, model, score_threshold=0.05):
     with torch.no_grad():
         # start collecting results
         results = []
-        image_ids = []
+        #image_ids = []
 
         for index, data in enumerate(dataloader):
-            #data = dataset[index]
-            #scale = data['scale']
             audio, target, metadata = data
-            #audio, target = data
-
-            if torch.cuda.is_available():
-                # move data to GPU
-                audio = audio.to('cuda')
-                target = target.to('cuda')
 
             # if we have metadata, it is only during evaluation where batch size is always 1
             metadata = metadata[0]
-
-            nblocks = 10
-
-            target_length = -(audio.size(dim=2) // -2**nblocks) * 2**nblocks
-            audio_pad = (0, target_length - audio.size(dim=2))
-            audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
-
-            iou_threshold = 0.5
-
-            # run network
-            # scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
-            # predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
-
-            predicted_scores, predicted_labels, predicted_boxes, losses = model(
-                (audio, target),
-                iou_threshold=iou_threshold,
-                score_threshold=score_threshold
-            )
-
-            predicted_scores = predicted_scores.cpu()
-            predicted_labels = predicted_labels.cpu()
-            predicted_boxes  = predicted_boxes.cpu()
+        
+            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model)
 
             #evaluate_ap(target, (predicted_scores, predicted_labels, predicted_boxes))
 
@@ -408,7 +430,7 @@ def evaluate_beat_f_measure(dataloader, model, score_threshold=0.05):
             #print('{}/{}'.format(index, len(dataset)), end='\r')
 
             #length = audio.size(dim=2) // 256
-            length = audio.size(dim=2) // 128
+            #length = audio.size(dim=2) // 128
 
             # wavebeat_format_pred_left = torch.zeros((2, length)).to(audio.device)
             # wavebeat_format_pred_average = torch.zeros((2, length)).to(audio.device)

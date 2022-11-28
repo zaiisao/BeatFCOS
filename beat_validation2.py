@@ -15,7 +15,7 @@ from os.path import join as ospj
 from retinanet import model
 from retinanet.dataloader import BeatDataset, collater
 from retinanet.dstcn import dsTCNModel
-from retinanet.beat_eval import evaluate_beat_f_measure
+from retinanet.beat_eval import evaluate_beat_f_measure, evaluate_beat_ap
 
 class Logger(object):
     """Log stdout messages."""
@@ -283,121 +283,9 @@ if __name__ == '__main__':
             torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         ))
 
-    retinanet.training = True
-
-    optimizer = torch.optim.Adam(retinanet.parameters(), lr=1e-5)
-
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
-
-    loss_hist = collections.deque(maxlen=500)
-
-    retinanet.train()
-    #retinanet.module.freeze_bn()
-
-    # print('Num training images: {}'.format(len(train_dataset_list)))
-
-    if not os.path.exists("./checkpoints"):
-        os.makedirs("./checkpoints")
-
-    classification_loss_weight = 0.6
-    regression_loss_weight = 0.4
-
-    highest_beat_mean_f_measure = 0
-    highest_downbeat_mean_f_measure = 0
-
-    # for epoch_num in range(start_epoch, args.epochs):
-    #     retinanet.train()
-    #     retinanet.module.freeze_bn()
-
-    #     epoch_loss = []
-
-    #     for iter_num, data in enumerate(train_dataloader):
-    #         audio, target = data
-    #         if use_gpu and torch.cuda.is_available():
-    #             audio = audio.cuda()
-    #             target = target.cuda()
-
-    #         try:
-    #             optimizer.zero_grad()
-
-    #             if args.fcos:
-    #                 classification_loss, regression_loss, leftness_loss = retinanet((audio, target))  # retinanet = model.resnet50(**dict_args)
-    #                                                                                                     # this calls the forward function of resnet50
-    #             else:
-    #                 classification_loss, regression_loss = retinanet((audio, target))
-    #                 leftness_loss = torch.zeros(1)
-    
-    #             classification_loss = classification_loss.mean() * classification_loss_weight
-    #             regression_loss = regression_loss.mean() * regression_loss_weight
-    #             leftness_loss = leftness_loss.mean()
-
-    #             loss = classification_loss + regression_loss + leftness_loss
-
-    #             if bool(loss == 0):
-    #                 continue
-
-    #             loss.backward()
-    #             # print(torch.abs(retinanet.module.classificationModel.output.weight.grad).sum())
-    #             # print(torch.abs(retinanet.module.regressionModel.regression.weight.grad).sum())
-    #             # if args.fcos:
-    #             #     print(torch.abs(retinanet.module.regressionModel.leftness.weight.grad).sum())
-
-    #             torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
-
-    #             optimizer.step()
-
-    #             loss_hist.append(float(loss))
-
-    #             epoch_loss.append(float(loss))
-
-    #             if args.fcos:
-    #                 print(
-    #                     'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Leftness loss: {:1.5f} | Running loss: {:1.5f}'.format(
-    #                         epoch_num, iter_num, float(classification_loss), float(regression_loss), float(leftness_loss), np.mean(loss_hist)))
-    #             else:
-    #                 print(
-    #                     'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
-    #                         epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
-
-    #             del classification_loss
-    #             del regression_loss
-    #             del leftness_loss
-    #         except KeyboardInterrupt:
-    #             sys.exit()
-    #         except Exception as e:
-    #             print(e)
-    #             traceback.print_exc()
-    #             continue
-
     print('Evaluating dataset')
-    # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
-    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(val_dataloader, retinanet)
 
-    print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
-    # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
-    # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
-    # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
-        # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
+    #beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(val_dataloader, retinanet)
 
-    #     scheduler.step(np.mean(epoch_loss))
-
-    #     should_save_checkpoint = False
-    #     if beat_mean_f_measure > highest_beat_mean_f_measure:
-    #         should_save_checkpoint = True
-    #         print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
-    #         highest_beat_mean_f_measure = beat_mean_f_measure
-
-    #     if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
-    #         should_save_checkpoint = True
-    #         print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
-    #         highest_downbeat_mean_f_measure = downbeat_mean_f_measure
-
-    #     should_save_checkpoint = True # FOR DEBUGGING
-    #     if should_save_checkpoint:
-    #         new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
-    #         print(f"Saving checkpoint at {new_checkpoint_path}")
-    #         torch.save(retinanet.state_dict(), new_checkpoint_path)
-
-    # retinanet.eval()
-
-    # torch.save(retinanet, './checkpoints/model_final.pt')
+    #print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+    evaluate_beat_ap(val_dataloader, retinanet)

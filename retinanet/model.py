@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from multiprocessing.sharedctypes import Value
 import torch.nn as nn
 import torch
@@ -16,6 +17,7 @@ model_urls = {
     'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
     'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+    'wavebeat10': '/mount/beat-tracking/beat-retinanet/backbone/wavebeat10.pth'
 }
 
 
@@ -108,13 +110,13 @@ class RegressionModel(nn.Module):
         out = self.norm2(out)
         out = self.act2(out)
 
-        #out = self.conv3(out)
-        #out = self.norm3(out)
-        #out = self.act3(out)
+        # out = self.conv3(out)
+        # out = self.norm3(out)
+        # out = self.act3(out)
 
-        #out = self.conv4(out)
-        #out = self.norm4(out)
-        #out = self.act4(out)
+        # out = self.conv4(out)
+        # out = self.norm4(out)
+        # out = self.act4(out)
 
         regression = self.regression(out)
 
@@ -169,13 +171,13 @@ class ClassificationModel(nn.Module):
         out = self.norm2(out)
         out = self.act2(out)
 
-        #out = self.conv3(out)
-        #out = self.norm3(out)
-        #out = self.act3(out)
+        # out = self.conv3(out)
+        # out = self.norm3(out)
+        # out = self.act3(out)
 
-        #out = self.conv4(out)
-        #out = self.norm4(out)
-        #out = self.act4(out)
+        # out = self.conv4(out)
+        # out = self.norm4(out)
+        # out = self.act4(out)
 
         out = self.output(out)
         out = self.output_act(out)
@@ -626,9 +628,38 @@ def resnet34(num_classes, **kwargs):
     return ResNet(num_classes, BasicBlock, [3, 4, 6, 3], **kwargs)
 
 
-def resnet50(num_classes, **kwargs):
-    """Constructs a ResNet-50 model."""
-    return ResNet(num_classes, Bottleneck, [3, 4, 6, 3], **kwargs)
+def resnet50(num_classes, pretrained=False, **kwargs):
+    """Constructs a ResNet-50 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    #model objects computes the loss by executing its forward() method
+    # 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    model = ResNet(num_classes, Bottleneck, [3, 4, 6, 3], **kwargs)
+
+    if pretrained:
+        arch = 'wavebeat10'
+
+        state_dict = torch.load(model_urls[arch])
+
+        new_dict = OrderedDict()
+
+        for k, v in state_dict['state_dict'].items():
+            key = k
+            #key = k.replace('module.', '') # The parameter key that starts with "module." means that these parameters are from the parallelized model
+            # For example, if the name of the parallelized module is "model_ddp" then the module_ddp.module refers to the original unwrapped model
+            new_dict[key] = v
+
+        missing_keys, unexpected_keys = model.dstcn.load_state_dict(new_dict, strict=False)
+
+    return model
+
+    #missing_keys, unexpected_keys = model.load_state_dict(model_zoo.load_url(model_urls['resnet50'], model_dir='.'), strict=False)
+        
+        # MJ: load_state_dict() returns ``NamedTuple`` with ``missing_keys`` and ``unexpected_keys`` fields:
+                # * **missing_keys** is a list of str containing the missing keys
+                # * **unexpected_keys** is a list of str containing the unexpected keys
+    #return model
 
 
 def resnet101(num_classes, **kwargs):
