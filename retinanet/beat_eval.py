@@ -402,7 +402,7 @@ def evaluate_beat_ap(
 
     return average_precisions
 
-def evaluate_beat_f_measure(dataloader, model, score_threshold=0.05):
+def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_threshold=0.05):
     model.eval()
     
     with torch.no_grad():
@@ -469,18 +469,18 @@ def evaluate_beat_f_measure(dataloader, model, score_threshold=0.05):
                 left_position_index = int(predicted_box[0])
                 right_position_index = int(predicted_box[1])
 
-                # We obtained the base level audio from the original audio sampled at 22050 Hz by downsampling 2**7 (128)
+                # We obtained the base level audio from the original audio sampled at 22050 Hz by downsampling audio_downsampling_factor
                 # and on that base level audio the gt beat intervals are defined.
                 #
-                # left_position_index * 128 is the position of the beat location on the base level audio.
+                # left_position_index * audio_downsampling_factor is the position of the beat location on the base level audio.
                 # In order to get the time of that location, we need to divide it by 22050 Hz
 
                 if predicted_label == 0:
-                    downbeat_pred_left_positions.append(left_position_index * 128 / 22050)
-                    downbeat_pred_right_positions.append(right_position_index * 128 / 22050)
+                    downbeat_pred_left_positions.append(left_position_index * audio_downsampling_factor / 22050)
+                    downbeat_pred_right_positions.append(right_position_index * audio_downsampling_factor / 22050)
                 elif predicted_label == 1:
-                    beat_pred_left_positions.append(left_position_index * 128 / 22050)
-                    beat_pred_right_positions.append(right_position_index * 128 / 22050)
+                    beat_pred_left_positions.append(left_position_index * audio_downsampling_factor / 22050)
+                    beat_pred_right_positions.append(right_position_index * audio_downsampling_factor / 22050)
 
                 # wavebeat_format_pred_left[row, min(left_position_index, length - 1)] = 1
                 # wavebeat_format_pred_right[row, min(right_position_index, length - 1)] = 1
@@ -523,11 +523,11 @@ def evaluate_beat_f_measure(dataloader, model, score_threshold=0.05):
 
             if last_pred_beat_index is not None:
                 #wavebeat_format_pred_left[0, min(last_pred_beat_index, length - 1)] = 1
-                beat_pred_left_positions.append(last_pred_beat_index * 128 / 22050)
+                beat_pred_left_positions.append(last_pred_beat_index * audio_downsampling_factor / 22050)
 
             if last_pred_downbeat_index is not None:
                 #wavebeat_format_pred_left[1, min(last_pred_downbeat_index, length - 1)] = 1
-                downbeat_pred_left_positions.append(last_pred_downbeat_index * 128 / 22050)
+                downbeat_pred_left_positions.append(last_pred_downbeat_index * audio_downsampling_factor / 22050)
 
             # if first_pred_beat_index is not None:
             #     wavebeat_format_pred_right[0, min(first_pred_beat_index, length - 1)] = 1
@@ -574,9 +574,9 @@ def evaluate_beat_f_measure(dataloader, model, score_threshold=0.05):
 
                 # wavebeat_format_target[row, min(left_position_index, length - 1)] = 1
                 if label == 0:
-                    downbeat_target_left_positions.append(left_position_index * 128 / 22050)
+                    downbeat_target_left_positions.append(left_position_index * audio_downsampling_factor / 22050)
                 elif label == 1:
-                    beat_target_left_positions.append(left_position_index * 128 / 22050)
+                    beat_target_left_positions.append(left_position_index * audio_downsampling_factor / 22050)
 
                 if label == 0 and (last_target_downbeat_index is None or right_position_index > last_target_downbeat_index):
                     last_target_downbeat_index = right_position_index
@@ -585,8 +585,8 @@ def evaluate_beat_f_measure(dataloader, model, score_threshold=0.05):
 
             #wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
             #wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
-            beat_target_left_positions.append(last_target_beat_index * 128 / 22050)
-            downbeat_target_left_positions.append(last_target_downbeat_index * 128 / 22050)
+            beat_target_left_positions.append(last_target_beat_index * audio_downsampling_factor / 22050)
+            downbeat_target_left_positions.append(last_target_downbeat_index * audio_downsampling_factor / 22050)
 
             #target_sample_rate = 22050 // 256
             # target_sample_rate = 22050 // 128

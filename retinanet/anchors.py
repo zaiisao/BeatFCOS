@@ -6,7 +6,7 @@ import torch.nn as nn
 
 class Anchors(nn.Module):
     # def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
-    def __init__(self, fcos=False): # We use base level 8
+    def __init__(self, audio_downsampling_factor, fcos=False): # We use base level 8
         super(Anchors, self).__init__()
 
         self.fcos = fcos
@@ -17,9 +17,7 @@ class Anchors(nn.Module):
         self.strides = [2 ** x for x in self.pyramid_levels]
         # self.strides = [2 ** x for x in self.pyramid_levels]
 
-        #audio_downsampling_factor = 256
-        audio_downsampling_factor = 128
-        self.sizes = [x * 22050 / audio_downsampling_factor for x in [0.33906588, 0.5731122, 1.18389907, 1.93154902, 2.59802203]]
+        self.sizes = [x * 22050 / audio_downsampling_factor for x in [0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922]]
 
         if self.fcos:            
             #self.sizes = [0 for x in self.pyramid_levels]

@@ -5,27 +5,25 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou, AnchorPointTrans
 
 INF = 100000000
 
-def get_fcos_positives(jth_annotations, anchors_list, beat_radius=2.5, downbeat_radius=4.5):
-    #audio_downsampling_factor = 256
-    audio_downsampling_factor = 128
+def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor, beat_radius=2.5, downbeat_radius=4.5):
     audio_target_rate = 22050 / audio_downsampling_factor
 
     sizes = [
-        [-1, 0.45608904],
-        [0.45608904, 0.878505635],
-        [0.878505635, 1.557724045],
-        [1.557724045, 2.264785525],
-        [2.264785525, 1000],
+        [-1, 0.546471750],
+        [0.546471750, 0.954826620],
+        [0.954826620, 1.587662385],
+        [1.587662385, 2.359228750],
+        [2.359228750, 1000],
     ]
 
     # Sizes were calculated as follows:
     # b_k where k = [1, 2]: beat k-means values when calculating all beat interval lengths (2 in total)
     #
-    # b_1 = 0.33737285, b_2 = 0.57180136
+    # b_1 = 0.42574675, b_2 = 0.66719675
     #
     # b_k where k = [3, 4, 5]: downbeat k-means values when calculating all downbeat interval lengths (3 in total)
     #
-    # b_3 = 1.18389907, b_4 = 1.93154902, b_5 = 2.59802203
+    # b_3 = 1.24245649, b_4 = 1.93286828, b_5 = 2.78558922
     #
     # Why 3 for downbeat and 2 for regular beat?
     # There is much more size variation for downbeat interval lengths, requiring more sizes dedicated to downbeats.
@@ -38,16 +36,16 @@ def get_fcos_positives(jth_annotations, anchors_list, beat_radius=2.5, downbeat_
     # Thus, m_k is the the middle of two clusters and calculated as follows:
     #
     # m_i = b_(i + 1)/2 - b_i/2
-    # m_1 = 0.57180136/2 - 0.33737285/2 = 0.117214255
-    # m_2 = 1.18389907/2 - 0.57180136/2 = 0.306048855
-    # m_3 = 1.93154902/2 - 1.18389907/2 = 0.373824975
-    # m_4 = 2.59802203/2 - 1.93154902/2 = 0.333236505
+    # m_1 = 0.66719675/2 - 0.42574675/2 = 0.120725
+    # m_2 = 1.24245649/2 - 0.66719675/2 = 0.28762987
+    # m_3 = 1.93286828/2 - 1.24245649/2 = 0.345205895
+    # m_4 = 2.78558922/2 - 1.93286828/2 = 0.42636047
     #
-    # [-1, b_1 + m_1]           = [-1, 0.33737285 + 0.117214255]                        = [-1, 0.45608904]
-    # [b_1 + m_1, b_2 + m_2]    = [0.33737285 + 0.117214255, 0.57180136 + 0.306048855]  = [0.45608904, 0.878505635]
-    # [b_2 + m_2, b_3 + m_3]    = [0.57180136 + 0.306048855, 1.18389907 + 0.373824975]  = [0.878505635, 1.557724045]
-    # [b_3 + m_3, b_4 + m_4]    = [1.18389907 + 0.373824975, 1.93154902 + 0.333236505]  = [1.557724045, 2.264785525]
-    # [b_4 + m_4, 1000]         = [1.93154902 + 0.333236505, 1000]                      = [2.264785525, 1000]
+    # [-1, b_1 + m_1]           = [-1, 0.42574675 + 0.120725000]                       = [-1, 0.546471750]
+    # [b_1 + m_1, b_2 + m_2]    = [0.42574675 + 0.120725000, 0.66719675 + 0.287629870] = [0.546471750, 0.954826620]
+    # [b_2 + m_2, b_3 + m_3]    = [0.66719675 + 0.287629870, 1.24245649 + 0.345205895] = [0.954826620, 1.587662385]
+    # [b_3 + m_3, b_4 + m_4]    = [1.24245649 + 0.345205895, 1.93286828 + 0.426360470] = [1.587662385, 2.359228750]
+    # [b_4 + m_4, 1000]         = [1.93286828 + 0.426360470, 1000]                     = [2.359228750, 1000]
 
     # sorted_bbox_indices = (bbox_annotations_per_class[:, 1] - bbox_annotations_per_class[:, 0]).argsort()
     # print(f"sorted_bbox_indices ({sorted_bbox_indices.shape}):\n{sorted_bbox_indices}")
@@ -628,13 +626,15 @@ class AdjacencyConstraintLoss(nn.Module):
         return all_adjacency_constraint_losses.mean()
 
 class CombinedLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, audio_downsampling_factor):
         super(CombinedLoss, self).__init__()
 
         self.classification_loss = FocalLoss()
         self.regression_loss = RegressionLoss()
         self.leftness_loss = LeftnessLoss()
         self.adjacency_constraint_loss = AdjacencyConstraintLoss()
+        
+        self.audio_downsampling_factor = audio_downsampling_factor
 
     def get_jth_targets(
         self,
@@ -687,7 +687,7 @@ class CombinedLoss(nn.Module):
 
             positive_anchor_indices, assigned_annotations_for_anchors, normalized_annotations_for_anchors, \
             l_star_for_anchors, r_star_for_anchors, normalized_l_star_for_anchors, \
-            normalized_r_star_for_anchors, levels_for_anchors = get_fcos_positives(jth_annotations, anchors_list)
+            normalized_r_star_for_anchors, levels_for_anchors = get_fcos_positives(jth_annotations, anchors_list, self.audio_downsampling_factor)
 
             all_anchor_points = torch.cat(anchors_list, dim=0)
             num_positive_anchors = positive_anchor_indices.sum()

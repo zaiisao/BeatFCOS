@@ -52,7 +52,7 @@ class BeatDataset(torch.utils.data.Dataset):
                  audio_dir, 
                  annot_dir, 
                  audio_sample_rate=44100, 
-                 target_factor=256,
+                 audio_downsampling_factor=32,
                  dataset="ballroom",
                  subset="train", 
                  length=16384, 
@@ -68,7 +68,7 @@ class BeatDataset(torch.utils.data.Dataset):
             audio_dir (str): Path to the root directory containing the audio (.wav) files.
             annot_dir (str): Path to the root directory containing the annotation (.beats) files.
             audio_sample_rate (float, optional): Sample rate of the audio files. (Default: 44100)
-            target_factor (float, optional): The factor by which to downsample the sample rate of the audio to the final output tensor. (Default: 256)
+            audio_downsampling_factor (float, optional): The factor by which to downsample the sample rate of the audio to the final output tensor. (Default: 256)
             subset (str, optional): Pull data either from "train", "val", "test", or "full-train", "full-val" subsets. (Default: "train")
             dataset (str, optional): Name of the dataset to be loaded "ballroom", "beatles", "hainsworth", "rwc_popular", "gtzan", "smc". (Default: "ballroom")
             length (int, optional): Number of samples in the returned examples. (Default: 40)
@@ -86,8 +86,8 @@ class BeatDataset(torch.utils.data.Dataset):
         self.audio_dir = audio_dir
         self.annot_dir = annot_dir
         self.audio_sample_rate = audio_sample_rate
-        self.target_factor = target_factor
-        self.target_sample_rate = audio_sample_rate / target_factor
+        self.audio_downsampling_factor = audio_downsampling_factor
+        self.target_sample_rate = audio_sample_rate / audio_downsampling_factor
         self.subset = subset
         self.dataset = dataset
         self.length = length
@@ -100,9 +100,9 @@ class BeatDataset(torch.utils.data.Dataset):
         self.dataset = dataset
         self.examples_per_epoch = examples_per_epoch
 
-        # if length = 2097152 and target_factor is 256, target_length = 8192
+        # if length = 2097152 and audio_downsampling_factor is 256, target_length = 8192
         # downsampling tcn's output tensor dimension is (b, 256, 8192) (b, channel, width/length)
-        self.target_length = int(self.length / self.target_factor)
+        self.target_length = int(self.length / self.audio_downsampling_factor)
         #print(f"Audio length: {self.length}")
         #print(f"Target length: {self.target_length}")
 
@@ -225,8 +225,8 @@ class BeatDataset(torch.utils.data.Dataset):
         if (N_audio > self.length or N_target > self.target_length) and self.subset not in ['val', 'test', 'full-val']:
             audio_start = np.random.randint(0, N_audio - self.length - 1)
             audio_stop  = audio_start + self.length
-            target_start = int(audio_start / self.target_factor)
-            target_stop = int(audio_stop / self.target_factor)
+            target_start = int(audio_start / self.audio_downsampling_factor)
+            target_stop = int(audio_stop / self.audio_downsampling_factor)
             audio = audio[:,audio_start:audio_stop]
             target = target[:,target_start:target_stop]
 

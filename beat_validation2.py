@@ -64,8 +64,8 @@ parser.add_argument('--smc_audio_dir', type=str, default=None)
 parser.add_argument('--smc_annot_dir', type=str, default=None)
 parser.add_argument('--preload', action="store_true")
 parser.add_argument('--audio_sample_rate', type=int, default=44100)
-# parser.add_argument('--target_factor', type=int, default=256) # block 하나당 곱하기 2
-parser.add_argument('--target_factor', type=int, default=128) # block 하나당 곱하기 2
+# parser.add_argument('--audio_downsampling_factor', type=int, default=256) # block 하나당 곱하기 2
+parser.add_argument('--audio_downsampling_factor', type=int, default=32) # block 하나당 곱하기 2
 parser.add_argument('--shuffle', type=bool, default=True)
 parser.add_argument('--train_subset', type=str, default='train')
 parser.add_argument('--val_subset', type=str, default='val')
@@ -166,25 +166,11 @@ for dataset in datasets:
     if not audio_dir or not annot_dir:
         continue
 
-    # train_dataset = BeatDataset(audio_dir,
-    #                                 annot_dir,
-    #                                 dataset=dataset,
-    #                                 audio_sample_rate=args.audio_sample_rate,
-    #                                 target_factor=args.target_factor,
-    #                                 subset="train",
-    #                                 fraction=args.train_fraction,
-    #                                 augment=args.augment,
-    #                                 half=True,
-    #                                 preload=args.preload,
-    #                                 length=args.train_length,
-    #                                 dry_run=args.dry_run)
-    # train_datasets.append(train_dataset)
-
     val_dataset = BeatDataset(audio_dir,
                                  annot_dir,
                                  dataset=dataset,
                                  audio_sample_rate=args.audio_sample_rate,
-                                 target_factor=args.target_factor,
+                                 audio_downsampling_factor=args.audio_downsampling_factor,
                                  subset=subset,
                                  augment=False,
                                  half=True,

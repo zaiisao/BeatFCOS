@@ -50,7 +50,7 @@ def main(args=None):
     # parser.add_argument('--nblocks', type=int, default=10)
     # parser.add_argument('--kernel_size', type=int, default=15)
     # parser.add_argument('--stride', type=int, default=2)
-    parser.add_argument('--target_factor', type=int, default=256)
+    parser.add_argument('--audio_downsampling_factor', type=int, default=256)
     parser.add_argument('--ninputs', type=int, default=1)
     parser.add_argument('--noutputs', type=int, default=2)
     parser.add_argument('--nblocks', type=int, default=10)
@@ -125,7 +125,7 @@ def main(args=None):
                                         annot_dir,
                                         dataset=dataset,
                                         audio_sample_rate=args.audio_sample_rate,
-                                        target_factor=args.target_factor,
+                                        audio_downsampling_factor=args.audio_downsampling_factor,
                                         subset="test" if not dataset in ["gtzan", "smc"] else "full-val",
                                         augment=False,
                                         preload=args.preload,
@@ -179,7 +179,7 @@ def main(args=None):
             labels = labels.cpu()
             boxes = boxes.cpu()
 
-            length = audio.size(dim=2) // args.target_factor
+            length = audio.size(dim=2) // args.audio_downsampling_factor
 
             wavebeat_format_pred = torch.zeros((2, length))
             wavebeat_format_target = torch.zeros((2, length))
@@ -245,7 +245,7 @@ def main(args=None):
             wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
             wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
 
-            target_sample_rate = args.audio_sample_rate // args.target_factor
+            target_sample_rate = args.audio_sample_rate // args.audio_downsampling_factor
 
             np.set_printoptions(edgeitems=10000000)
             torch.set_printoptions(edgeitems=10000000)

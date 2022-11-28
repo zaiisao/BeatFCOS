@@ -6,11 +6,12 @@ import cv2
 import os
 import sys
 import config
+import glob
 
 matplotlib.use('agg')
 #file_path = config.train_annotations_file
 
-num_anchors = 3
+num_anchors = 2
 
 def resize_image(image_data, size):
     """ Resizes the image without changing the aspect ratio with padding, so that
@@ -194,7 +195,7 @@ def get_clusters(num_clusters):
     """
     #all_boxes = get_boxes(file_path)
 
-    input_dir = "../../beat-tracking-dataset/labeled_data/train"
+    input_dir = ".."
     output_dir = "save"
 
     if not os.path.exists(output_dir):
@@ -204,15 +205,26 @@ def get_clusters(num_clusters):
     beat_intervals, downbeat_intervals = [], []
 
     #for dataset in ["ballroom", "hains", "carnatic"]:
-    for dataset in ["ballroom", "hains"]:
+    for dataset in ["ballroom", "hains", "rwc_popular", "beatles"]:
         root_path = os.getcwd() + "/" + input_dir + "/" + dataset + "/label"
-        file_names = os.listdir(root_path)
+        
+        if dataset == "beatles":
+            file_names = []
+            for folder_name in os.listdir(root_path):
+                if folder_name == ".DS_Store":
+                    continue
+                file_names += os.listdir(root_path + "/" + folder_name)
+        else:
+            file_names = os.listdir(root_path)
 
         for file_name in file_names:
             if file_name == ".DS_Store":
                 continue
 
-            f = open(os.path.join(root_path, file_name))
+            if dataset == "beatles":
+                f = open(glob.glob(os.path.join(root_path, "**", file_name), recursive=True)[0])
+            else:
+                f = open(os.path.join(root_path, file_name))
           
             lines = [line.rstrip('\n') for line in f.readlines()]
             #print(f"lines: {lines}")
@@ -240,11 +252,18 @@ def get_clusters(num_clusters):
             for line in lines:
                 if dataset == "carnatic":
                     beat_time, beat_type = line.split(",")
-                elif dataset == "ballroom" or dataset == "hains" or dataset == "beatles":
+                #elif dataset == "ballroom" or dataset == "hains" or dataset == "beatles":
+                else:
                     line = line.replace('\t', ' ')
                     if dataset == "beatles":
                         line = line.replace('  ', ' ')
-                    beat_time, beat_type = line.split(" ")
+
+                    if dataset == "rwc_popular":
+                        beat_time, _, beat_type = line.split(" ")
+                        beat_time = int(beat_time) / 100.0
+                        beat_type = "1" if int(beat_type) == 384 else "2"
+                    else:
+                        beat_time, beat_type = line.split(" ")
 
                 if beat_type == "1":
                     downbeat_times.append(float(beat_time))
@@ -252,20 +271,20 @@ def get_clusters(num_clusters):
                 #    beat_times.append(float(beat_time))
                 beat_times.append(float(beat_time))
 
-            # for beat_index, current_beat_location in enumerate(beat_times[:-1]):
-            #     next_beat_location = beat_times[beat_index + 1]
+            for beat_index, current_beat_location in enumerate(beat_times[:-1]):
+                next_beat_location = beat_times[beat_index + 1]
 
-            #     beat_length = (next_beat_location - current_beat_location) #* 22050
-            #     annotation_dims.append(beat_length)
-            #     beat_intervals.append(beat_length)
+                beat_length = (next_beat_location - current_beat_location) #* 22050
+                annotation_dims.append(beat_length)
+                beat_intervals.append(beat_length)
                 #print(downbeat_length)
 
-            for downbeat_index, current_downbeat_location in enumerate(downbeat_times[:-1]):
-                next_downbeat_location = downbeat_times[downbeat_index + 1]
+            # for downbeat_index, current_downbeat_location in enumerate(downbeat_times[:-1]):
+            #     next_downbeat_location = downbeat_times[downbeat_index + 1]
 
-                downbeat_length = (next_downbeat_location - current_downbeat_location)# * 22050
-                annotation_dims.append(downbeat_length)
-                downbeat_intervals.append(downbeat_length)
+            #     downbeat_length = (next_downbeat_location - current_downbeat_location)# * 22050
+            #     annotation_dims.append(downbeat_length)
+            #     downbeat_intervals.append(downbeat_length)
                 #print(downbeat_length)
             #break
         #print(f"beat lengths: {[ '%.2f' % elem for elem in beat_intervals ]}")

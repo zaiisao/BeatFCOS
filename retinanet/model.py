@@ -70,8 +70,6 @@ class PyramidFeatures(nn.Module):
 
         P7_x = self.P7_1(P6_x)
         P7_x = self.P7_2(P7_x)
-        
-        print(f"P3_x, P4_x, P5_x, P6_x, P7_x shapes: {P3_x.shape}, {P4_x.shape}, {P5_x.shape}, {P6_x.shape}, {P7_x.shape}")
 
         return [P3_x, P4_x, P5_x, P6_x, P7_x]
 
@@ -197,7 +195,7 @@ class ClassificationModel(nn.Module):
 
 #MJ: https://pseudo-lab.github.io/pytorch-guide/docs/ch03-1.html
 class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defined in our code using tcn
-    def __init__(self, num_classes, block, layers, fcos=False, reg_loss_type="l1", downbeat_weight=0.6, **kwargs):
+    def __init__(self, num_classes, block, layers, fcos=False, reg_loss_type="l1", downbeat_weight=0.6, audio_downsampling_factor=32, **kwargs):
         #self.inplanes = 64
 
         self.inplanes = 256
@@ -251,7 +249,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # self.anchors = Anchors(base_level=8, fcos=self.fcos)
 
         #self.anchors = Anchors(base_level=8, fcos=self.fcos) 
-        self.anchors = Anchors(fcos=self.fcos)
+        self.anchors = Anchors(fcos=self.fcos, audio_downsampling_factor=audio_downsampling_factor)
          #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
          #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
 
@@ -260,11 +258,11 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         self.clipBoxes = ClipBoxes()
 
-        self.focalLoss = losses.FocalLoss(fcos=self.fcos)
-        self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, weight=1, num_anchors=num_anchors)
-        self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
+        # self.focalLoss = losses.FocalLoss(fcos=self.fcos)
+        # self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, weight=1, num_anchors=num_anchors)
+        # self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
 
-        self.combined_loss = CombinedLoss()
+        self.combined_loss = CombinedLoss(audio_downsampling_factor)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):

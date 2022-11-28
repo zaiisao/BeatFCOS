@@ -60,8 +60,8 @@ parser.add_argument('--carnatic_audio_dir', type=str, default=None)
 parser.add_argument('--carnatic_annot_dir', type=str, default=None)
 parser.add_argument('--preload', action="store_true")
 parser.add_argument('--audio_sample_rate', type=int, default=44100)
-# parser.add_argument('--target_factor', type=int, default=256) # block 하나당 곱하기 2
-parser.add_argument('--target_factor', type=int, default=128) # block 하나당 곱하기 2
+# parser.add_argument('--audio_downsampling_factor', type=int, default=256) # block 하나당 곱하기 2
+parser.add_argument('--audio_downsampling_factor', type=int, default=32) # block 하나당 곱하기 2
 parser.add_argument('--shuffle', type=bool, default=True)
 parser.add_argument('--train_subset', type=str, default='train')
 parser.add_argument('--val_subset', type=str, default='val')
@@ -158,7 +158,7 @@ for dataset in datasets:
                                     annot_dir,
                                     dataset=dataset,
                                     audio_sample_rate=args.audio_sample_rate,
-                                    target_factor=args.target_factor,
+                                    audio_downsampling_factor=args.audio_downsampling_factor,
                                     subset="train",
                                     fraction=args.train_fraction,
                                     augment=args.augment,
@@ -172,7 +172,7 @@ for dataset in datasets:
                                  annot_dir,
                                  dataset=dataset,
                                  audio_sample_rate=args.audio_sample_rate,
-                                 target_factor=args.target_factor,
+                                 audio_downsampling_factor=args.audio_downsampling_factor,
                                  subset="val",
                                  augment=False,
                                  half=True,
@@ -380,7 +380,8 @@ if __name__ == '__main__':
         print('Evaluating dataset')
         # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
         score_threshold = 0.05
-        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(val_dataloader, retinanet, score_threshold=score_threshold)
+        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(
+            val_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=score_threshold)
 
         print(f"Epoch = {epoch_num} | Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
         # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
