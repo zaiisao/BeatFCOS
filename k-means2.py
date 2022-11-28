@@ -10,7 +10,7 @@ import config
 matplotlib.use('agg')
 #file_path = config.train_annotations_file
 
-num_anchors = 5
+num_anchors = 3
 
 def resize_image(image_data, size):
     """ Resizes the image without changing the aspect ratio with padding, so that
@@ -125,6 +125,7 @@ def kmeans(boxes, k):
             break # The model is converged
         for cluster in range(k):
             clusters[cluster] = np.mean(boxes[current_nearest == cluster], axis=0)
+            #clusters[cluster] = np.max(boxes[current_nearest == cluster], axis=0)
 
         last_cluster = current_nearest
 
@@ -251,12 +252,12 @@ def get_clusters(num_clusters):
                 #    beat_times.append(float(beat_time))
                 beat_times.append(float(beat_time))
 
-            for beat_index, current_beat_location in enumerate(beat_times[:-1]):
-                next_beat_location = beat_times[beat_index + 1]
+            # for beat_index, current_beat_location in enumerate(beat_times[:-1]):
+            #     next_beat_location = beat_times[beat_index + 1]
 
-                beat_length = (next_beat_location - current_beat_location) #* 22050
-                annotation_dims.append(beat_length)
-                beat_intervals.append(beat_length)
+            #     beat_length = (next_beat_location - current_beat_location) #* 22050
+            #     annotation_dims.append(beat_length)
+            #     beat_intervals.append(beat_length)
                 #print(downbeat_length)
 
             for downbeat_index, current_downbeat_location in enumerate(downbeat_times[:-1]):
@@ -267,8 +268,8 @@ def get_clusters(num_clusters):
                 downbeat_intervals.append(downbeat_length)
                 #print(downbeat_length)
             #break
-        print(f"beat lengths: {[ '%.2f' % elem for elem in beat_intervals ]}")
-        print(f"downbeat lengths: {[ '%.2f' % elem for elem in downbeat_intervals ]}")
+        #print(f"beat lengths: {[ '%.2f' % elem for elem in beat_intervals ]}")
+        #print(f"downbeat lengths: {[ '%.2f' % elem for elem in downbeat_intervals ]}")
 
     all_boxes = np.array(annotation_dims)
     #print([ '%.2f' % elem for elem in annotation_dims ])

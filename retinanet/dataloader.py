@@ -20,13 +20,17 @@ def collater(data):
     if len(data[0]) > 2:
         metadata = [s[2] for s in data]
 
-    new_audios = torch.stack(audios)
+    new_audios = torch.stack(audios) # new_audios shape: (B, C, W) = (B, 1, num of audio samples)
 
     max_num_annots = max(annot.shape[0] for annot in annots)
     
     if max_num_annots > 0:
 
-        new_annots = torch.ones((len(annots), max_num_annots, 3)) * -1
+        new_annots = torch.ones((len(annots), max_num_annots, 3)) * -1  # new_annots shape: (B, max_num_annots, 3) = (B, W, C)
+                                                                        # in PyTorch, 2D tensors are written as (B, C, H, W)
+                                                                        #             1D tensors are written as (B, C, W)
+                                                                        # whereas the target or annotations are written as (B, H, W, C)
+                                                                        # new_annots[B, j, 2] = -1, which means it is a non-object
 
         if max_num_annots > 0:
             for idx, annot in enumerate(annots):
@@ -34,7 +38,7 @@ def collater(data):
                 if annot.shape[0] > 0:
                     new_annots[idx, :annot.shape[0], :] = annot
     else:
-        new_annots = torch.ones((len(annots), 1, 3)) * -1
+        new_annots = torch.ones((len(annots), 1, 3)) * -1 # new_annots shape: (B, 1, 3)
 
     #return {'img': padded_imgs, 'annot': annot_padded, 'scale': scales}
     if metadata is not None:
@@ -104,9 +108,10 @@ class BeatDataset(torch.utils.data.Dataset):
 
         # first get all of the audio files
         #if self.dataset in ["beatles", "rwc_popular"]:
-        if self.dataset in ["rwc_popular"]:
-            file_ext = "*L+R.wav"
-        elif self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "beatles", "carnatic"]:
+        # if self.dataset in ["rwc_popular"]:
+        #     file_ext = "*L+R.wav"
+        # elif self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "beatles", "carnatic"]:
+        if self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "beatles", "carnatic", "rwc_popular"]:
             file_ext = "*.wav"
         else:
             raise ValueError(f"Invalid dataset: {self.dataset}")
@@ -142,10 +147,10 @@ class BeatDataset(torch.utils.data.Dataset):
         self.annot_files = []
         for audio_file in self.audio_files:
             # find the corresponding annot file
-            if self.dataset in ["rwc_popular", "beatles"]:
-                replace = "_L+R.wav"
-            elif self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "carnatic"]:
-                replace = ".wav"
+            # if self.dataset in ["rwc_popular", "beatles"]:
+            #     replace = "_L+R.wav"
+            # elif self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "carnatic"]:
+            replace = ".wav"
             
             filename = os.path.basename(audio_file).replace(replace, "")
 
@@ -154,16 +159,20 @@ class BeatDataset(torch.utils.data.Dataset):
             elif self.dataset == "hainsworth":
                 self.annot_files.append(os.path.join(self.annot_dir, f"{filename}.txt"))
             elif self.dataset == "beatles":
-                underscore_location = filename.find("_")
-                file_number = int(filename[:underscore_location])
-                annot_file = glob.glob(os.path.join(self.annot_dir, f"{file_number}_*.txt"))[0]
+                album_dir = os.path.basename(os.path.dirname(audio_file))
+                annot_file = os.path.join(self.annot_dir, album_dir, f"{filename}.txt")
                 self.annot_files.append(annot_file)
             elif self.dataset == "rwc_popular":
                 album_dir = os.path.basename(os.path.dirname(audio_file))
-                annot_file = os.path.join(self.annot_dir, album_dir, f"{filename}.BEAT.TXT")
+                annot_file = os.path.join(self.annot_dir, f"{filename}.BEAT.TXT")
                 self.annot_files.append(annot_file)
             elif self.dataset == "gtzan":
-                annot_file = os.path.join(self.annot_dir, f"{filename}.wav.txt")
+                # GTZAN dataset audio is named as "NUMBER1_GENRE.NUMBER2.wav"
+                # GTZAN dataset annot is named as "gtzan_GENRE_NUMBER2.wav"
+                # NUMBER1 always four digits and is only in the audio name, so we remove it
+                # (Notice the difference of . and _ so we replace only the first instance of . with _)
+                annot_file_name = f"gtzan{filename[4:].replace('.', '_', 1)}.beats"
+                annot_file = os.path.join(self.annot_dir, annot_file_name)
                 self.annot_files.append(annot_file)
             elif self.dataset == "smc":
                 annot_filepath = os.path.join(self.annot_dir, f"{filename}*.txt")
@@ -189,7 +198,7 @@ class BeatDataset(torch.utils.data.Dataset):
         else:
             length = self.examples_per_epoch
         return length
-        # return len(self.audio_files)
+        #return len(self.audio_files)
 
     def __getitem__(self, idx):
 
@@ -332,7 +341,7 @@ class BeatDataset(torch.utils.data.Dataset):
                 beat = 1 if int(line[2]) == 384 else 2
             elif self.dataset == "gtzan":
                 line = line.strip('\n')
-                time_sec, beat = line.split(' ')
+                time_sec, beat = line.split('\t')
             elif self.dataset == "smc":
                 line = line.strip('\n')
                 time_sec = line
