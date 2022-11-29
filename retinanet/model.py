@@ -25,14 +25,15 @@ class PyramidFeatures(nn.Module):
     # feature_size is the number of channels in each feature map
     # >256 => 288 =>  320: C3=256, C=288, C5 = 320
 
-    def __init__(self, C3_size, C4_size, C5_size, feature_size=256):
+    #def __init__(self, C3_size, C4_size, C5_size, feature_size=256):
+    def __init__(self, C3_size, C4_size, feature_size=256):
         super(PyramidFeatures, self).__init__()
         # torch.nn.Conv1d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1,
         # bias=True, padding_mode='zeros', device=None, dtype=None)
         # upsample C5 to get P5 from the FPN paper
-        self.P5_1 = nn.Conv1d(C5_size, feature_size, kernel_size=1, stride=1, padding=0)
-        self.P5_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
-        self.P5_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
+        # self.P5_1 = nn.Conv1d(C5_size, feature_size, kernel_size=1, stride=1, padding=0)
+        # self.P5_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        # self.P5_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
 
         # add P5 elementwise to C4
         self.P4_1 = nn.Conv1d(C4_size, feature_size, kernel_size=1, stride=1, padding=0)
@@ -44,21 +45,27 @@ class PyramidFeatures(nn.Module):
         self.P3_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
 
         # "P6 is obtained via a 3x3 stride-2 conv on C5"
-        self.P6 = nn.Conv1d(C5_size, feature_size, kernel_size=3, stride=2, padding=1)
+        # self.P6 = nn.Conv1d(C5_size, feature_size, kernel_size=3, stride=2, padding=1)
+        self.P5 = nn.Conv1d(C4_size, feature_size, kernel_size=3, stride=2, padding=1)
+
+        self.P6_1 = nn.ReLU()
+        self.P6_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=2, padding=1)
 
         # "P7 is computed by applying ReLU followed by a 3x3 stride-2 conv on P6"
         self.P7_1 = nn.ReLU()
         self.P7_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=2, padding=1)
 
     def forward(self, inputs):
-        C3, C4, C5 = inputs
+        # C3, C4, C5 = inputs
+        C3, C4 = inputs
 
-        P5_x = self.P5_1(C5)
-        P5_upsampled_x = self.P5_upsampled(P5_x)
-        P5_x = self.P5_2(P5_x)
+        # P5_x = self.P5_1(C5)
+        # P5_upsampled_x = self.P5_upsampled(P5_x)
+        # P5_x = self.P5_2(P5_x)
 
+        #P4_x = self.P4_1(C4)
+        #P4_x = P5_upsampled_x + P4_x
         P4_x = self.P4_1(C4)
-        P4_x = P5_upsampled_x + P4_x
         P4_upsampled_x = self.P4_upsampled(P4_x)
         P4_x = self.P4_2(P4_x)
 
@@ -66,7 +73,11 @@ class PyramidFeatures(nn.Module):
         P3_x = P3_x + P4_upsampled_x
         P3_x = self.P3_2(P3_x)
 
-        P6_x = self.P6(C5)
+        #P6_x = self.P6(C5)
+        P5_x = self.P5(C4)
+
+        P6_x = self.P6_1(P5_x)
+        P6_x = self.P6_2(P6_x)
 
         P7_x = self.P7_1(P6_x)
         P7_x = self.P7_2(P7_x)
@@ -204,6 +215,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         self.fcos = fcos
         self.downbeat_weight = downbeat_weight
+        self.audio_downsampling_factor = audio_downsampling_factor
 
         # self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         # self.bn1 = nn.BatchNorm2d(64)
@@ -237,7 +249,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         # fpn_sizes =[ 512,1024,2048 ]  
         # self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2])   
-        self.fpn = PyramidFeatures(*(block.out_ch for block in self.dstcn.blocks[-3:]))  #MJ: The feature maps starts with C_{8}, the cnn block at stride 2^8 from the base level image
+        # self.fpn = PyramidFeatures(*(block.out_ch for block in self.dstcn.blocks[-3:]))  #MJ: The feature maps starts with C_{8}, the cnn block at stride 2^8 from the base level image
+        self.fpn = PyramidFeatures(*(block.out_ch for block in self.dstcn.blocks[-2:]))
 
         num_anchors = 3
         if self.fcos:
@@ -328,8 +341,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # sample rate of 86 Hz
 
         # audio_batch is the original audio sampled at 22050 Hz
-        number_of_backbone_layers = 3
-        base_image_level = 6    # The image at level 7 is the downsampled base on which the regression targets are defined
+        number_of_backbone_layers = 2
+        base_image_level = math.log2(self.audio_downsampling_factor)    # The image at level 7 is the downsampled base on which the regression targets are defined
                                 # and the feature map strides are defined relative to it
         tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
 
@@ -349,10 +362,13 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         #feature_maps = self.fpn(tcn_layers[-3:])
 
         # the base_level_image is the image level on which the regression targets are defined and the feature map strides are defined relative to it
-        x2 = tcn_layers[-3]
-        x3 = tcn_layers[-2]
-        x4 = tcn_layers[-1]
-        feature_maps = self.fpn([x2, x3, x4])
+        #x2 = tcn_layers[-3]
+        #x3 = tcn_layers[-2]
+        #x4 = tcn_layers[-1]
+        x2 = tcn_layers[-2]
+        x3 = tcn_layers[-1]
+        #feature_maps = self.fpn([x2, x3, x4])
+        feature_maps = self.fpn([x2, x3])
 
         if self.fcos:
             classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)

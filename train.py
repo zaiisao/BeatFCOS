@@ -61,7 +61,7 @@ parser.add_argument('--carnatic_annot_dir', type=str, default=None)
 parser.add_argument('--preload', action="store_true")
 parser.add_argument('--audio_sample_rate', type=int, default=44100)
 # parser.add_argument('--audio_downsampling_factor', type=int, default=256) # block 하나당 곱하기 2
-parser.add_argument('--audio_downsampling_factor', type=int, default=64) # block 하나당 곱하기 2
+parser.add_argument('--audio_downsampling_factor', type=int, default=128) # block 하나당 곱하기 2
 parser.add_argument('--shuffle', type=bool, default=True)
 parser.add_argument('--train_subset', type=str, default='train')
 parser.add_argument('--val_subset', type=str, default='val')
