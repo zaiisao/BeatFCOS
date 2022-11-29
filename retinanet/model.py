@@ -329,7 +329,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         # audio_batch is the original audio sampled at 22050 Hz
         number_of_backbone_layers = 3
-        base_image_level = 5    # The image at level 7 is the downsampled base on which the regression targets are defined
+        base_image_level = 6    # The image at level 7 is the downsampled base on which the regression targets are defined
                                 # and the feature map strides are defined relative to it
         tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
 
