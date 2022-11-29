@@ -443,10 +443,15 @@ class BeatDataset(torch.utils.data.Dataset):
         # drop continguous frames
         if np.random.rand() < 0.05:     
             zero_size = int(self.length*0.1)
-            start = np.random.randint(audio.shape[-1] - zero_size - 1)
-            stop = start + zero_size
-            audio[:,start:stop] = 0
-            target[:,start:stop] = 0
+            
+            audio_start = np.random.randint(audio.shape[-1] - zero_size - 1)
+            audio_stop = audio_start + zero_size
+            
+            target_start = audio_start // self.audio_downsampling_factor
+            target_stop = audio_stop // self.audio_downsampling_factor
+
+            audio[:,audio_start:audio_stop] = 0
+            target[:,target_start:target_stop] = 0
 
         # shift targets forward/back max 70ms
         if np.random.rand() < 0.3:      
