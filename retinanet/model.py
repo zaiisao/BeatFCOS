@@ -12,12 +12,12 @@ from retinanet.losses2 import CombinedLoss
 from retinanet.dstcn import dsTCNModel
 
 model_urls = {
-    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
-    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
-    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
-    'wavebeat10': '/mount/beat-tracking/beat-retinanet/backbone/wavebeat10.pth'
+#    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
+#    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
+#    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+#    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
+#    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+    'wavebeat8': './backbone/wavebeat8.pth'
 }
 
 
@@ -652,19 +652,18 @@ def resnet50(num_classes, pretrained=False, **kwargs):
     model = ResNet(num_classes, Bottleneck, [3, 4, 6, 3], **kwargs)
 
     if pretrained:
-        arch = 'wavebeat10'
-
-        state_dict = torch.load(model_urls[arch])
-
+        model_key = 'wavebeat8'
+        state_dict = torch.load(model_urls[model_key])['state_dict']
         new_dict = OrderedDict()
 
-        for k, v in state_dict['state_dict'].items():
+        for k, v in state_dict.items():
             key = k
             #key = k.replace('module.', '') # The parameter key that starts with "module." means that these parameters are from the parallelized model
             # For example, if the name of the parallelized module is "model_ddp" then the module_ddp.module refers to the original unwrapped model
             new_dict[key] = v
 
         missing_keys, unexpected_keys = model.dstcn.load_state_dict(new_dict, strict=False)
+        print(f"Loaded {model_key} backbone. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}")
 
     return model
 
