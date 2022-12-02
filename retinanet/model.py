@@ -663,7 +663,9 @@ def resnet50(num_classes, pretrained=False, **kwargs):
             new_dict[key] = v
 
         missing_keys, unexpected_keys = model.dstcn.load_state_dict(new_dict, strict=False)
-        print(f"Loaded {model_key} backbone. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}")
+        print(f"Loaded {model_key} backbone. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}. Freezing batch normalization...")
+
+        model.freeze_bn()
 
     return model
 
