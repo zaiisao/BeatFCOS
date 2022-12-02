@@ -65,10 +65,10 @@ parser.add_argument('--smc_annot_dir', type=str, default=None)
 parser.add_argument('--preload', action="store_true")
 parser.add_argument('--audio_sample_rate', type=int, default=44100)
 # parser.add_argument('--audio_downsampling_factor', type=int, default=256) # block 하나당 곱하기 2
-parser.add_argument('--audio_downsampling_factor', type=int, default=32) # block 하나당 곱하기 2
+parser.add_argument('--audio_downsampling_factor', type=int, default=128) # block 하나당 곱하기 2
 parser.add_argument('--shuffle', type=bool, default=True)
 parser.add_argument('--train_subset', type=str, default='train')
-parser.add_argument('--val_subset', type=str, default='val')
+parser.add_argument('--val_subset', type=str, default='test')
 parser.add_argument('--train_length', type=int, default=65536)
 parser.add_argument('--train_fraction', type=float, default=1.0)
 parser.add_argument('--eval_length', type=int, default=131072)
@@ -83,13 +83,13 @@ parser.add_argument('--patience', type=int, default=40)
 # --- tcn model related ---
 parser.add_argument('--ninputs', type=int, default=1)
 parser.add_argument('--noutputs', type=int, default=2)
-parser.add_argument('--nblocks', type=int, default=10)
+parser.add_argument('--nblocks', type=int, default=8)
 parser.add_argument('--kernel_size', type=int, default=15)
 parser.add_argument('--stride', type=int, default=2)
-parser.add_argument('--dilation_growth', type=int, default=5)
+parser.add_argument('--dilation_growth', type=int, default=8)
 parser.add_argument('--channel_growth', type=int, default=1)
 parser.add_argument('--channel_width', type=int, default=32)
-parser.add_argument('--stack_size', type=int, default=5)
+parser.add_argument('--stack_size', type=int, default=4)
 parser.add_argument('--grouped', default=False, action='store_true')
 parser.add_argument('--causal', default=False, action="store_true")
 parser.add_argument('--skip_connections', default=False, action="store_true")
@@ -106,7 +106,8 @@ temp_args, _ = parser.parse_known_args()
 args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
-datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
+#datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
+datasets = ["smc"]
 
 # set the seed
 seed = 42
@@ -135,10 +136,10 @@ else:
 
 # setup the dataloaders
 # train_datasets = []
-val_datasets = []
+test_datasets = []
 
 for dataset in datasets:
-    subset = "val"
+    subset = "test"
     if dataset == "beatles":
         audio_dir = args.beatles_audio_dir
         annot_dir = args.beatles_annot_dir
@@ -166,21 +167,25 @@ for dataset in datasets:
     if not audio_dir or not annot_dir:
         continue
 
-    val_dataset = BeatDataset(audio_dir,
-                                 annot_dir,
-                                 dataset=dataset,
-                                 audio_sample_rate=args.audio_sample_rate,
-                                 audio_downsampling_factor=args.audio_downsampling_factor,
-                                 subset=subset,
-                                 augment=False,
-                                 half=True,
-                                 preload=args.preload,
-                                 length=args.eval_length,
-                                 dry_run=args.dry_run)
-    val_datasets.append(val_dataset)
+    test_dataset = BeatDataset(audio_dir,
+                                    annot_dir,
+                                    dataset=dataset,
+                                    audio_sample_rate=args.audio_sample_rate,
+                                    audio_downsampling_factor=args.audio_downsampling_factor,
+                                    subset=subset,
+                                    augment=False,
+                                    half=True,
+                                    preload=args.preload)
+
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, 
+                                                    shuffle=False,
+                                                    batch_size=1,
+                                                    num_workers=args.num_workers,
+                                                    pin_memory=True)
+    test_datasets.append(test_dataset)
 
 # train_dataset_list = torch.utils.data.ConcatDataset(train_datasets)
-val_dataset_list = torch.utils.data.ConcatDataset(val_datasets)
+test_dataset_list = torch.utils.data.ConcatDataset(test_datasets)
 
 # train_dataloader = torch.utils.data.DataLoader(train_dataset_list, 
 #                                                 shuffle=args.shuffle,
@@ -188,7 +193,7 @@ val_dataset_list = torch.utils.data.ConcatDataset(val_datasets)
 #                                                 num_workers=args.num_workers,
 #                                                 pin_memory=True,
 #                                                 collate_fn=collater)
-val_dataloader = torch.utils.data.DataLoader(val_dataset_list, 
+test_dataloader = torch.utils.data.DataLoader(test_dataset_list, 
                                             shuffle=args.shuffle,
                                             batch_size=1,
                                             num_workers=args.num_workers,
@@ -271,7 +276,7 @@ if __name__ == '__main__':
 
     print('Evaluating dataset')
 
-    #beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(val_dataloader, retinanet)
+    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor)
 
-    #print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
-    evaluate_beat_ap(val_dataloader, retinanet)
+    print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+    #evaluate_beat_ap(test_dataloader, retinanet)
