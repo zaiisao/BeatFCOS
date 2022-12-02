@@ -280,3 +280,5 @@ if __name__ == '__main__':
 
     print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
     #evaluate_beat_ap(test_dataloader, retinanet)
+    
+    # evaluate_beat_ap(test_dataloader, retinanet, args.audio_downsampling_factor)
