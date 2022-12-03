@@ -506,6 +506,39 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
             sorted_downbeat_intervals = downbeat_intervals[downbeat_intervals[:, 0].sort()[1]]
             downbeat_ious = torch.zeros(1, 0).to(downbeat_intervals.device)
 
+            # start mAP file generation
+            gt_beat_intervals = target[0, target[0, :, 2] == 0, :2]
+            gt_downbeat_intervals = target[0, target[0, :, 2] == 1, :2]
+
+            gt_interval_filename = metadata['Filename'].replace('/data/', '/gt_intervals/').replace('.wav', '.txt')
+            gt_interval_file = open(gt_interval_filename, "w+")
+
+            for gt_beat_interval_index in range(gt_beat_intervals.size(dim=0)):
+                gt_beat_interval = gt_beat_intervals[gt_beat_interval_index]
+                gt_interval_file.write(f"beat {int(gt_beat_interval[0])} 0 {int(gt_beat_interval[1])} 1\n")
+
+            for gt_downbeat_interval_index in range(gt_downbeat_intervals.size(dim=0)):
+                gt_downbeat_interval = gt_downbeat_intervals[gt_downbeat_interval_index]
+                gt_interval_file.write(f"downbeat {int(gt_downbeat_interval[0])} 0 {int(gt_downbeat_interval[1])} 1\n")
+
+            gt_interval_file.close()
+            
+            pred_interval_filename = metadata['Filename'].replace('/data/', '/pred_intervals/').replace('.wav', '.txt')
+            pred_interval_file = open(pred_interval_filename, "w+")
+
+            for pred_beat_interval_index in range(sorted_beat_intervals.size(dim=0)):
+                pred_beat_interval = sorted_beat_intervals[pred_beat_interval_index]
+                pred_beat_score = float(predicted_scores[predicted_labels == 1][beat_intervals[:, 0].sort()[1]][pred_beat_interval_index])
+                pred_interval_file.write(f"beat {pred_beat_score} {int(pred_beat_interval[0])} 0 {int(pred_beat_interval[1])} 1\n")
+
+            for pred_downbeat_interval_index in range(sorted_downbeat_intervals.size(dim=0)):
+                pred_downbeat_interval = sorted_downbeat_intervals[pred_downbeat_interval_index]
+                pred_downbeat_score = float(predicted_scores[predicted_labels == 0][downbeat_intervals[:, 0].sort()[1]][pred_downbeat_interval_index])
+                pred_interval_file.write(f"downbeat {pred_downbeat_score} {int(pred_downbeat_interval[0])} 0 {int(pred_downbeat_interval[1])} 1\n")
+
+            pred_interval_file.close()
+            # end mAP file generation
+
             for beat_index, beat_interval in enumerate(sorted_beat_intervals[:-1]):
                 next_beat_interval = sorted_beat_intervals[beat_index + 1]
 

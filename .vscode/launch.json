@@ -30,6 +30,51 @@
             "justMyCode": false
         },
         {
+            "name": "Python: Current File with my args DDP",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "args": [
+                    // "--ballroom_audio_dir", "/mount/beat-tracking/ballroom/data",
+                    // "--ballroom_annot_dir", "/mount/beat-tracking/ballroom/label",
+                    "--ballroom_audio_dir", "/mount/beat-tracking/br_test/data",
+                    "--ballroom_annot_dir", "/mount/beat-tracking/br_test/label",
+                    // "--hainsworth_audio_dir", "/mount/beat-tracking/hains/data",
+                    // "--hainsworth_annot_dir", "/mount/beat-tracking/hains/label",
+                    // "--beatles_audio_dir", "/mount/beat-tracking/beatles/data",
+                    // "--beatles_annot_dir", "/mount/beat-tracking/beatles/label",
+                    // "--rwc_popular_audio_dir", "/mount/beat-tracking/rwc/data",
+                    // "--rwc_popular_annot_dir", "/mount/beat-tracking/rwc/label",                 
+                    "--preload",
+                   
+                    "--patience", "10",
+                    "--train_length", "2097152",
+                    "--eval_length", "2097152",
+                    //"--model_type", "dstcn",
+                    "--act_type", "PReLU",
+                    "--norm_type", "BatchNorm",
+                    "--channel_width", "32",
+                    "--channel_growth", "32",
+                    "--augment",
+                    "--batch_size", "16",
+                    "--audio_sample_rate", "22050",
+                    "--num_workers", "24",
+                    //"--max_epochs", "100",   
+                    "--epochs", "100",          
+                    "--reg_loss_type", "giou",
+                    "--fcos",
+                    "--dist-url", "tcp://163.239.103.144:8888",
+                    "--dist-backend", "nccl",
+                    "--multiprocessing-distributed",
+                    "--world-size",  "1",
+                    "--rank",  "0",
+                    "--pretrained"
+                // "--checkpoints_dir", "checkpoints"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
@@ -39,3 +84,4 @@
         }
     ]
 }
+

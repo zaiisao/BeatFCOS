@@ -2,7 +2,7 @@ import argparse
 import torch
 from torchvision import transforms
 
-from retinanet import model
+from retinanet import model_module
 from retinanet.dataloader import CSVDataset, Resizer, Normalizer
 from retinanet import csv_eval
 

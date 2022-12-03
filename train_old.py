@@ -7,7 +7,7 @@ import torch
 import torch.optim as optim
 from torchvision import transforms
 
-from retinanet import model
+from retinanet import model_module
 from retinanet.dataloader import CocoDataset, CSVDataset, collater, Resizer, AspectRatioBasedSampler, Augmenter, \
     Normalizer
 from torch.utils.data import DataLoader

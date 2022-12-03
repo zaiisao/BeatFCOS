@@ -7,7 +7,7 @@ from torchvision import transforms
 import numpy as np
 import json
 
-from retinanet import model
+from retinanet import model_module
 from retinanet.dataloader import BeatDataset
 from retinanet.beat_eval import evaluate
 
