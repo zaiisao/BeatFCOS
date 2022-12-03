@@ -107,7 +107,7 @@ args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
 #datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
-datasets = ["ballroom"]
+datasets = ["smc"]
 
 # set the seed
 seed = 42
@@ -276,7 +276,7 @@ if __name__ == '__main__':
 
     print('Evaluating dataset')
 
-    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor)
+    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.20)
 
     print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
     #evaluate_beat_ap(test_dataloader, retinanet)

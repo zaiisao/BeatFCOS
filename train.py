@@ -273,9 +273,9 @@ if __name__ == '__main__':
 
     retinanet.training = True
 
-    optimizer = torch.optim.Adam(retinanet.parameters(), lr=args.lr) # Default weight decay is 0
+    optimizer = torch.optim.Adam(retinanet.parameters(), lr=args.lr, weight_decay=1e-4) # Default weight decay is 0
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=10, verbose=True)
 
     loss_hist = collections.deque(maxlen=500)
 
@@ -291,8 +291,9 @@ if __name__ == '__main__':
     regression_loss_weight = 1#0.4
     adjacency_constraint_loss_weight = 1#0.01
 
-    highest_beat_mean_f_measure = 0
-    highest_downbeat_mean_f_measure = 0
+    #highest_beat_mean_f_measure = 0
+    #highest_downbeat_mean_f_measure = 0
+    highest_joint_f_measure = 0
 
     for epoch_num in range(start_epoch, args.epochs):
         retinanet.train()
@@ -379,31 +380,28 @@ if __name__ == '__main__':
         # Evaluate the evaluation dataset in each epoch
         print('Evaluating dataset')
         # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
-        score_threshold = 0.05
         beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(
-            val_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=score_threshold)
+            val_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.20)
+        
+        joint_f_measure = (beat_mean_f_measure + downbeat_mean_f_measure)/2
 
-        print(f"Epoch = {epoch_num} | Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+        print(f"Epoch = {epoch_num} | Beat score: {beat_mean_f_measure:0.3f} | Downbeat score: {downbeat_mean_f_measure:0.3f} | Joint score: {joint_f_measure:0.3f}")
         # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
         # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
         # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
         # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
         print(f"Epoch = {epoch_num} | CLS: {np.mean(cls_losses):0.3f} | REG: {np.mean(reg_losses):0.3f} | LFT: {np.mean(lft_losses):0.3f} | ADJ: {np.mean(adj_losses):0.3f}")
-        scheduler.step(np.mean(epoch_loss))
+        #scheduler.step(np.mean(epoch_loss))
+        scheduler.step(joint_f_measure)
 
         should_save_checkpoint = False
-        if beat_mean_f_measure > highest_beat_mean_f_measure:
+        if joint_f_measure > highest_joint_f_measure:
             should_save_checkpoint = True
-            print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
-            highest_beat_mean_f_measure = beat_mean_f_measure
+            print(f"Joint score of {joint_f_measure:0.3f} exceeded previous best at {highest_joint_f_measure:0.3f}")
+            highest_joint_f_measure = joint_f_measure
 
-        if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
-            should_save_checkpoint = True
-            print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
-            highest_downbeat_mean_f_measure = downbeat_mean_f_measure
-
-        should_save_checkpoint = True # FOR DEBUGGING
+        #should_save_checkpoint = True # FOR DEBUGGING
         if should_save_checkpoint:
             new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
             print(f"Saving checkpoint at {new_checkpoint_path}")

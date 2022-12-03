@@ -3,6 +3,7 @@ import mir_eval
 import numpy as np
 import scipy.signal
 import torch
+import os
 from retinanet.utils import calc_iou
 
 def find_beats(t, p, 
@@ -402,7 +403,7 @@ def evaluate_beat_ap(
 
     return average_precisions
 
-def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_threshold=0.05):
+def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_threshold=0.20):
     model.eval()
     
     with torch.no_grad():
@@ -454,9 +455,9 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
 
             # construct pred tensor
             for box_id in range(predicted_boxes.shape[0]):
-                predicted_score = float(predicted_scores[box_id])
-                predicted_label = int(predicted_labels[box_id])
-                predicted_box = predicted_boxes[box_id, :]
+                predicted_score = float(predicted_scores[box_id]) # predicted_scores: (number of anchor positions,)
+                predicted_label = int(predicted_labels[box_id]) # predicted_labels: (number of anchor positions,)
+                predicted_box = predicted_boxes[box_id, :] # The shape of predicted_boxes is (number of anchor positions, 2)
 
                 # scores are sorted, so we can break
                 # but this filtering is redundant, as the filtering is done within the evaluation part of the model
@@ -498,11 +499,13 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
                 elif predicted_label == 1 and (last_pred_beat_index is None or right_position_index > last_pred_beat_index):
                     last_pred_beat_index = right_position_index
 
-            beat_intervals = predicted_boxes[predicted_labels == 1]
+            beat_scores = predicted_scores[predicted_labels == 1]
+            beat_intervals = predicted_boxes[predicted_labels == 1][beat_scores >= score_threshold]
             sorted_beat_intervals = beat_intervals[beat_intervals[:, 0].sort()[1]]
             beat_ious = torch.zeros(1, 0).to(sorted_beat_intervals.device)
 
-            downbeat_intervals = predicted_boxes[predicted_labels == 0]
+            downbeat_scores = predicted_scores[predicted_labels == 0]
+            downbeat_intervals = predicted_boxes[predicted_labels == 0][downbeat_scores >= score_threshold]
             sorted_downbeat_intervals = downbeat_intervals[downbeat_intervals[:, 0].sort()[1]]
             downbeat_ious = torch.zeros(1, 0).to(downbeat_intervals.device)
 
@@ -511,6 +514,7 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
             gt_downbeat_intervals = target[0, target[0, :, 2] == 1, :2]
 
             gt_interval_filename = metadata['Filename'].replace('/data/', '/gt_intervals/').replace('.wav', '.txt')
+            os.makedirs(os.path.dirname(gt_interval_filename), exist_ok=True)
             gt_interval_file = open(gt_interval_filename, "w+")
 
             for gt_beat_interval_index in range(gt_beat_intervals.size(dim=0)):
@@ -524,6 +528,7 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
             gt_interval_file.close()
             
             pred_interval_filename = metadata['Filename'].replace('/data/', '/pred_intervals/').replace('.wav', '.txt')
+            os.makedirs(os.path.dirname(pred_interval_filename), exist_ok=True)
             pred_interval_file = open(pred_interval_filename, "w+")
 
             for pred_beat_interval_index in range(sorted_beat_intervals.size(dim=0)):
