@@ -275,7 +275,7 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(retinanet.parameters(), lr=args.lr, weight_decay=1e-4) # Default weight decay is 0
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=3, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=10, verbose=True)
 
     loss_hist = collections.deque(maxlen=500)
 
