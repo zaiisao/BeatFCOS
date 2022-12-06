@@ -95,6 +95,8 @@ parser.add_argument('--fcos', action='store_true')
 parser.add_argument('--reg_loss_type', type=str, default='l1')
 parser.add_argument('--downbeat_weight', type=float, default=0.6)
 parser.add_argument('--pretrained', default=False, action="store_true")
+parser.add_argument('--freeze_bn', default=False, action="store_true")
+parser.add_argument('--freeze_backbone', default=False, action="store_true")
 
 # THIS LINE IS KEY TO PULL THE MODEL NAME
 temp_args, _ = parser.parse_known_args()
@@ -246,7 +248,7 @@ if __name__ == '__main__':
     elif args.depth == 34:
         retinanet = model_module.resnet34(num_classes=2, **dict_args)
     elif args.depth == 50:
-        retinanet = model_module.resnet50(num_classes=2, **dict_args)
+        retinanet = model_module.resnet50(num_classes=2, args=args, **dict_args)
     elif args.depth == 101:
         retinanet = model_module.resnet101(num_classes=2, **dict_args)
     elif args.depth == 152:
