@@ -155,8 +155,9 @@ class dsTCNModel(torch.nn.Module):
             # 
             # 
     def freeze(self):
-        for param in self.modules():
-            param.requires_grad = False
+        for module in self.modules():
+            for param in module.parameters():
+                param.requires_grad = False
     #The original:
     # def forward(self, x):
     

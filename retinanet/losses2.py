@@ -63,12 +63,12 @@ def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor,
     normalized_r_star_for_anchors = torch.zeros(0).to(jth_annotations.device)
     levels_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
 
-    is_anchor_points_in_left_of_bboxes = torch.zeros(0, dtype=torch.bool).to(jth_annotations.device)
-    is_anchor_points_within_bbox_range = torch.zeros(0, dtype=torch.bool).to(jth_annotations.device)
-    is_anchor_points_in_left_of_bboxes = torch.zeros(0).to(jth_annotations.device)
-    is_anchor_points_within_bbox_range = torch.zeros(0).to(jth_annotations.device)
-    size_of_interest_for_anchors = torch.zeros(0).to(jth_annotations.device)
-    max_l_r_targets_for_anchors = torch.zeros(0).to(jth_annotations.device)
+    # is_anchor_points_in_left_of_bboxes = torch.zeros(0, dtype=torch.bool).to(jth_annotations.device)
+    # is_anchor_points_within_bbox_range = torch.zeros(0, dtype=torch.bool).to(jth_annotations.device)
+    # is_anchor_points_in_left_of_bboxes = torch.zeros(0).to(jth_annotations.device)
+    # is_anchor_points_within_bbox_range = torch.zeros(0).to(jth_annotations.device)
+    # size_of_interest_for_anchors = torch.zeros(0).to(jth_annotations.device)
+    # max_l_r_targets_for_anchors = torch.zeros(0).to(jth_annotations.device)
 
     # strides_for_all_anchors = torch.zeros(0).to(jth_annotations.device)
     # size_of_interests_for_anchors = torch.zeros(0).to(jth_annotations.device)
@@ -457,7 +457,7 @@ class AdjacencyConstraintLoss(nn.Module):
         transformed_pred_regression_boxes,
         boolean_indices_to_downbeats_for_positive_anchors,
         boolean_indices_to_beats_for_positive_anchors,
-        loss_divisor
+        effective_audio_length
     ):
         # N1 = num_of_downbeats_for_positive_anchors
         # N2 = num_of_beats_for_positive_anchors
@@ -493,7 +493,7 @@ class AdjacencyConstraintLoss(nn.Module):
         # and multiply this (D, B) result matrix with the incidence matrix to remove all values where
         # the downbeat does not correspond with the beat
         downbeat_and_beat_x1_discrepancy_error_N1xN2 = torch.square(
-            (downbeat_pred_x1s_for_anchors_N1x1 - beat_pred_x1s_for_anchors_1xN2) / torch.clamp(loss_divisor, min=1.0)
+            (downbeat_pred_x1s_for_anchors_N1x1 - beat_pred_x1s_for_anchors_1xN2) / torch.clamp(effective_audio_length, min=1.0)
         ) 
 
         downbeat_and_beat_x1_discrepancy_error_N1xN2 *= downbeat_and_beat_x1_incidence_matrix_N1xN2
@@ -507,7 +507,7 @@ class AdjacencyConstraintLoss(nn.Module):
         transformed_target_regression_boxes,
         transformed_pred_regression_boxes,
         boolean_indices_to_classes_for_positive_anchors,
-        loss_divisor
+        effective_audio_length
     ):
         num_of_classes_for_positive_anchors = torch.sum(boolean_indices_to_classes_for_positive_anchors, dtype=torch.int32).item()
 
@@ -533,7 +533,7 @@ class AdjacencyConstraintLoss(nn.Module):
             return torch.tensor(0).float().to(num_incidences_between_beats.device)
 
         class_x2_and_x1_discrepancy_error_nxn = torch.square(
-            (class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) / torch.clamp(loss_divisor, min=1.0)
+            (class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) / torch.clamp(effective_audio_length, min=1.0)
         )
 
         class_x2_and_x1_discrepancy_error_nxn *= class_x2_and_x1_incidence_matrix_nxn
@@ -684,6 +684,10 @@ class CombinedLoss(nn.Module):
             # The dummy gt boxes that are labeled as -1 are added to each image in the batch to make all the annotations have the same shape,
             # so those gt boxes should be removed.
             jth_annotations = jth_padded_annotations[jth_padded_annotations[:, 2] != -1]
+            
+            # If there are no targets for the current audio in the batch, skip the audio
+            if jth_annotations.size(dim=0) == 0:
+                continue
 
             positive_anchor_indices, assigned_annotations_for_anchors, normalized_annotations_for_anchors, \
             l_star_for_anchors, r_star_for_anchors, normalized_l_star_for_anchors, \
@@ -811,6 +815,19 @@ class CombinedLoss(nn.Module):
             regression_losses_batch.append(jth_regression_loss)
             leftness_losses_batch.append(jth_leftness_loss)
             adjacency_constraint_losses_batch.append(jth_adjacency_constraint_loss)
+        # END for j in range(batch_size)
+
+        if len(classification_losses_batch) == 0:
+            classification_losses_batch.append(0)
+            
+        if len(regression_losses_batch) == 0:
+            regression_losses_batch.append(0)
+            
+        if len(leftness_losses_batch) == 0:
+            leftness_losses_batch.append(0)
+            
+        if len(adjacency_constraint_losses_batch) == 0:
+            adjacency_constraint_losses_batch.append(0)
 
         return \
             torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \

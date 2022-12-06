@@ -188,7 +188,7 @@ def get_results_from_model(audio, target, model, iou_threshold=0.5, score_thresh
         audio = audio.to('cuda')
         target = target.to('cuda')
 
-    nblocks = 10
+    nblocks = len(model.module.dstcn.blocks)
 
     target_length = -(audio.size(dim=2) // -2**nblocks) * 2**nblocks
     audio_pad = (0, target_length - audio.size(dim=2))
@@ -510,8 +510,8 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
             downbeat_ious = torch.zeros(1, 0).to(downbeat_intervals.device)
 
             # start mAP file generation
-            gt_beat_intervals = target[0, target[0, :, 2] == 0, :2]
-            gt_downbeat_intervals = target[0, target[0, :, 2] == 1, :2]
+            gt_beat_intervals = target[0, target[0, :, 2] == 1, :2]
+            gt_downbeat_intervals = target[0, target[0, :, 2] == 0, :2]
 
             gt_interval_filename = metadata['Filename'].replace('/data/', '/gt_intervals/').replace('.wav', '.txt')
             os.makedirs(os.path.dirname(gt_interval_filename), exist_ok=True)

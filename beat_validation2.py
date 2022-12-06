@@ -98,6 +98,9 @@ parser.add_argument('--act_type', type=str, default='PReLU')
 parser.add_argument('--fcos', action='store_true')
 parser.add_argument('--reg_loss_type', type=str, default='l1')
 parser.add_argument('--downbeat_weight', type=float, default=0.6)
+parser.add_argument('--pretrained', default=False, action="store_true")  #--pretrained is mentioned in the command line => store "true"
+parser.add_argument('--freeze_bn', default=False, action="store_true")
+parser.add_argument('--freeze_backbone', default=False, action="store_true")
 
 # THIS LINE IS KEY TO PULL THE MODEL NAME
 temp_args, _ = parser.parse_known_args()
@@ -107,7 +110,7 @@ args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
 #datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
-datasets = ["smc"]
+datasets = ["beatles"]
 
 # set the seed
 seed = 42
@@ -124,7 +127,7 @@ torch.backends.cudnn.benchmark = True
 args.default_root_dir = os.path.join("lightning_logs", "full")
 print(args.default_root_dir)
 
-state_dicts = glob.glob('./checkpoints/*.pt')
+state_dicts = glob.glob('./checkpoints_pretrained/*.pt')
 start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:
@@ -249,7 +252,7 @@ if __name__ == '__main__':
     elif args.depth == 34:
         retinanet = model_module.resnet34(num_classes=2, **dict_args)
     elif args.depth == 50:
-        retinanet = model_module.resnet50(num_classes=2, **dict_args)
+        retinanet = model_module.resnet50(num_classes=2, args=args, **dict_args)
     elif args.depth == 101:
         retinanet = model_module.resnet101(num_classes=2, **dict_args)
     elif args.depth == 152:
@@ -276,7 +279,7 @@ if __name__ == '__main__':
 
     print('Evaluating dataset')
 
-    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.20)
+    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.00)
 
     print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
     #evaluate_beat_ap(test_dataloader, retinanet)

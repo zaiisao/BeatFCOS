@@ -582,6 +582,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     scores = classification_outputs[:, :, class_id] * leftness_outputs[:, :, 0] # We predict the max number for beats will be less than the num of anchors
                 else:
                     scores = classification_outputs[:, :, class_id]
+                    
+                #scores = scores / torch.max(scores)
 
                 scores_over_thresh = (scores > score_threshold)
                 if scores_over_thresh.sum() == 0:
@@ -642,7 +644,7 @@ def resnet34(num_classes, **kwargs):
     return ResNet(num_classes, BasicBlock, [3, 4, 6, 3], **kwargs)
 
 
-def resnet50(num_classes, pretrained=False, **kwargs):
+def resnet50(num_classes, args, **kwargs):
     """Constructs a ResNet-50 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -651,7 +653,7 @@ def resnet50(num_classes, pretrained=False, **kwargs):
     # 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
     model = ResNet(num_classes, Bottleneck, [3, 4, 6, 3], **kwargs)
 
-    if pretrained:
+    if args.pretrained:
         model_key = 'wavebeat8'
         state_dict = torch.load(model_urls[model_key])['state_dict']
         new_dict = OrderedDict()
@@ -663,10 +665,15 @@ def resnet50(num_classes, pretrained=False, **kwargs):
             new_dict[key] = v
 
         missing_keys, unexpected_keys = model.dstcn.load_state_dict(new_dict, strict=False)
-        print(f"Loaded {model_key} backbone. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}. Freezing DSTCN and batch norm...")
+        print(f"Loaded {model_key} backbone. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}")
 
-        model.freeze_bn()
-        model.dstcn.freeze()
+        if args.freeze_bn:
+            print("Freezing batch norm...")
+            model.freeze_bn()
+
+        if args.freeze_backbone:
+            print("Freezing DSTCN...")
+            model.dstcn.freeze()
 
     return model
 

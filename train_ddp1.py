@@ -103,8 +103,10 @@ parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
                     dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
-parser.add_argument('--resume', default='', type=str, metavar='PATH',
-                    help='path to latest checkpoint (default: none)')
+# parser.add_argument('--resume', default='', type=str, metavar='PATH',
+#                     help='path to latest checkpoint (default: none)')
+parser.add_argument('--resume', default=False, action="store_true",
+                    help='whether or not to resume training from a checkpoint')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',  # fest: pecify the attribute name used in the result namespace
                     help='evaluate model on validation set')
 
@@ -184,7 +186,8 @@ parser.add_argument('--fcos', action='store_true')
 parser.add_argument('--reg_loss_type', type=str, default='l1')
 parser.add_argument('--downbeat_weight', type=float, default=0.6)
 parser.add_argument('--pretrained', default=False, action="store_true")  #--pretrained is mentioned in the command line => store "true"
-
+parser.add_argument('--freeze_bn', default=False, action="store_true")
+parser.add_argument('--freeze_backbone', default=False, action="store_true")
 
 best_acc1 = 0
         
@@ -194,12 +197,12 @@ def main():
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
     os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
-    configure_log()  #Enable logging
+    #configure_log()  #Enable logging
     
     args = parser.parse_args()    
      
-    args.default_root_dir = os.path.join("lightning_logs", "full")
-    print(args.default_root_dir)
+    #args.default_root_dir = os.path.join("lightning_logs", "full")
+    #print(args.default_root_dir)
 
     
     if args.seed is not None:
@@ -236,12 +239,11 @@ def main():
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args)) # args= args (tuple): Arguments passed to main_worker.
     else:
         # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
+        main_worker(args.gpu, ngpus_per_node, args) # args.gpu may be None, which means to not specify a particular GPU but to use all of them.
           
 #END def main()   
 
 def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first element of tuple args when using multiprocessing_distributed
-    
     global best_acc1
     args.gpu = gpu
 
@@ -273,6 +275,13 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
 
         setup_for_distributed(args.rank == 0)
         
+    if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+            and args.rank % ngpus_per_node == 0):
+        configure_log()  #Enable logging
+        
+        if not os.path.exists("./checkpoints"):
+            os.makedirs("./checkpoints")
+        
     # create model
     # if args.pretrained:
     #     print("=> using pre-trained model '{}'".format(args.arch))
@@ -285,23 +294,27 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
     dict_args = vars(args)
  
     # Create the model
+    # The model is created for each process on the GPU
     if args.depth == 18:
         model = model_module.resnet18(num_classes=2, **dict_args)
     elif args.depth == 34:
         model = model_module.resnet34(num_classes=2, **dict_args)
     elif args.depth == 50:
-        model = model_module.resnet50(num_classes=2, **dict_args)  #  it will call self.dstcn = dsTCNModel(**kwargs) # 
+        model = model_module.resnet50(num_classes=2, args=args, **dict_args)  #  it will call self.dstcn = dsTCNModel(**kwargs) # 
     elif args.depth == 101:
         model = model_module.resnet101(num_classes=2, **dict_args)
     elif args.depth == 152:
         model = model_module.resnet152(num_classes=2, **dict_args)
     else:
         raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
-    
 
     if not torch.cuda.is_available() and not torch.backends.mps.is_available():
         print('using CPU, this will be slow')
     elif args.distributed:
+        #MJ: Convert the batchnorm layers into the sync batchnorm layers
+        #https://github.com/dougsouza/pytorch-sync-batchnorm-example
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
         # For multiprocessing distributed, DistributedDataParallel constructor
         # should always set the single device scope, otherwise,
         # DistributedDataParallel will use all available devices.
@@ -361,60 +374,60 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
     # """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     # scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) # Default weight decay is 0
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4) # Default weight decay is 0
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=3, verbose=True)
 
     
     
     # optionally resume from a checkpoint
     if args.resume: # ='path to latest checkpoint (default: none)'
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            if args.gpu is None:
-                checkpoint = torch.load(args.resume)
-            elif torch.cuda.is_available(): # you specified a GPU and cuda is available
-                # Map model to be loaded to specified single gpu.
-                loc = 'cuda:{}'.format(args.gpu)
-                checkpoint = torch.load(args.resume, map_location=loc)
+        # if os.path.isfile(args.resume):
+        #     print("=> loading checkpoint '{}'".format(args.resume))
+        #     if args.gpu is None:
+        #         checkpoint = torch.load(args.resume)
+        #     elif torch.cuda.is_available(): # you specified a GPU and cuda is available
+        #         # Map model to be loaded to specified single gpu.
+        #         loc = 'cuda:{}'.format(args.gpu)
+        #         checkpoint = torch.load(args.resume, map_location=loc)
                 
-            args.start_epoch = checkpoint['epoch']
+        #     args.start_epoch = checkpoint['epoch']
             
-            best_acc1 = checkpoint['best_acc1']
+        #     best_acc1 = checkpoint['best_acc1']
             
-            if args.gpu is not None: #  you did not specify a GPU 
-                # best_acc1 may be from a checkpoint from a different GPU
-                best_acc1 = best_acc1.to(args.gpu)
+        #     if args.gpu is not None: #  you did not specify a GPU 
+        #         # best_acc1 may be from a checkpoint from a different GPU
+        #         best_acc1 = best_acc1.to(args.gpu)
                 
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            scheduler.load_state_dict(checkpoint['scheduler'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
+        #     model.load_state_dict(checkpoint['state_dict'])
+        #     optimizer.load_state_dict(checkpoint['optimizer'])
+        #     scheduler.load_state_dict(checkpoint['scheduler'])
+        #     print("=> loaded checkpoint '{}' (epoch {})"
+        #           .format(args.resume, checkpoint['epoch']))
+        # else:
+        state_dicts = glob.glob('./checkpoints/*.pt')
+        
+        checkpoint_path = None
+        
+        if len(state_dicts) > 0:
+            checkpoint_path = state_dicts[-1]
+            args.start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
+            print("loaded:" + checkpoint_path)
         else:
-            state_dicts = glob.glob('./checkpoints/*.pt')
-         
-            checkpoint_path = None
-            
-            if len(state_dicts) > 0:
-                checkpoint_path = state_dicts[-1]
-                args.start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
-                print("loaded:" + checkpoint_path)
-            else:
-               print("=> no checkpoint found at '{}'".format(args.resume))
+            print("=> no checkpoint found at '{}'".format(args.resume))
 
     #BEGIN DataLOADER ################################################################################
    
    # datasets = ["ballroom", "hainsworth", "carnatic"]
-   # datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
-    datasets = ["ballroom"]
+    datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 
     # setup the dataloaders
     train_datasets = []
     val_datasets = []
 
-    highest_beat_mean_f_measure = 0
-    highest_downbeat_mean_f_measure = 0
+    #highest_beat_mean_f_measure = 0
+    #highest_downbeat_mean_f_measure = 0
+    highest_joint_f_measure = 0
 
     for dataset in datasets:
         if dataset == "beatles":
@@ -472,7 +485,7 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
     #rank = args.nr * args.gpus + gpu	
     
    
-    #MJ: Create dataloaders: 
+    #MJ: Create dataloaders: the original from retiannet:
     # train_dataloader = torch.utils.data.DataLoader(train_dataset_list, 
     #                                                 shuffle=args.shuffle,
     #                                                 batch_size=args.batch_size,
@@ -492,7 +505,7 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
     
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False, drop_last=True)
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False, drop_last=False) # drop_last = False by default
     else:
         train_sampler = None
         val_sampler = None
@@ -520,10 +533,17 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
     
     print('Num training images: {}'.format(len(train_dataset)))
 
-    val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True, sampler=val_sampler, collate_fn=collater)
+    # val_dataloader = torch.utils.data.DataLoader(
+    #     val_dataset, batch_size=args.batch_size, shuffle=False,
+    #     num_workers=args.workers, pin_memory=True, sampler=val_sampler, collate_fn=collater)
     
+    #MJ: batch size = 1 for val dataloader: The val dataset does  not consist of fixed size images for each batch
+    # val_dataloader = torch.utils.data.DataLoader(
+    #     val_dataset, batch_size=1, shuffle=False,
+    #     num_workers=args.workers, pin_memory=True, sampler=val_sampler, collate_fn=collater)
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=1, shuffle=False,
+        num_workers=args.workers, pin_memory=True, collate_fn=collater)
   
 
     if args.evaluate:
@@ -568,47 +588,52 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
             score_threshold = 0.20
             beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(
                 val_dataloader, model, args.audio_downsampling_factor, score_threshold=score_threshold)
+            
+            joint_f_measure = (beat_mean_f_measure + downbeat_mean_f_measure)/2
 
-            print(f"Epoch = {epoch} | Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+            print(f"Epoch = {epoch} | Beat score: {beat_mean_f_measure:0.3f} | Downbeat score: {downbeat_mean_f_measure:0.3f} | Joint score: {joint_f_measure:0.3f}")
             # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
             # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
             # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
             # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
             print(f"Epoch = {epoch} | CLS: {np.mean(cls_losses):0.3f} | REG: {np.mean(reg_losses):0.3f} | LFT: {np.mean(lft_losses):0.3f} | ADJ: {np.mean(adj_losses):0.3f}")
-            scheduler.step(np.mean(epoch_loss))
+            #scheduler.step(np.mean(epoch_loss))
+            scheduler.step(joint_f_measure)
 
             should_save_checkpoint = False
-            if beat_mean_f_measure > highest_beat_mean_f_measure:
-                should_save_checkpoint = True
-                print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
-                highest_beat_mean_f_measure = beat_mean_f_measure
+            # if beat_mean_f_measure > highest_beat_mean_f_measure:
+            #     should_save_checkpoint = True
+            #     print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
+            #     highest_beat_mean_f_measure = beat_mean_f_measure
 
-            if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
+            # if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
+            #     should_save_checkpoint = True
+            #     print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
+            #     highest_downbeat_mean_f_measure = downbeat_mean_f_measure
+            if joint_f_measure > highest_joint_f_measure:
                 should_save_checkpoint = True
-                print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
-                highest_downbeat_mean_f_measure = downbeat_mean_f_measure
+                print(f"Joint score of {joint_f_measure:0.3f} exceeded previous best at {highest_joint_f_measure:0.3f}")
+                highest_joint_f_measure = joint_f_measure
 
-            should_save_checkpoint = True # FOR DEBUGGING
-            
+            #should_save_checkpoint = True # FOR DEBUGGING
+
             if should_save_checkpoint:
                 new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch)
                 print(f"Saving checkpoint at {new_checkpoint_path}")
-            
+
                 torch.save(model.state_dict(), new_checkpoint_path)  # 
-            
+
     #END for epoch_num in range(start_epoch, args.epochs):   
          
-    if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0): # the main process
-            print("Training complete in: " + str(datetime.now() - start__time))
-        
-   
     
     model.eval()
+    if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+                and args.rank % ngpus_per_node == 0): # the main process
+        print("Training complete in: " + str(datetime.now() - start__time))
 
-    #torch.save(retinanet_ddp, './checkpoints/model_final.pt')
-    torch.save(model.state_dict(), './checkpoints/model_final.pt')
+        #torch.save(retinanet_ddp, './checkpoints/model_final.pt')
+        torch.save(model.state_dict(), './checkpoints/model_final.pt')
 #END def main_worker()    
 
   
