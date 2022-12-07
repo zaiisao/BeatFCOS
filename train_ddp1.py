@@ -376,7 +376,7 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
     
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4) # Default weight decay is 0
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=3, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=10, verbose=True)
 
     
     
@@ -462,6 +462,10 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
                                         length=args.train_length,
                                         dry_run=args.dry_run)
         train_datasets.append(train_dataset)
+
+        if dataset == "rwc_popular" or dataset == "beatles":
+            # These datasets cause evaluation to take a very long time on arttech server so we will skip them
+            continue
 
         val_dataset = BeatDataset(audio_dir,
                                     annot_dir,
@@ -565,32 +569,36 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
         #acc1 = validate(val_loader, model, criterion, args)
         #acc1 = validate(val_dataloader, model, args)
 
-        scheduler.step(np.mean(epoch_loss))
+        # scheduler.step(np.mean(epoch_loss))
         
         # remember best acc@1 and save checkpoint
         #is_best = acc1 > best_acc1
         #best_acc1 = max(acc1, best_acc1)
 
+    #     save_checkpoint( {
+    #         'epoch': epoch + 1,
+    #         'arch': args.arch,
+    #         'state_dict': model.state_dict(),
+    #         'best_acc1': best_acc1,
+    #         'optimizer' : optimizer.state_dict(),
+    #         'scheduler' : scheduler.state_dict()
+    #     }, is_best )
+    
+
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
-            
-        #     save_checkpoint( {
-        #         'epoch': epoch + 1,
-        #         'arch': args.arch,
-        #         'state_dict': model.state_dict(),
-        #         'best_acc1': best_acc1,
-        #         'optimizer' : optimizer.state_dict(),
-        #         'scheduler' : scheduler.state_dict()
-        #     }, is_best )
             # Evaluate the evaluation dataset in each epoch
             print('Evaluating dataset')
-            # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
-            score_threshold = 0.20
-            beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(
-                val_dataloader, model, args.audio_downsampling_factor, score_threshold=score_threshold)
-            
-            joint_f_measure = (beat_mean_f_measure + downbeat_mean_f_measure)/2
 
+        # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
+        score_threshold = 0.15
+        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(
+            val_dataloader, model, args.audio_downsampling_factor, score_threshold=score_threshold)
+        
+        joint_f_measure = (beat_mean_f_measure + downbeat_mean_f_measure)/2
+
+        if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+                and args.rank % ngpus_per_node == 0):
             print(f"Epoch = {epoch} | Beat score: {beat_mean_f_measure:0.3f} | Downbeat score: {downbeat_mean_f_measure:0.3f} | Joint score: {joint_f_measure:0.3f}")
             # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
             # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
@@ -598,31 +606,36 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
             # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
             print(f"Epoch = {epoch} | CLS: {np.mean(cls_losses):0.3f} | REG: {np.mean(reg_losses):0.3f} | LFT: {np.mean(lft_losses):0.3f} | ADJ: {np.mean(adj_losses):0.3f}")
-            #scheduler.step(np.mean(epoch_loss))
-            scheduler.step(joint_f_measure)
+        #scheduler.step(np.mean(epoch_loss))
+        scheduler.step(joint_f_measure)
 
-            should_save_checkpoint = False
-            # if beat_mean_f_measure > highest_beat_mean_f_measure:
-            #     should_save_checkpoint = True
-            #     print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
-            #     highest_beat_mean_f_measure = beat_mean_f_measure
+        should_save_checkpoint = False
+        # if beat_mean_f_measure > highest_beat_mean_f_measure:
+        #     should_save_checkpoint = True
+        #     print(f"Beat score of {beat_mean_f_measure:0.3f} exceeded previous best at {highest_beat_mean_f_measure:0.3f}")
+        #     highest_beat_mean_f_measure = beat_mean_f_measure
 
-            # if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
-            #     should_save_checkpoint = True
-            #     print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
-            #     highest_downbeat_mean_f_measure = downbeat_mean_f_measure
-            if joint_f_measure > highest_joint_f_measure:
-                should_save_checkpoint = True
+        # if downbeat_mean_f_measure > highest_downbeat_mean_f_measure:
+        #     should_save_checkpoint = True
+        #     print(f"Downbeat score of {downbeat_mean_f_measure:0.3f} exceeded previous best at {highest_downbeat_mean_f_measure:0.3f}")
+        #     highest_downbeat_mean_f_measure = downbeat_mean_f_measure
+        if joint_f_measure > highest_joint_f_measure:
+            should_save_checkpoint = True
+
+            if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+                    and args.rank % ngpus_per_node == 0):
                 print(f"Joint score of {joint_f_measure:0.3f} exceeded previous best at {highest_joint_f_measure:0.3f}")
-                highest_joint_f_measure = joint_f_measure
 
-            #should_save_checkpoint = True # FOR DEBUGGING
+            highest_joint_f_measure = joint_f_measure
 
-            if should_save_checkpoint:
-                new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch)
-                print(f"Saving checkpoint at {new_checkpoint_path}")
+        #should_save_checkpoint = True # FOR DEBUGGING
+            if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+                    and args.rank % ngpus_per_node == 0):
+                if should_save_checkpoint:
+                    new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch)
+                    print(f"Saving checkpoint at {new_checkpoint_path}")
 
-                torch.save(model.state_dict(), new_checkpoint_path)  # 
+                    torch.save(model.state_dict(), new_checkpoint_path)  # 
 
     #END for epoch_num in range(start_epoch, args.epochs):   
          

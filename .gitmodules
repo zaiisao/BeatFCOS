@@ -1,0 +1,3 @@
+[submodule "gossipnet"]
+	path = gossipnet
+	url = https://github.com/zaiisao/gossipnet-pytorch.git

@@ -10,6 +10,7 @@ from retinanet.anchors import Anchors
 from retinanet import losses
 from retinanet.losses2 import CombinedLoss
 from retinanet.dstcn import dsTCNModel
+from gossipnet.model.gnet import GNet
 
 model_urls = {
 #    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -17,7 +18,8 @@ model_urls = {
 #    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
 #    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
 #    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
-    'wavebeat8': './backbone/wavebeat8.pth'
+    'wavebeat8': './backbone/wavebeat8.pth',
+    'gnet': './backbone/gnet.pth',
 }
 
 
@@ -526,7 +528,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # else:
 
         # This part is executed only during evaluation
-        if not self.training:
+        if not self.training: #MJ: evaluation mode, which is invoked after each epoch to evalute the performance of the object detection net.
             # Start of evaluation mode
 
             # transformed_anchors = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), regression_outputs)
@@ -559,7 +561,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     # print(f"stride_for_anchors_per_level {stride_for_anchors_per_level.shape}:\n{stride_for_anchors_per_level}")
                     strides_for_all_anchors = torch.cat((strides_for_all_anchors, stride_for_anchors_per_level), dim=0)
                 # print(f"strides_for_all_anchors {strides_for_all_anchors.shape}: {strides_for_all_anchors}")
-
+                #END for i, anchors_per_level in enumerate(anchors_list)
+                
                 # anchors -> torch.cat(anchors_list, dim=0).unsqueeze(dim=0)
                 # stride = 2**(i + 1)
 
@@ -591,7 +594,9 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     continue
 
                 # print(f"scores: {scores.shape}")
+                
                 scores = scores[scores_over_thresh]
+                
                 #anchorBoxes = torch.squeeze(transformed_regression_boxes)
                 # print(f"transformed_regression_boxes: {transformed_regression_boxes.shape}")
                 # print(f"scores_over_thresh: {scores_over_thresh.shape}")
@@ -603,7 +608,40 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
                 # During NMS, if the IoU of two adjacent predicted boxes is less than IoU threshold, the two boxes are considered to be different beats
                 # Otherwise both predictions are considered redundant so that one is removed.
-                anchors_nms_idx = nms_2d(regression_boxes, scores, iou_threshold)
+                
+                use_gnet = False
+                if use_gnet:
+                    gnet = GNet(numBlocks=4)
+                    gnet.cuda()
+                    checkpoint = torch.load(model_urls['gnet'])
+                    gnet.load_state_dict(checkpoint['model_state_dict'])
+                    gnet.eval()
+                    
+                    detections = torch.stack((  #MJ: regression_boxes are those obtained by filtering out whose scores are less than score_threshold
+                        regression_boxes[:, 0],
+                        torch.zeros(regression_boxes.size(dim=0)).to(regression_boxes.device),
+                        regression_boxes[:, 1],
+                        torch.ones(regression_boxes.size(dim=0)).to(regression_boxes.device),
+                    ), dim=1) #MJ: detections refer to predicted bboxes by beat-fcos
+                    
+                    data = [{
+                        'scores': scores,
+                        'detections': detections
+                    }]
+                    
+                    logit_scores = gnet(data=data, no_detections=9999999)  #MJ: scores for each detection/anchor point
+                    scores = torch.sigmoid(logit_scores)
+                    scores[scores < 0.5] = 0  #MJ: discard detections whose confidence scores are low, say less than 0.5
+                    
+                    num_remaining_scores = torch.count_nonzero(scores)
+                    
+                    anchors_nms_idx = torch.argsort(scores, descending=True)[:num_remaining_scores]
+                else:
+                    anchors_nms_idx = nms_2d(regression_boxes, scores, iou_threshold)
+                    #anchors_nms_idx = torch.arange(0, regression_boxes.size(dim=0)) 
+                    #MJ: regression_boxes are those obtained by filtering out whose scores are less than score_threshold
+                    #    Get all the filtered detections and store them for use in training gnet.
+                    
                 #anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=0.8, thresh=0.05)
 
                 # print(f"torchvision indices:\n{anchors_nms_idx}")
@@ -624,6 +662,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
                 finalAnchorBoxesIndexes = torch.cat((finalAnchorBoxesIndexes, finalAnchorBoxesIndexesValue))
                 finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, regression_boxes[anchors_nms_idx]))
+            #END for class_id in range(classification_outputs.shape[2])
 
             eval_losses = (
                 classification_loss.item(),

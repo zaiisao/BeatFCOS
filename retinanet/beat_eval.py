@@ -234,7 +234,7 @@ def get_detections(dataloader, model, num_classes, score_threshold=0.05, max_det
             # if we have metadata, it is only during evaluation where batch size is always 1
             metadata = metadata[0]
         
-            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model)
+            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model, score_threshold=score_threshold)
             # scale = data['scale']
 
             # # run network
@@ -417,7 +417,7 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
             # if we have metadata, it is only during evaluation where batch size is always 1
             metadata = metadata[0]
         
-            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model)
+            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model, score_threshold=score_threshold)
 
             #evaluate_ap(target, (predicted_scores, predicted_labels, predicted_boxes))
 
@@ -792,7 +792,7 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
         # if not len(results):
         #     return
 
-        beat_mean_f_measure = np.mean([result['beat_scores']['F-measure'] for result in results])
+        beat_mean_f_measure = np.mean([result['beat_scores']['F-measure'] for result in results])  #MJ: results = detection results
         downbeat_mean_f_measure = np.mean([result['downbeat_scores']['F-measure'] for result in results])
         cls_loss_mean = np.mean([result['cls_loss'] for result in results])
         reg_loss_mean = np.mean([result['reg_loss'] for result in results])
