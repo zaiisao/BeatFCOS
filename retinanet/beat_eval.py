@@ -501,12 +501,18 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
 
             beat_scores = predicted_scores[predicted_labels == 1]
             beat_intervals = predicted_boxes[predicted_labels == 1][beat_scores >= score_threshold]
-            sorted_beat_intervals = beat_intervals[beat_intervals[:, 0].sort()[1]]
+            if beat_scores.size(dim=0) == 0:
+                sorted_beat_intervals = beat_intervals
+            else:
+                sorted_beat_intervals = beat_intervals[beat_intervals[:, 0].sort()[1]]
             beat_ious = torch.zeros(1, 0).to(sorted_beat_intervals.device)
 
             downbeat_scores = predicted_scores[predicted_labels == 0]
             downbeat_intervals = predicted_boxes[predicted_labels == 0][downbeat_scores >= score_threshold]
-            sorted_downbeat_intervals = downbeat_intervals[downbeat_intervals[:, 0].sort()[1]]
+            if downbeat_scores.size(dim=0) == 0:
+                sorted_downbeat_intervals = downbeat_intervals
+            else:
+                sorted_downbeat_intervals = downbeat_intervals[downbeat_intervals[:, 0].sort()[1]]
             downbeat_ious = torch.zeros(1, 0).to(downbeat_intervals.device)
 
             # start mAP file generation
@@ -743,50 +749,50 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
             # dbn_beat_scores = dbn_beat_scores_left
             # dbn_downbeat_scores = dbn_downbeat_scores_left
 
-            if predicted_boxes.shape[0] > 0:
-                # change to (x, y, w, h) (MS COCO standard)
-                #boxes[:, 2] -= boxes[:, 0]
-                #boxes[:, 3] -= boxes[:, 1]
+            # if predicted_boxes.shape[0] > 0:
+            #     # change to (x, y, w, h) (MS COCO standard)
+            #     #boxes[:, 2] -= boxes[:, 0]
+            #     #boxes[:, 3] -= boxes[:, 1]
 
-                # compute predicted labels and scores
-                #for box, score, label in zip(boxes[0], scores[0], labels[0]):
-                for box_id in range(predicted_boxes.shape[0]):
-                    predicted_score = float(predicted_scores[box_id])
-                    predicted_label = int(predicted_labels[box_id])
-                    predicted_box = predicted_boxes[box_id, :]
+            #     # compute predicted labels and scores
+            #     #for box, score, label in zip(boxes[0], scores[0], labels[0]):
+            #     for box_id in range(predicted_boxes.shape[0]):
+            #         predicted_score = float(predicted_scores[box_id])
+            #         predicted_label = int(predicted_labels[box_id])
+            #         predicted_box = predicted_boxes[box_id, :]
 
-                    # scores are sorted, so we can break
-                    if predicted_score < score_threshold:
-                        # break
-                        continue
+            #         # scores are sorted, so we can break
+            #         if predicted_score < score_threshold:
+            #             # break
+            #             continue
 
-                    # append detection for each positively labeled class
-                    image_result = {
-                        'image_id': metadata["Filename"],
-                        #'category_id': dataset.label_to_coco_label(label),
-                        'score': float(predicted_score),
-                        'bbox': predicted_box.tolist(),
-                        'beat_scores': beat_scores,
-                        'downbeat_scores': downbeat_scores,
-                        'cls_loss': losses[0],
-                        'reg_loss': losses[1],
-                        'lft_loss': losses[2],
-                        'adj_loss': losses[3],
+            # append detection for each positively labeled class
+            image_result = {
+                'image_id': metadata["Filename"],
+                #'category_id': dataset.label_to_coco_label(label),
+                'score': float(predicted_score),
+                'bbox': predicted_box.tolist(),
+                'beat_scores': beat_scores,
+                'downbeat_scores': downbeat_scores,
+                'cls_loss': losses[0],
+                'reg_loss': losses[1],
+                'lft_loss': losses[2],
+                'adj_loss': losses[3],
 
-                        # 'beat_scores_left': beat_scores_left,
-                        # 'downbeat_scores_left': downbeat_scores_left,
-                        # 'beat_scores_right': beat_scores_right,
-                        # 'downbeat_scores_right': downbeat_scores_right,
-                        # 'beat_scores_average': beat_scores_average,
-                        # 'downbeat_scores_average': downbeat_scores_average,
-                        # 'beat_scores_weighted': beat_scores_weighted,
-                        # 'downbeat_scores_weighted': downbeat_scores_weighted,
-                        # 'dbn_beat_scores': dbn_beat_scores,
-                        # 'dbn_downbeat_scores': dbn_downbeat_scores
-                    }
+                # 'beat_scores_left': beat_scores_left,
+                # 'downbeat_scores_left': downbeat_scores_left,
+                # 'beat_scores_right': beat_scores_right,
+                # 'downbeat_scores_right': downbeat_scores_right,
+                # 'beat_scores_average': beat_scores_average,
+                # 'downbeat_scores_average': downbeat_scores_average,
+                # 'beat_scores_weighted': beat_scores_weighted,
+                # 'downbeat_scores_weighted': downbeat_scores_weighted,
+                # 'dbn_beat_scores': dbn_beat_scores,
+                # 'dbn_downbeat_scores': dbn_downbeat_scores
+            }
 
-                    # append detection to results
-                    results.append(image_result)
+            # append detection to results
+            results.append(image_result)
         # END for index, data in enumerate(dataset)
 
         # if not len(results):

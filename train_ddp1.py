@@ -188,6 +188,8 @@ parser.add_argument('--downbeat_weight', type=float, default=0.6)
 parser.add_argument('--pretrained', default=False, action="store_true")  #--pretrained is mentioned in the command line => store "true"
 parser.add_argument('--freeze_bn', default=False, action="store_true")
 parser.add_argument('--freeze_backbone', default=False, action="store_true")
+parser.add_argument('--centerness', default=False, action="store_true")
+parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
 
 best_acc1 = 0
         

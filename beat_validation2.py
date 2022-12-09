@@ -110,7 +110,7 @@ args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
 #datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
-datasets = ["gtzan"]
+datasets = ["smc"]
 
 # set the seed
 seed = 42
@@ -127,7 +127,7 @@ torch.backends.cudnn.benchmark = True
 args.default_root_dir = os.path.join("lightning_logs", "full")
 print(args.default_root_dir)
 
-state_dicts = glob.glob('./checkpoints_pretrained/*.pt')
+state_dicts = glob.glob('./checkpoints_freeze_bn/*.pt')
 start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:
@@ -279,7 +279,7 @@ if __name__ == '__main__':
 
     print('Evaluating dataset')
 
-    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.00)
+    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.2)
 
     print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
     #evaluate_beat_ap(test_dataloader, retinanet)

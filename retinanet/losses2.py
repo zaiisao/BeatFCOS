@@ -5,7 +5,7 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou, AnchorPointTrans
 
 INF = 100000000
 
-def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor, beat_radius=2.5, downbeat_radius=4.5):
+def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor, centerness=False, beat_radius=2.5, downbeat_radius=4.5):
     audio_target_rate = 22050 / audio_downsampling_factor
 
     sizes = [
@@ -112,12 +112,21 @@ def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor,
         # JA: New radius implementation
         stride = 2**(i + 1)
         radius_per_class = (jth_annotations[:, 2] == 0) * downbeat_radius + (jth_annotations[:, 2] == 1) * beat_radius
-        radius_limits_from_l_annotations = l_annotations_1xm + (radius_per_class * stride)
 
-        anchor_points_in_left_of_bboxes_per_level = torch.logical_and(
-            torch.ge( anchor_points_per_level_nx1, l_annotations_1xm),
-            torch.le( anchor_points_per_level_nx1, torch.minimum(r_annotations_1xm, radius_limits_from_l_annotations))
-        )
+        if centerness:
+            c_annotations_1xm = (l_annotations_1xm + r_annotations_1xm)/2
+            left_radius_limit_from_center = c_annotations_1xm - (radius_per_class * stride)
+            right_radius_limit_from_center = c_annotations_1xm + (radius_per_class * stride)
+            anchor_points_in_sub_bboxes_per_level = torch.logical_and(
+                torch.ge(anchor_points_per_level_nx1, torch.maximum(l_annotations_1xm, left_radius_limit_from_center)),
+                torch.le(anchor_points_per_level_nx1, torch.minimum(r_annotations_1xm, right_radius_limit_from_center))
+            )
+        else:
+            radius_limits_from_l_annotations = l_annotations_1xm + (radius_per_class * stride)
+            anchor_points_in_sub_bboxes_per_level = torch.logical_and(
+                torch.ge( anchor_points_per_level_nx1, l_annotations_1xm),
+                torch.le( anchor_points_per_level_nx1, torch.minimum(r_annotations_1xm, radius_limits_from_l_annotations))
+            )
         #is_anchor_points_in_gt_bboxes : shape =(N,M)
         l_stars_to_bboxes_for_anchors_per_level =  anchor_points_per_level_nx1 - l_annotations_1xm
         r_stars_to_bboxes_for_anchors_per_level =  r_annotations_1xm - anchor_points_per_level_nx1
@@ -203,7 +212,7 @@ def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor,
         areas_of_bboxes = jth_annotations[:, 1] - jth_annotations[:, 0]
 
         gt_area_for_anchors_matrix = areas_of_bboxes[None].repeat(len(anchor_points_per_level), 1)
-        gt_area_for_anchors_matrix[anchor_points_in_left_of_bboxes_per_level == 0] = INF
+        gt_area_for_anchors_matrix[anchor_points_in_sub_bboxes_per_level == 0] = INF
         gt_area_for_anchors_matrix[max_l_r_stars_for_anchor_points_within_bbox_range_per_level == 0] = INF
         # Result shape for gt_area_for_anchors_matrix is (8192, 77) for example
         # 8192 is the resolution of the first feature map = the number of anchor points on the first feature map
@@ -626,7 +635,7 @@ class AdjacencyConstraintLoss(nn.Module):
         return all_adjacency_constraint_losses.mean()
 
 class CombinedLoss(nn.Module):
-    def __init__(self, audio_downsampling_factor):
+    def __init__(self, audio_downsampling_factor, centerness=False):
         super(CombinedLoss, self).__init__()
 
         self.classification_loss = FocalLoss()
@@ -635,6 +644,7 @@ class CombinedLoss(nn.Module):
         self.adjacency_constraint_loss = AdjacencyConstraintLoss()
         
         self.audio_downsampling_factor = audio_downsampling_factor
+        self.centerness = centerness
 
     def get_jth_targets(
         self,
@@ -658,7 +668,10 @@ class CombinedLoss(nn.Module):
 
         jth_regression_targets = torch.stack((normalized_l_star, normalized_r_star), dim=1)
 
-        jth_leftness_targets = torch.sqrt(r_star/(l_star + r_star)).unsqueeze(dim=1)
+        if self.centerness:
+            jth_leftness_targets = torch.sqrt(torch.min(l_star, r_star)/torch.max(l_star, r_star)).unsqueeze(dim=1)
+        else:
+            jth_leftness_targets = torch.sqrt(r_star/(l_star + r_star)).unsqueeze(dim=1)
 
         #print(jth_classification_targets[positive_anchor_indices], jth_regression_targets[positive_anchor_indices], jth_leftness_targets[positive_anchor_indices])
 
@@ -691,7 +704,7 @@ class CombinedLoss(nn.Module):
 
             positive_anchor_indices, assigned_annotations_for_anchors, normalized_annotations_for_anchors, \
             l_star_for_anchors, r_star_for_anchors, normalized_l_star_for_anchors, \
-            normalized_r_star_for_anchors, levels_for_anchors = get_fcos_positives(jth_annotations, anchors_list, self.audio_downsampling_factor)
+            normalized_r_star_for_anchors, levels_for_anchors = get_fcos_positives(jth_annotations, anchors_list, self.audio_downsampling_factor, self.centerness)
 
             all_anchor_points = torch.cat(anchors_list, dim=0)
             num_positive_anchors = positive_anchor_indices.sum()

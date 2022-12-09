@@ -256,7 +256,7 @@ def nms_2d(anchor_boxes, scores, thresh_iou):
 
     return nms(boxes_3d, scores, thresh_iou)
 
-def soft_nms(dets, box_scores, sigma=0.5, thresh=0.05, use_regular_nms=False):
+def soft_nms(regression_boxes, box_scores, sigma=0.5, thresh=0.05, use_regular_nms=False):
     """
     Build a pytorch implement of Soft NMS algorithm.
     # Augments
@@ -270,9 +270,9 @@ def soft_nms(dets, box_scores, sigma=0.5, thresh=0.05, use_regular_nms=False):
     """
 
     # Indexes concatenate boxes with the last column
-    N = dets.shape[0]
-    indexes = torch.arange(0, N, dtype=torch.float).to(dets.device).view(N, 1)
-    dets = torch.cat((dets, indexes), dim=1)
+    N = regression_boxes.shape[0]
+    indexes = torch.arange(0, N, dtype=torch.float).to(regression_boxes.device).view(N, 1)
+    dets = torch.cat((regression_boxes, indexes), dim=1)
 
     # The order of boxes coordinate is [y1,x1,y2,x2]
     #y1 = dets[:, 0]
@@ -281,7 +281,7 @@ def soft_nms(dets, box_scores, sigma=0.5, thresh=0.05, use_regular_nms=False):
     #x2 = dets[:, 3]
     x1 = dets[:, 0]
     x2 = dets[:, 1]
-    scores = box_scores
+    scores = box_scores.clone()
     #areas = (x2 - x1 + 1) * (y2 - y1 + 1)
     areas = (x2 - x1 + 1) #* (y2 - y1 + 1)
 
@@ -302,17 +302,23 @@ def soft_nms(dets, box_scores, sigma=0.5, thresh=0.05, use_regular_nms=False):
         #xx1 = np.maximum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
         #yy2 = np.minimum(dets[i, 2].to("cpu").numpy(), dets[pos:, 2].to("cpu").numpy())
         #xx2 = np.minimum(dets[i, 3].to("cpu").numpy(), dets[pos:, 3].to("cpu").numpy())
-        xx1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
-        xx2 = np.minimum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
         
-        w = np.maximum(0.0, xx2 - xx1 + 1)
+        #xx1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
+        #xx2 = np.minimum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
+        xx1 = torch.maximum(dets[i, 0], dets[pos:, 0])
+        xx2 = torch.minimum(dets[i, 1], dets[pos:, 1])
+        
+        #w = np.maximum(0.0, xx2 - xx1 + 1)
+        w = xx2 - xx1 + 1
+        w = torch.clamp(w, min=0)
+
         #h = np.maximum(0.0, yy2 - yy1 + 1)
         #inter = torch.tensor(w * h).to(dets.device)
         inter = torch.tensor(w).to(dets.device)
         ovr = torch.div(inter, (areas[i] + areas[pos:] - inter))
 
         if use_regular_nms == True:
-            weight = torch.where(ovr > sigma, torch.zeros(ovr.shape), torch.ones(ovr.shape))
+            weight = torch.where(ovr > sigma, torch.zeros(ovr.shape).to(ovr.device), torch.ones(ovr.shape).to(ovr.device))
         else:
             # Gaussian decay
             weight = torch.exp(-(ovr * ovr) / sigma)

@@ -206,7 +206,19 @@ class ClassificationModel(nn.Module):
 
 #MJ: https://pseudo-lab.github.io/pytorch-guide/docs/ch03-1.html
 class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defined in our code using tcn
-    def __init__(self, num_classes, block, layers, fcos=False, reg_loss_type="l1", downbeat_weight=0.6, audio_downsampling_factor=32, **kwargs):
+    def __init__(
+        self,
+        num_classes,
+        block,
+        layers,
+        fcos=False,
+        reg_loss_type="l1",
+        downbeat_weight=0.6,
+        audio_downsampling_factor=32,
+        centerness=False,
+        postprocessing_type="soft_nms",
+        **kwargs
+    ):
         #self.inplanes = 64
 
         self.inplanes = 256
@@ -216,6 +228,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         self.fcos = fcos
         self.downbeat_weight = downbeat_weight
         self.audio_downsampling_factor = audio_downsampling_factor
+        self.postprocessing_type = postprocessing_type
 
         # self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         # self.bn1 = nn.BatchNorm2d(64)
@@ -275,7 +288,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, weight=1, num_anchors=num_anchors)
         # self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
 
-        self.combined_loss = CombinedLoss(audio_downsampling_factor)
+        self.combined_loss = CombinedLoss(audio_downsampling_factor, centerness=centerness)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
@@ -608,41 +621,47 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
                 # During NMS, if the IoU of two adjacent predicted boxes is less than IoU threshold, the two boxes are considered to be different beats
                 # Otherwise both predictions are considered redundant so that one is removed.
-                
-                use_gnet = False
-                if use_gnet:
+
+                if self.postprocessing_type == 'gnet':
                     gnet = GNet(numBlocks=4)
                     gnet.cuda()
                     checkpoint = torch.load(model_urls['gnet'])
                     gnet.load_state_dict(checkpoint['model_state_dict'])
                     gnet.eval()
-                    
+
                     detections = torch.stack((  #MJ: regression_boxes are those obtained by filtering out whose scores are less than score_threshold
                         regression_boxes[:, 0],
                         torch.zeros(regression_boxes.size(dim=0)).to(regression_boxes.device),
                         regression_boxes[:, 1],
                         torch.ones(regression_boxes.size(dim=0)).to(regression_boxes.device),
                     ), dim=1) #MJ: detections refer to predicted bboxes by beat-fcos
-                    
+
                     data = [{
                         'scores': scores,
                         'detections': detections
                     }]
                     
-                    logit_scores = gnet(data=data, no_detections=9999999)  #MJ: scores for each detection/anchor point
+                    logit_scores = gnet(batch=data, no_detections=9999999)  #MJ: scores for each detection/anchor point
+                    logit_scores = logit_scores[0]
                     scores = torch.sigmoid(logit_scores)
-                    scores[scores < 0.5] = 0  #MJ: discard detections whose confidence scores are low, say less than 0.5
                     
-                    num_remaining_scores = torch.count_nonzero(scores)
-                    
+                    torch.set_printoptions(sci_mode=False)
+                    #print(torch.cat((regression_boxes, gnet_result_scores.unsqueeze(dim=1)), dim=1))
+                    torch.set_printoptions(sci_mode=True)
+
+                    #scores[scores < 0.5] = 0  #MJ: discard detections whose confidence scores are low, say less than 0.5
+                    # num_remaining_scores = torch.count_nonzero(scores)
+                    # num_remaining_scores = torch.sum(scores > (scores.min() + scores.max()) / 4)
+                    num_remaining_scores = torch.sum(scores > 0.05)
+
                     anchors_nms_idx = torch.argsort(scores, descending=True)[:num_remaining_scores]
-                else:
+                elif self.postprocessing_type == 'nms':
                     anchors_nms_idx = nms_2d(regression_boxes, scores, iou_threshold)
                     #anchors_nms_idx = torch.arange(0, regression_boxes.size(dim=0)) 
                     #MJ: regression_boxes are those obtained by filtering out whose scores are less than score_threshold
                     #    Get all the filtered detections and store them for use in training gnet.
-                    
-                #anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=0.8, thresh=0.05)
+                elif self.postprocessing_type == 'soft_nms':
+                    anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=0.5, thresh=0.2)
 
                 # print(f"torchvision indices:\n{anchors_nms_idx}")
                 # print(f"torchvision boxes:\n{torch.cat((anchorBoxes[anchors_nms_idx], scores[anchors_nms_idx].unsqueeze(dim=1)), dim=1)}")
