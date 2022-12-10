@@ -75,7 +75,7 @@ parser.add_argument('--dry_run', action='store_true')
 parser.add_argument('--depth', default=50)
 parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
 parser.add_argument('--lr', type=float, default=1e-2)
-parser.add_argument('--patience', type=int, default=40)
+parser.add_argument('--patience', type=int, default=10)
 # --- tcn model related ---
 parser.add_argument('--ninputs', type=int, default=1)
 parser.add_argument('--noutputs', type=int, default=2)
@@ -279,7 +279,7 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(retinanet.parameters(), lr=args.lr, weight_decay=1e-4) # Default weight decay is 0
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=10, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=args.patience, verbose=True)
 
     loss_hist = collections.deque(maxlen=500)
 
