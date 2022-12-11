@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from retinanet.utils import BBoxTransform, calc_iou, calc_giou, AnchorPointTransform
 
 INF = 100000000
@@ -312,6 +313,51 @@ def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor,
         # is_anchor_points_within_bbox_range,\
         # size_of_interest_for_anchors,\
         # max_l_r_targets_for_anchors
+#END def get_fcos_positives
+                    
+def reduce_loss(loss, reduction):
+    """Reduce loss as specified.
+    Args:
+        loss (Tensor): Elementwise loss tensor.
+        reduction (str): Options are "none", "mean" and "sum".
+    Return:
+        Tensor: Reduced loss tensor.
+    """
+    reduction_enum = F._Reduction.get_enum(reduction)
+    # none: 0, elementwise_mean:1, sum: 2
+    if reduction_enum == 0:
+        return loss
+    elif reduction_enum == 1:
+        return loss.mean()
+    elif reduction_enum == 2:
+        return loss.sum()
+        
+def weight_reduce_loss(loss, weight=None, reduction='mean', avg_factor=None):
+    """Apply element-wise weight and reduce loss.
+    Args:
+        loss (Tensor): Element-wise loss.
+        weight (Tensor): Element-wise weights.
+        reduction (str): Same as built-in losses of PyTorch.
+        avg_factor (float): Avarage factor when computing the mean of losses.
+    Returns:
+        Tensor: Processed loss values.
+    """
+    # if weight is specified, apply element-wise weight
+    if weight is not None:
+        loss = loss * weight
+
+    # if avg_factor is not specified, just reduce the loss
+    if avg_factor is None:
+        loss = reduce_loss(loss, reduction)
+    else:
+        # if reduction is mean, then average the loss by avg_factor
+        if reduction == 'mean':
+            loss = loss.sum() / avg_factor
+        # if reduction is 'none', then do nothing, otherwise raise an error
+        elif reduction != 'none':
+            raise ValueError('avg_factor can not be used with reduction="sum"')
+    return loss
+
 
 class FocalLoss(nn.Module):
     def __init__(self):
@@ -370,14 +416,148 @@ class FocalLoss(nn.Module):
 
         return cls_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0)
         #return cls_loss.sum()
+#END class FocalLoss(nn.Module)
 
+#MJ: Varifocal Loss
+
+
+def varifocal_loss(pred,
+                   target,
+                   weight=None,
+                   alpha=0.75,
+                   gamma=2.0,
+                   iou_weighted=True,
+                   reduction='mean',
+                   avg_factor=None):
+    """`Varifocal Loss <https://arxiv.org/abs/2008.13367>`_
+    Args:
+        pred (torch.Tensor): The prediction with shape (N, C), C is the
+            number of classes
+        target (torch.Tensor): The learning target of the iou-aware
+            classification score with shape (N, C), C is the number of classes.
+        weight (torch.Tensor, optional): The weight of loss for each
+            prediction. Defaults to None.
+        alpha (float, optional): A balance factor for the negative part of
+            Varifocal Loss, which is different from the alpha of Focal Loss.
+            Defaults to 0.75.
+        gamma (float, optional): The gamma for calculating the modulating
+            factor. Defaults to 2.0.
+        iou_weighted (bool, optional): Whether to weight the loss of the
+            positive example with the iou target. Defaults to True.
+        reduction (str, optional): The method used to reduce the loss into
+            a scalar. Defaults to 'mean'. Options are "none", "mean" and
+            "sum".
+        avg_factor (int, optional): Average factor that is used to average
+            the loss. Defaults to None.
+    """
+    # pred and target should be of the same size
+    assert pred.size() == target.size()
+    pred_sigmoid = pred.sigmoid()
+    target = target.type_as(pred)
+    if iou_weighted:
+        focal_weight = target * (target > 0.0).float() + \
+            alpha * (pred_sigmoid - target).abs().pow(gamma) * \
+            (target <= 0.0).float()
+    else:
+        focal_weight = (target > 0.0).float() + \
+            alpha * (pred_sigmoid - target).abs().pow(gamma) * \
+            (target <= 0.0).float()
+    loss = F.binary_cross_entropy_with_logits(
+        pred, target, reduction='none') * focal_weight
+    
+    loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
+    return loss
+
+#END def varifocal_loss
+
+class VarifocalLoss(nn.Module):
+
+    def __init__(self,
+                 use_sigmoid=True,
+                 alpha=0.75,
+                 gamma=2.0,
+                 iou_weighted=True,
+                 reduction='mean',
+                 loss_weight=1.0):
+        """`Varifocal Loss <https://arxiv.org/abs/2008.13367>`_
+        Args:
+            use_sigmoid (bool, optional): Whether the prediction is
+                used for sigmoid or softmax. Defaults to True.
+            alpha (float, optional): A balance factor for the negative part of
+                Varifocal Loss, which is different from the alpha of Focal
+                Loss. Defaults to 0.75.
+            gamma (float, optional): The gamma for calculating the modulating
+                factor. Defaults to 2.0.
+            iou_weighted (bool, optional): Whether to weight the loss of the
+                positive examples with the iou target. Defaults to True.
+            reduction (str, optional): The method used to reduce the loss into
+                a scalar. Defaults to 'mean'. Options are "none", "mean" and
+                "sum".
+            loss_weight (float, optional): Weight of loss. Defaults to 1.0.
+        """
+        super(VarifocalLoss, self).__init__()
+        assert use_sigmoid is True, \
+            'Only sigmoid varifocal loss supported now.'
+        assert alpha >= 0.0
+        self.use_sigmoid = use_sigmoid
+        self.alpha = alpha
+        self.gamma = gamma
+        self.iou_weighted = iou_weighted
+        self.reduction = reduction
+        self.loss_weight = loss_weight
+
+#MJ:  jth_classification_loss = self.classification_loss(
+#                 jth_classification_pred,  #In the case of VarifocalLoss, jth_classification_pred is logits, not probs
+#                 jth_classification_targets,
+#                 jth_annotations,
+#                 num_positive_anchors
+#             )
+ 
+    def forward(self,
+                pred,
+                target,
+                weight=None,
+                avg_factor=None,
+                reduction_override=None):
+        """Forward function.
+        Args:
+            pred (torch.Tensor): The prediction.
+            target (torch.Tensor): The learning target of the prediction.
+            weight (torch.Tensor, optional): The weight of loss for each
+                prediction. Defaults to None.
+            avg_factor (int, optional): Average factor that is used to average
+                the loss. Defaults to None.
+            reduction_override (str, optional): The reduction method used to
+                override the original reduction method of the loss.
+                Options are "none", "mean" and "sum".
+        Returns:
+            torch.Tensor: The calculated loss
+        """
+        assert reduction_override in (None, 'none', 'mean', 'sum')
+        reduction = (
+            reduction_override if reduction_override else self.reduction)
+        if self.use_sigmoid:
+            loss_cls = self.loss_weight * varifocal_loss(
+                pred,
+                target,
+                weight,
+                alpha=self.alpha,
+                gamma=self.gamma,
+                iou_weighted=self.iou_weighted,
+                reduction=reduction,
+                avg_factor=avg_factor)
+        else:
+            raise NotImplementedError
+        return loss_cls
+#END class VarifocalLoss(nn.Module)
+            
 class RegressionLoss(nn.Module):
     def __init__(self, weight=1):
         super(RegressionLoss, self).__init__()
         self.weight = weight
 
     def forward(self, jth_regression_pred, jth_regression_targets, jth_annotations):
-        # If there are gt bboxes on the current image, we set the regression loss of this image to 0
+        # If there are no gt bboxes on the current image, we set the regression loss of this image to 0
         if jth_annotations.shape[0] == 0:
             if torch.cuda.is_available():
                 return torch.tensor(0).float().cuda()
@@ -638,28 +818,35 @@ class CombinedLoss(nn.Module):
     def __init__(self, audio_downsampling_factor, centerness=False):
         super(CombinedLoss, self).__init__()
 
-        self.classification_loss = FocalLoss()
+        #MJ: Test VarifocalLoss instead of FocalLoss
+        
+        #self.classification_loss = FocalLoss()
+        self.classification_loss = VarifocalLoss()
         self.regression_loss = RegressionLoss()
-        self.leftness_loss = LeftnessLoss()
+        
+        #MJ: VarifocalLoss does not need to use Centerness Loss or Leftness Loss
+        #self.leftness_loss = LeftnessLoss()
         self.adjacency_constraint_loss = AdjacencyConstraintLoss()
         
         self.audio_downsampling_factor = audio_downsampling_factor
-        self.centerness = centerness
+        #self.centerness = centerness
 
     def get_jth_targets(
         self,
         jth_classification_pred,
         jth_regression_pred,
-        jth_leftness_pred,
+        #MJ: jth_leftness_pred,
         positive_anchor_indices,
         normalized_annotations,
         l_star, r_star,
         normalized_l_star,
         normalized_r_star
     ):
+        
         jth_classification_targets = torch.zeros(jth_classification_pred.shape).to(jth_classification_pred.device)
+        
         jth_regression_targets = torch.zeros(jth_regression_pred.shape).to(jth_regression_pred.device)
-        jth_leftness_targets = torch.zeros(jth_leftness_pred.shape).to(jth_leftness_pred.device)
+        #MJ: jth_leftness_targets = torch.zeros(jth_leftness_pred.shape).to(jth_leftness_pred.device)
 
         class_ids_of_positive_anchors = normalized_annotations[positive_anchor_indices, 2].long()
 
@@ -668,29 +855,93 @@ class CombinedLoss(nn.Module):
 
         jth_regression_targets = torch.stack((normalized_l_star, normalized_r_star), dim=1)
 
-        if self.centerness:
-            jth_leftness_targets = torch.sqrt(torch.min(l_star, r_star)/torch.max(l_star, r_star)).unsqueeze(dim=1)
-        else:
-            jth_leftness_targets = torch.sqrt(r_star/(l_star + r_star)).unsqueeze(dim=1)
+        #MJ: VarifocalLoss does not need to use Centerness Loss or Leftness Loss
+        # if self.centerness:
+        #     jth_leftness_targets = torch.sqrt(torch.min(l_star, r_star)/torch.max(l_star, r_star)).unsqueeze(dim=1)
+        # else:
+        #     jth_leftness_targets = torch.sqrt(r_star/(l_star + r_star)).unsqueeze(dim=1)
 
         #print(jth_classification_targets[positive_anchor_indices], jth_regression_targets[positive_anchor_indices], jth_leftness_targets[positive_anchor_indices])
+        #MJ: 
+        #return jth_classification_targets, jth_regression_targets, jth_leftness_targets
+        return jth_classification_targets, jth_regression_targets
+    
+    def get_jth_targets_varifocal(
+        self,
+        jth_classification_pred,
+        jth_regression_pred,
+        #MJ: jth_leftness_pred,
+        positive_anchor_indices,
+        normalized_annotations,
+        l_star, r_star,
+        normalized_l_star,
+        normalized_r_star
+    ):
+        
+        jth_classification_targets = torch.zeros(jth_classification_pred.shape).to(jth_classification_pred.device)
+        
+        jth_regression_targets = torch.zeros(jth_regression_pred.shape).to(jth_regression_pred.device)
+        #MJ: jth_leftness_targets = torch.zeros(jth_leftness_pred.shape).to(jth_leftness_pred.device)
 
-        return jth_classification_targets, jth_regression_targets, jth_leftness_targets
+        class_ids_of_positive_anchors = normalized_annotations[positive_anchor_indices, 2].long()
 
-    def forward(self, classifications, regressions, leftnesses, anchors_list, annotations):
+        jth_classification_targets[positive_anchor_indices, :] = 0
+        
+        #MJ: for varifocal loss, the classification target is not 1 or 0, 
+        # #   but gt_iou, that is, the iou of the predicted bbox of the positive anchor and the gt box
+        
+        #MJ: jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = 1
+        
+        # To calculate GIoU, convert prediction and targets from (l, r) to (x_1, x_2)
+        jth_regression_xx_pred = jth_regression_pred
+        jth_regression_xx_targets = jth_regression_targets
+
+        # Flip the sign of x_1 to turn the (l, r) box into a (x_1, x_2) bounding box offset from 0
+        # (For GIoU calculation, the bounding box offset does not matter as much as the two boxes' relative positions)
+        jth_regression_xx_pred[:, 0] *= -1
+        jth_regression_xx_targets[:, 0] *= -1
+
+        positive_anchor_regression_giou = calc_giou(jth_regression_xx_pred, jth_regression_xx_targets)
+        
+        jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = positive_anchor_regression_giou 
+        
+        # regression_losses_for_positive_anchors = \
+        #     torch.ones(positive_anchor_regression_giou.shape).to(positive_anchor_regression_giou.device) \
+        #     - positive_anchor_regression_giou
+
+        #return regression_losses_for_positive_anchors.mean() * self.weight
+    #############################
+
+        jth_regression_targets = torch.stack((normalized_l_star, normalized_r_star), dim=1)
+
+        #MJ: VarifocalLoss does not need to use Centerness Loss or Leftness Loss
+        # if self.centerness:
+        #     jth_leftness_targets = torch.sqrt(torch.min(l_star, r_star)/torch.max(l_star, r_star)).unsqueeze(dim=1)
+        # else:
+        #     jth_leftness_targets = torch.sqrt(r_star/(l_star + r_star)).unsqueeze(dim=1)
+
+        #print(jth_classification_targets[positive_anchor_indices], jth_regression_targets[positive_anchor_indices], jth_leftness_targets[positive_anchor_indices])
+        #MJ: 
+        #return jth_classification_targets, jth_regression_targets, jth_leftness_targets
+        return jth_classification_targets, jth_regression_targets
+    
+
+    #MJ: def forward(self, classifications, regressions, leftnesses, anchors_list, annotations):
+    def forward(self, classifications, regressions,  anchors_list, annotations):
         # Classification, regression, and leftness should all have the same number of items in the batch
-        assert classifications.shape[0] == regressions.shape[0] and regressions.shape[0] == leftnesses.shape[0]
+        #MJ: assert classifications.shape[0] == regressions.shape[0] and regressions.shape[0] == leftnesses.shape[0]
+        assert classifications.shape[0] == regressions.shape[0]
         batch_size = classifications.shape[0]
 
         classification_losses_batch = []
         regression_losses_batch = []
-        leftness_losses_batch = []
+        #MJ: leftness_losses_batch = []
         adjacency_constraint_losses_batch = []
 
         for j in range(batch_size):
             jth_classification_pred = classifications[j, :, :]   # (B, A, 2)
             jth_regression_pred = regressions[j, :, :]           # (B, A, 2)
-            jth_leftness_pred = leftnesses[j, :, :]              # (B, A, 1)
+            #MJ: jth_leftness_pred = leftnesses[j, :, :]              # (B, A, 1)
 
             jth_padded_annotations = annotations[j, :, :]
 
@@ -754,18 +1005,34 @@ class CombinedLoss(nn.Module):
             # print("normalized_r_star", normalized_r_star[positive_anchor_indices])
             # torch.set_printoptions(edgeitems=3)
 
-            jth_classification_targets, jth_regression_targets, jth_leftness_targets = self.get_jth_targets(
-                jth_classification_pred, jth_regression_pred, jth_leftness_pred,
+            # jth_classification_targets, jth_regression_targets, jth_leftness_targets = self.get_jth_targets(
+            #     jth_classification_pred, jth_regression_pred, jth_leftness_pred,
+            #     positive_anchor_indices, normalized_annotations_for_anchors,
+            #     l_star_for_anchors, r_star_for_anchors,
+            #     normalized_l_star_for_anchors, normalized_r_star_for_anchors
+            #)
+            
+            #MJ: jth_classification_targets, jth_regression_targets, jth_leftness_targets = self.get_jth_targets(
+            #     jth_classification_pred, jth_regression_pred, #MJ: jth_leftness_pred,
+            #     positive_anchor_indices, normalized_annotations_for_anchors,
+            #     l_star_for_anchors, r_star_for_anchors,
+            #     normalized_l_star_for_anchors, normalized_r_star_for_anchors
+            # )
+            
+            jth_classification_targets, jth_regression_targets, jth_leftness_targets = self.get_jth_targets_varifocal(
+                jth_classification_pred, jth_regression_pred, #MJ: jth_leftness_pred,
                 positive_anchor_indices, normalized_annotations_for_anchors,
                 l_star_for_anchors, r_star_for_anchors,
                 normalized_l_star_for_anchors, normalized_r_star_for_anchors
             )
+            
 
             jth_classification_loss = self.classification_loss(
-                jth_classification_pred,
+                jth_classification_pred,  #In the case of VarifocalLoss, jth_classification_pred is logits, not probs
                 jth_classification_targets,
-                jth_annotations,
-                num_positive_anchors
+                #MJ: jth_annotations, This parameter is not really needed.
+                #MJ: num_positive_anchors # In the case of VarifocalLoss, num_positive_anchors is not used to compute the average classification loss
+                #   
             )
 
             # print(jth_regression_targets[positive_anchor_indices])
@@ -776,11 +1043,12 @@ class CombinedLoss(nn.Module):
                 jth_annotations
             )
 
-            jth_leftness_loss = self.leftness_loss(
-                jth_leftness_pred[positive_anchor_indices],
-                jth_leftness_targets[positive_anchor_indices],
-                jth_annotations
-            )
+            #MJ: 
+            # jth_leftness_loss = self.leftness_loss(
+            #     jth_leftness_pred[positive_anchor_indices],
+            #     jth_leftness_targets[positive_anchor_indices],
+            #     jth_annotations
+            # )
 
             if torch.isnan(jth_classification_loss).any():
                 raise ValueError
@@ -826,7 +1094,8 @@ class CombinedLoss(nn.Module):
 
             classification_losses_batch.append(jth_classification_loss)
             regression_losses_batch.append(jth_regression_loss)
-            leftness_losses_batch.append(jth_leftness_loss)
+            #MJ:
+            #leftness_losses_batch.append(jth_leftness_loss)
             adjacency_constraint_losses_batch.append(jth_adjacency_constraint_loss)
         # END for j in range(batch_size)
 
@@ -835,15 +1104,20 @@ class CombinedLoss(nn.Module):
             
         if len(regression_losses_batch) == 0:
             regression_losses_batch.append(0)
-            
-        if len(leftness_losses_batch) == 0:
-            leftness_losses_batch.append(0)
+        #MJ:    
+        # if len(leftness_losses_batch) == 0:
+        #     leftness_losses_batch.append(0)
             
         if len(adjacency_constraint_losses_batch) == 0:
             adjacency_constraint_losses_batch.append(0)
 
+        #MJ:  return \
+        #     torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
+        #     torch.stack(regression_losses_batch).mean(dim=0, keepdim=True), \
+        #     torch.stack(leftness_losses_batch).mean(dim=0, keepdim=True), \
+        #     torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True)
+
         return \
             torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
             torch.stack(regression_losses_batch).mean(dim=0, keepdim=True), \
-            torch.stack(leftness_losses_batch).mean(dim=0, keepdim=True), \
             torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True)
