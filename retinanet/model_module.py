@@ -662,6 +662,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     #    Get all the filtered detections and store them for use in training gnet.
                 elif self.postprocessing_type == 'soft_nms':
                     anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=0.5, thresh=0.2)
+                elif self.postprocessing_type == 'none':
+                    anchors_nms_idx = torch.arange(0, regression_boxes.size(dim=0))
 
                 # print(f"torchvision indices:\n{anchors_nms_idx}")
                 # print(f"torchvision boxes:\n{torch.cat((anchorBoxes[anchors_nms_idx], scores[anchors_nms_idx].unsqueeze(dim=1)), dim=1)}")

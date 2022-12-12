@@ -384,7 +384,7 @@ if __name__ == '__main__':
         # Evaluate the evaluation dataset in each epoch
         print('Evaluating dataset')
         # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
-        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(
+        beat_mean_f_measure, downbeat_mean_f_measure, _ = evaluate_beat_f_measure(
             val_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.20)
         
         joint_f_measure = (beat_mean_f_measure + downbeat_mean_f_measure)/2

@@ -594,7 +594,7 @@ def main_worker(gpu, ngpus_per_node, args): # ngpus_per_node is the first elemen
 
         # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
         score_threshold = 0.15
-        beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(
+        beat_mean_f_measure, downbeat_mean_f_measure, _ = evaluate_beat_f_measure(
             val_dataloader, model, args.audio_downsampling_factor, score_threshold=score_threshold)
         
         joint_f_measure = (beat_mean_f_measure + downbeat_mean_f_measure)/2

@@ -101,6 +101,8 @@ parser.add_argument('--downbeat_weight', type=float, default=0.6)
 parser.add_argument('--pretrained', default=False, action="store_true")  #--pretrained is mentioned in the command line => store "true"
 parser.add_argument('--freeze_bn', default=False, action="store_true")
 parser.add_argument('--freeze_backbone', default=False, action="store_true")
+parser.add_argument('--centerness', default=False, action="store_true")
+parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
 
 # THIS LINE IS KEY TO PULL THE MODEL NAME
 temp_args, _ = parser.parse_known_args()
@@ -127,7 +129,7 @@ torch.backends.cudnn.benchmark = True
 args.default_root_dir = os.path.join("lightning_logs", "full")
 print(args.default_root_dir)
 
-state_dicts = glob.glob('./checkpoints_freeze_bn/*.pt')
+state_dicts = glob.glob('./ablation_tests/freeze_backbone, freeze_bn, left, pretrained, softnms/*.pt')
 start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:
@@ -279,9 +281,17 @@ if __name__ == '__main__':
 
     print('Evaluating dataset')
 
-    beat_mean_f_measure, downbeat_mean_f_measure, _, _ = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.2)
+    _, _, results = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.2)
 
-    print(f"Average beat score: {beat_mean_f_measure:0.3f} | Average downbeat score: {downbeat_mean_f_measure:0.3f}")
+    print(f"F1 beat: {np.mean([result['beat_scores']['F-measure'] for result in results])}")
+    print(f"F1 downbeat: {np.mean([result['downbeat_scores']['F-measure'] for result in results])}")
+    print()
+    print(f"CMLt beat: {np.mean([result['beat_scores']['Correct Metric Level Total'] for result in results])}")
+    print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Correct Metric Level Total'] for result in results])}")
+    print()
+    print(f"CMLt beat: {np.mean([result['beat_scores']['Any Metric Level Total'] for result in results])}")
+    print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Any Metric Level Total'] for result in results])}")
+    print()
     #evaluate_beat_ap(test_dataloader, retinanet)
     
     # evaluate_beat_ap(test_dataloader, retinanet, args.audio_downsampling_factor)

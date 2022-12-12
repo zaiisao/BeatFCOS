@@ -122,7 +122,7 @@ class BeatDataset(torch.utils.data.Dataset):
 
         random.shuffle(self.audio_files) # shuffle them
 
-        if self.subset == "train":
+        if self.subset in ["train", "train_with_metadata"]:
             start = 0
             stop = int(len(self.audio_files) * 0.8)
         elif self.subset == "val":
@@ -193,7 +193,7 @@ class BeatDataset(torch.utils.data.Dataset):
                     self.data.append((audio, target, metadata))
 
     def __len__(self):
-        if self.subset in ["test", "val", "full-val", "full-test"]:
+        if self.subset in ["test", "val", "full-val", "full-test", "train_with_metadata"]:
             length = len(self.audio_files)
         else:
             length = self.examples_per_epoch
@@ -251,7 +251,7 @@ class BeatDataset(torch.utils.data.Dataset):
 
         if self.subset in ["train", "full-train"]:
             return audio, annot
-        elif self.subset in ["val", "test", "full-val"]:
+        elif self.subset in ["train_with_metadata", "val", "test", "full-val"]:
             # this will only work with batch size = 1
             return audio, annot, metadata
         else:
