@@ -12,6 +12,10 @@ from retinanet.losses2 import CombinedLoss
 from retinanet.dstcn import dsTCNModel
 from gossipnet.model.gnet import GNet
 
+#MJ: For varifocal Loss
+import torch.nn.functional as F
+
+
 model_urls = {
 #    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
 #    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
@@ -191,7 +195,8 @@ class ClassificationModel(nn.Module):
         # out = self.act4(out)
 
         out = self.output(out)
-        out = self.output_act(out)
+        #MJ: Sigmoid activation is done within F.binary_cross_entropy_with_logits() in the case of VariFocalLoss
+        #out = self.output_act(out)
 
         # out is B x C x L, with C = n_classes + n_anchors
         out1 = out.permute(0, 2, 1)
@@ -203,6 +208,7 @@ class ClassificationModel(nn.Module):
         out2 = out1.view(batch_size, length, self.num_anchors, self.num_classes)
 
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
+
 
 #MJ: https://pseudo-lab.github.io/pytorch-guide/docs/ch03-1.html
 class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defined in our code using tcn
@@ -448,9 +454,13 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             class_one_cls_targets, class_one_reg_targets = None, None
             class_one_positive_indicators, class_two_positive_indicators = None, None
 
-            # This combined loss will eventually replace the legacy losses we have been using
-            classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss = self.combined_loss(
-                classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
+            #MJ:  This combined loss will eventually replace the legacy losses we have been using
+            # classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss = self.combined_loss(
+            #     classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
+            # )
+            
+            classification_loss, regression_loss, adjacency_constraint_loss = self.combined_loss(
+                classification_outputs, regression_outputs,  anchors_list, annotations
             )
 
             # for class_id in range(number_of_classes):
@@ -535,8 +545,11 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             # #torch.stack(focal_losses_all_classes):  shape =(2,1)
             # regression_loss_class_mean = torch.stack(regression_losses_batch_all_classes).sum(dim=0)
 
+            #MJ: if self.training:
+            #    return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss
             if self.training:
-               return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss
+                return classification_loss, regression_loss,  adjacency_constraint_loss
+            
 
         # else:
 
@@ -685,14 +698,22 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, regression_boxes[anchors_nms_idx]))
             #END for class_id in range(classification_outputs.shape[2])
 
+            #MJ:  eval_losses = (
+            #     classification_loss.item(),
+            #     regression_loss.item(),
+            #     leftness_loss.item(),
+            #     adjacency_constraint_loss.item()
+            # )
+            
             eval_losses = (
                 classification_loss.item(),
                 regression_loss.item(),
-                leftness_loss.item(),
+                #leftness_loss.item(),
                 adjacency_constraint_loss.item()
             )
 
             return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates, eval_losses]
+#END def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05)
 
 def resnet18(num_classes, **kwargs):
     """Constructs a ResNet-18 model."""
