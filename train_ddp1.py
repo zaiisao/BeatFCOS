@@ -183,6 +183,7 @@ parser.add_argument('--act_type', type=str, default='PReLU')
 
 #Beat-FCOS related
 parser.add_argument('--fcos', action='store_true')
+parser.add_argument('--verifocal', action='store_true')
 parser.add_argument('--reg_loss_type', type=str, default='l1')
 parser.add_argument('--downbeat_weight', type=float, default=0.6)
 parser.add_argument('--pretrained', default=False, action="store_true")  #--pretrained is mentioned in the command line => store "true"

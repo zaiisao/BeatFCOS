@@ -25,7 +25,7 @@ def calc_iou(a, b):
 
     return IoU
 
-def calc_giou(a, b):
+def calc_giou(a, b, use_iou=False):
     # 1. For the predicted line B_p, ensuring  x_p_2 > x_p_1
 
     # 2. Calculating length of B_g: L_g = x_g_2 − x_g_1 (위에서 이미 정의한 gt_widths)
@@ -53,6 +53,9 @@ def calc_giou(a, b):
     # 7. IoU (I / U), where U = L_p + L_g - I
     union = b_lengths + a_lengths - intersection
     iou = intersection / union
+    
+    if use_iou:
+        return iou
 
     #if self.loss_type == "iou":
         # 9a. L_IoU = 1 - IoU

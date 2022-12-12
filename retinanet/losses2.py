@@ -744,8 +744,8 @@ class AdjacencyConstraintLoss(nn.Module):
         # If jth_classification_targets[:, 0] is 1, the corresponding anchor is associated with a downbeat
         # If jth_classification_targets[:, 1] is 1, the corresponding anchor is associated with a beat
 
-        boolean_indices_to_downbeats_for_positive_anchors = jth_classification_targets[:, 0] == 1
-        boolean_indices_to_beats_for_positive_anchors = jth_classification_targets[:, 1] == 1
+        boolean_indices_to_downbeats_for_positive_anchors = jth_classification_targets[:, 0] > 0 # JA: == 1
+        boolean_indices_to_beats_for_positive_anchors = jth_classification_targets[:, 1] > 0 # JA: == 1
 
         downbeat_lengths = jth_annotations[jth_annotations[:, 2] == 0, 1] - jth_annotations[jth_annotations[:, 2] == 0, 0]
         beat_lengths = jth_annotations[jth_annotations[:, 2] == 1, 1] - jth_annotations[jth_annotations[:, 2] == 1, 0]
@@ -815,27 +815,30 @@ class AdjacencyConstraintLoss(nn.Module):
         return all_adjacency_constraint_losses.mean()
 
 class CombinedLoss(nn.Module):
-    def __init__(self, audio_downsampling_factor, centerness=False):
+    def __init__(self, audio_downsampling_factor, centerness=False, verifocal=False):
         super(CombinedLoss, self).__init__()
 
         #MJ: Test VarifocalLoss instead of FocalLoss
         
-        #self.classification_loss = FocalLoss()
-        self.classification_loss = VarifocalLoss()
+        if verifocal:
+            self.classification_loss = VarifocalLoss()
+        else:
+            self.classification_loss = FocalLoss()
+            #MJ: VarifocalLoss does not need to use Centerness Loss or Leftness Loss
+            self.leftness_loss = LeftnessLoss()
+
         self.regression_loss = RegressionLoss()
-        
-        #MJ: VarifocalLoss does not need to use Centerness Loss or Leftness Loss
-        #self.leftness_loss = LeftnessLoss()
         self.adjacency_constraint_loss = AdjacencyConstraintLoss()
         
         self.audio_downsampling_factor = audio_downsampling_factor
-        #self.centerness = centerness
+        self.centerness = centerness
+        self.verifocal = verifocal
 
     def get_jth_targets(
         self,
         jth_classification_pred,
         jth_regression_pred,
-        #MJ: jth_leftness_pred,
+        jth_leftness_pred,
         positive_anchor_indices,
         normalized_annotations,
         l_star, r_star,
@@ -844,9 +847,8 @@ class CombinedLoss(nn.Module):
     ):
         
         jth_classification_targets = torch.zeros(jth_classification_pred.shape).to(jth_classification_pred.device)
-        
         jth_regression_targets = torch.zeros(jth_regression_pred.shape).to(jth_regression_pred.device)
-        #MJ: jth_leftness_targets = torch.zeros(jth_leftness_pred.shape).to(jth_leftness_pred.device)
+        jth_leftness_targets = torch.zeros(jth_leftness_pred.shape).to(jth_leftness_pred.device)
 
         class_ids_of_positive_anchors = normalized_annotations[positive_anchor_indices, 2].long()
 
@@ -855,22 +857,17 @@ class CombinedLoss(nn.Module):
 
         jth_regression_targets = torch.stack((normalized_l_star, normalized_r_star), dim=1)
 
-        #MJ: VarifocalLoss does not need to use Centerness Loss or Leftness Loss
-        # if self.centerness:
-        #     jth_leftness_targets = torch.sqrt(torch.min(l_star, r_star)/torch.max(l_star, r_star)).unsqueeze(dim=1)
-        # else:
-        #     jth_leftness_targets = torch.sqrt(r_star/(l_star + r_star)).unsqueeze(dim=1)
+        if self.centerness:
+            jth_leftness_targets = torch.sqrt(torch.min(l_star, r_star)/torch.max(l_star, r_star)).unsqueeze(dim=1)
+        else:
+            jth_leftness_targets = torch.sqrt(r_star/(l_star + r_star)).unsqueeze(dim=1)
 
-        #print(jth_classification_targets[positive_anchor_indices], jth_regression_targets[positive_anchor_indices], jth_leftness_targets[positive_anchor_indices])
-        #MJ: 
-        #return jth_classification_targets, jth_regression_targets, jth_leftness_targets
-        return jth_classification_targets, jth_regression_targets
+        return jth_classification_targets, jth_regression_targets, jth_leftness_targets
     
     def get_jth_targets_varifocal(
         self,
         jth_classification_pred,
         jth_regression_pred,
-        #MJ: jth_leftness_pred,
         positive_anchor_indices,
         normalized_annotations,
         l_star, r_star,
@@ -879,18 +876,23 @@ class CombinedLoss(nn.Module):
     ):
         
         jth_classification_targets = torch.zeros(jth_classification_pred.shape).to(jth_classification_pred.device)
-        
         jth_regression_targets = torch.zeros(jth_regression_pred.shape).to(jth_regression_pred.device)
         #MJ: jth_leftness_targets = torch.zeros(jth_leftness_pred.shape).to(jth_leftness_pred.device)
 
         class_ids_of_positive_anchors = normalized_annotations[positive_anchor_indices, 2].long()
 
-        jth_classification_targets[positive_anchor_indices, :] = 0
-        
+        # JA (remnant from Retinanet code): jth_classification_targets[positive_anchor_indices, :] = 0
+
+        # regression_losses_for_positive_anchors = \
+        #     torch.ones(positive_anchor_regression_giou.shape).to(positive_anchor_regression_giou.device) \
+        #     - positive_anchor_regression_giou
+
+        #return regression_losses_for_positive_anchors.mean() * self.weight
+    #############################
+
+        jth_regression_targets = torch.stack((normalized_l_star, normalized_r_star), dim=1)
         #MJ: for varifocal loss, the classification target is not 1 or 0, 
         # #   but gt_iou, that is, the iou of the predicted bbox of the positive anchor and the gt box
-        
-        #MJ: jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = 1
         
         # To calculate GIoU, convert prediction and targets from (l, r) to (x_1, x_2)
         jth_regression_xx_pred = jth_regression_pred
@@ -901,19 +903,14 @@ class CombinedLoss(nn.Module):
         jth_regression_xx_pred[:, 0] *= -1
         jth_regression_xx_targets[:, 0] *= -1
 
-        positive_anchor_regression_giou = calc_giou(jth_regression_xx_pred, jth_regression_xx_targets)
+        # JA: positive_anchor_regression_giou = calc_giou(jth_regression_xx_pred.clone(), jth_regression_xx_targets)
+        positive_anchor_regression_iou = calc_giou(jth_regression_xx_pred.clone(), jth_regression_xx_targets, use_iou=True)
         
-        jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = positive_anchor_regression_giou 
+        #JA: jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = positive_anchor_regression_giou 
+        jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = 1
+        jth_classification_targets *= positive_anchor_regression_iou[:, None]
         
-        # regression_losses_for_positive_anchors = \
-        #     torch.ones(positive_anchor_regression_giou.shape).to(positive_anchor_regression_giou.device) \
-        #     - positive_anchor_regression_giou
-
-        #return regression_losses_for_positive_anchors.mean() * self.weight
-    #############################
-
-        jth_regression_targets = torch.stack((normalized_l_star, normalized_r_star), dim=1)
-
+        
         #MJ: VarifocalLoss does not need to use Centerness Loss or Leftness Loss
         # if self.centerness:
         #     jth_leftness_targets = torch.sqrt(torch.min(l_star, r_star)/torch.max(l_star, r_star)).unsqueeze(dim=1)
@@ -926,22 +923,26 @@ class CombinedLoss(nn.Module):
         return jth_classification_targets, jth_regression_targets
     
 
-    #MJ: def forward(self, classifications, regressions, leftnesses, anchors_list, annotations):
-    def forward(self, classifications, regressions,  anchors_list, annotations):
+    def forward(self, classifications, regressions, leftnesses, anchors_list, annotations):
         # Classification, regression, and leftness should all have the same number of items in the batch
-        #MJ: assert classifications.shape[0] == regressions.shape[0] and regressions.shape[0] == leftnesses.shape[0]
-        assert classifications.shape[0] == regressions.shape[0]
+        if self.verifocal:
+            assert classifications.shape[0] == regressions.shape[0]
+        else:
+            assert classifications.shape[0] == regressions.shape[0] and regressions.shape[0] == leftnesses.shape[0]
+        
         batch_size = classifications.shape[0]
 
         classification_losses_batch = []
         regression_losses_batch = []
-        #MJ: leftness_losses_batch = []
+        leftness_losses_batch = []
         adjacency_constraint_losses_batch = []
 
         for j in range(batch_size):
             jth_classification_pred = classifications[j, :, :]   # (B, A, 2)
             jth_regression_pred = regressions[j, :, :]           # (B, A, 2)
-            #MJ: jth_leftness_pred = leftnesses[j, :, :]              # (B, A, 1)
+            
+            if not self.verifocal:
+                jth_leftness_pred = leftnesses[j, :, :]              # (B, A, 1)
 
             jth_padded_annotations = annotations[j, :, :]
 
@@ -1012,28 +1013,36 @@ class CombinedLoss(nn.Module):
             #     normalized_l_star_for_anchors, normalized_r_star_for_anchors
             #)
             
-            #MJ: jth_classification_targets, jth_regression_targets, jth_leftness_targets = self.get_jth_targets(
-            #     jth_classification_pred, jth_regression_pred, #MJ: jth_leftness_pred,
-            #     positive_anchor_indices, normalized_annotations_for_anchors,
-            #     l_star_for_anchors, r_star_for_anchors,
-            #     normalized_l_star_for_anchors, normalized_r_star_for_anchors
-            # )
-            
-            jth_classification_targets, jth_regression_targets, jth_leftness_targets = self.get_jth_targets_varifocal(
-                jth_classification_pred, jth_regression_pred, #MJ: jth_leftness_pred,
-                positive_anchor_indices, normalized_annotations_for_anchors,
-                l_star_for_anchors, r_star_for_anchors,
-                normalized_l_star_for_anchors, normalized_r_star_for_anchors
-            )
-            
+            if self.verifocal:
+                jth_classification_targets, jth_regression_targets = self.get_jth_targets_varifocal(
+                    jth_classification_pred, jth_regression_pred,
+                    positive_anchor_indices, normalized_annotations_for_anchors,
+                    l_star_for_anchors, r_star_for_anchors,
+                    normalized_l_star_for_anchors, normalized_r_star_for_anchors
+                )
+            else:
+                jth_classification_targets, jth_regression_targets, jth_leftness_targets = self.get_jth_targets(
+                    jth_classification_pred, jth_regression_pred, jth_leftness_pred,
+                    positive_anchor_indices, normalized_annotations_for_anchors,
+                    l_star_for_anchors, r_star_for_anchors,
+                    normalized_l_star_for_anchors, normalized_r_star_for_anchors
+                )
 
-            jth_classification_loss = self.classification_loss(
-                jth_classification_pred,  #In the case of VarifocalLoss, jth_classification_pred is logits, not probs
-                jth_classification_targets,
-                #MJ: jth_annotations, This parameter is not really needed.
-                #MJ: num_positive_anchors # In the case of VarifocalLoss, num_positive_anchors is not used to compute the average classification loss
-                #   
-            )
+            if self.verifocal:
+                jth_classification_loss = self.classification_loss(
+                    jth_classification_pred,  #In the case of VarifocalLoss, jth_classification_pred is logits, not probs
+                    jth_classification_targets,
+                    #MJ: jth_annotations, This parameter is not really needed.
+                    #MJ: num_positive_anchors # In the case of VarifocalLoss, num_positive_anchors is not used to compute the average classification loss
+                    #   
+                )
+            else:
+                jth_classification_loss = self.classification_loss(
+                    jth_classification_pred,
+                    jth_classification_targets,
+                    jth_annotations,
+                    num_positive_anchors
+                )
 
             # print(jth_regression_targets[positive_anchor_indices])
             # print(jth_leftness_targets[positive_anchor_indices])
@@ -1043,12 +1052,12 @@ class CombinedLoss(nn.Module):
                 jth_annotations
             )
 
-            #MJ: 
-            # jth_leftness_loss = self.leftness_loss(
-            #     jth_leftness_pred[positive_anchor_indices],
-            #     jth_leftness_targets[positive_anchor_indices],
-            #     jth_annotations
-            # )
+            if not self.verifocal:
+                jth_leftness_loss = self.leftness_loss(
+                    jth_leftness_pred[positive_anchor_indices],
+                    jth_leftness_targets[positive_anchor_indices],
+                    jth_annotations
+                )
 
             if torch.isnan(jth_classification_loss).any():
                 raise ValueError
@@ -1094,8 +1103,10 @@ class CombinedLoss(nn.Module):
 
             classification_losses_batch.append(jth_classification_loss)
             regression_losses_batch.append(jth_regression_loss)
-            #MJ:
-            #leftness_losses_batch.append(jth_leftness_loss)
+            
+            if not self.verifocal:
+                leftness_losses_batch.append(jth_leftness_loss)
+
             adjacency_constraint_losses_batch.append(jth_adjacency_constraint_loss)
         # END for j in range(batch_size)
 
@@ -1104,20 +1115,22 @@ class CombinedLoss(nn.Module):
             
         if len(regression_losses_batch) == 0:
             regression_losses_batch.append(0)
-        #MJ:    
-        # if len(leftness_losses_batch) == 0:
-        #     leftness_losses_batch.append(0)
+
+        if not self.verifocal:
+            if len(leftness_losses_batch) == 0:
+                leftness_losses_batch.append(0)
             
         if len(adjacency_constraint_losses_batch) == 0:
             adjacency_constraint_losses_batch.append(0)
 
-        #MJ:  return \
-        #     torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
-        #     torch.stack(regression_losses_batch).mean(dim=0, keepdim=True), \
-        #     torch.stack(leftness_losses_batch).mean(dim=0, keepdim=True), \
-        #     torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True)
-
-        return \
-            torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
-            torch.stack(regression_losses_batch).mean(dim=0, keepdim=True), \
-            torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True)
+        if self.verifocal:
+            return \
+                torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
+                torch.stack(regression_losses_batch).mean(dim=0, keepdim=True), \
+                torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True)
+        else:
+            return \
+                torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
+                torch.stack(regression_losses_batch).mean(dim=0, keepdim=True), \
+                torch.stack(leftness_losses_batch).mean(dim=0, keepdim=True), \
+                torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True)

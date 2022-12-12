@@ -112,7 +112,7 @@ args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
 #datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
-datasets = ["smc"]
+datasets = ["gtzan"]
 
 # set the seed
 seed = 42
@@ -129,7 +129,7 @@ torch.backends.cudnn.benchmark = True
 args.default_root_dir = os.path.join("lightning_logs", "full")
 print(args.default_root_dir)
 
-state_dicts = glob.glob('./ablation_tests/freeze_backbone, freeze_bn, left, pretrained, softnms/*.pt')
+state_dicts = glob.glob('./ablation_tests/freeze_bn, freeze_backbone, left, pretrained, softnms, patience 5, lr 1e-3/*.pt')
 start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:

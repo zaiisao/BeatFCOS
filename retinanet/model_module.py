@@ -90,7 +90,7 @@ class PyramidFeatures(nn.Module):
 
 
 class RegressionModel(nn.Module):
-    def __init__(self, num_features_in, num_anchors=3, feature_size=256, fcos=False):
+    def __init__(self, num_features_in, num_anchors=3, feature_size=256, fcos=False, verifocal=False):
         super(RegressionModel, self).__init__()
 
         self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
@@ -115,6 +115,7 @@ class RegressionModel(nn.Module):
         self.leftness_act = nn.Sigmoid()
 
         self.fcos = fcos
+        self.verifocal = verifocal
 
     def forward(self, x):
         out = self.conv1(x)
@@ -141,7 +142,7 @@ class RegressionModel(nn.Module):
         regression = regression.contiguous().view(regression.shape[0], -1, 2)
         # (B, L/2, 2, 2)
 
-        if self.fcos:
+        if self.fcos and not self.verifocal:
             leftness = self.leftness(out)
             leftness = self.leftness_act(leftness)
             leftness = leftness.permute(0, 2, 1)
@@ -218,6 +219,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         block,
         layers,
         fcos=False,
+        verifocal=False,
         reg_loss_type="l1",
         downbeat_weight=0.6,
         audio_downsampling_factor=32,
@@ -232,6 +234,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         super(ResNet, self).__init__()
 
         self.fcos = fcos
+        self.verifocal = verifocal
         self.downbeat_weight = downbeat_weight
         self.audio_downsampling_factor = audio_downsampling_factor
         self.postprocessing_type = postprocessing_type
@@ -276,7 +279,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             num_anchors = 1
 
         self.classificationModel = ClassificationModel(256, num_anchors=num_anchors, num_classes=num_classes)
-        self.regressionModel = RegressionModel(256, num_anchors=num_anchors, fcos=self.fcos)
+        self.regressionModel = RegressionModel(256, num_anchors=num_anchors, fcos=self.fcos, verifocal=verifocal)
 
         # self.anchors = Anchors(base_level=8, fcos=self.fcos)
 
@@ -294,7 +297,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # self.regressionLoss = losses.RegressionLoss(fcos=self.fcos, loss_type=reg_loss_type, weight=1, num_anchors=num_anchors)
         # self.leftnessLoss = losses.LeftnessLoss(fcos=self.fcos)
 
-        self.combined_loss = CombinedLoss(audio_downsampling_factor, centerness=centerness)
+        self.combined_loss = CombinedLoss(audio_downsampling_factor, centerness=centerness, verifocal=verifocal)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
@@ -395,13 +398,18 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             leftness_outputs = []
 
             for feature_map in feature_maps:
-                bbx_regression_output, leftness_regression_output = self.regressionModel(feature_map)
+                if self.verifocal:
+                    bbx_regression_output = self.regressionModel(feature_map)
+                else:
+                    bbx_regression_output, leftness_regression_output = self.regressionModel(feature_map)
+                    leftness_outputs.append(leftness_regression_output)
 
                 regression_outputs.append(bbx_regression_output)
-                leftness_outputs.append(leftness_regression_output)
 
             regression_outputs = torch.cat(regression_outputs, dim=1)
-            leftness_outputs = torch.cat(leftness_outputs, dim=1)
+            
+            if not self.verifocal:
+                leftness_outputs = torch.cat(leftness_outputs, dim=1)
         else:
             classification_outputs = [self.classificationModel(feature_map) for feature_map in feature_maps]
             regression_outputs = [self.regressionModel(feature_map) for feature_map in feature_maps]
@@ -455,13 +463,15 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             class_one_positive_indicators, class_two_positive_indicators = None, None
 
             #MJ:  This combined loss will eventually replace the legacy losses we have been using
-            # classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss = self.combined_loss(
-            #     classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
-            # )
+            if self.verifocal:
+                classification_loss, regression_loss, adjacency_constraint_loss = self.combined_loss(
+                    classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
+                )
+            else:
+                classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss = self.combined_loss(
+                    classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
+                )
             
-            classification_loss, regression_loss, adjacency_constraint_loss = self.combined_loss(
-                classification_outputs, regression_outputs,  anchors_list, annotations
-            )
 
             # for class_id in range(number_of_classes):
             #     # cls_targets is the classification target
@@ -545,11 +555,11 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             # #torch.stack(focal_losses_all_classes):  shape =(2,1)
             # regression_loss_class_mean = torch.stack(regression_losses_batch_all_classes).sum(dim=0)
 
-            #MJ: if self.training:
-            #    return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss
             if self.training:
-                return classification_loss, regression_loss,  adjacency_constraint_loss
-            
+                if self.verifocal:
+                    return classification_loss, regression_loss,  adjacency_constraint_loss
+                else:
+                    return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss
 
         # else:
 
@@ -607,7 +617,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             transformed_regression_boxes = self.clipBoxes(transformed_regression_boxes, audio_batch)
 
             for class_id in range(classification_outputs.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
-                if self.fcos:
+                if self.fcos and not self.verifocal:
                     scores = classification_outputs[:, :, class_id] * leftness_outputs[:, :, 0] # We predict the max number for beats will be less than the num of anchors
                 else:
                     scores = classification_outputs[:, :, class_id]
@@ -698,19 +708,20 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 finalAnchorBoxesCoordinates = torch.cat((finalAnchorBoxesCoordinates, regression_boxes[anchors_nms_idx]))
             #END for class_id in range(classification_outputs.shape[2])
 
-            #MJ:  eval_losses = (
-            #     classification_loss.item(),
-            #     regression_loss.item(),
-            #     leftness_loss.item(),
-            #     adjacency_constraint_loss.item()
-            # )
-            
-            eval_losses = (
-                classification_loss.item(),
-                regression_loss.item(),
-                #leftness_loss.item(),
-                adjacency_constraint_loss.item()
-            )
+            if self.verifocal:
+                eval_losses = (
+                    classification_loss.item(),
+                    regression_loss.item(),
+                    #leftness_loss.item(),
+                    adjacency_constraint_loss.item()
+                )
+            else:
+                eval_losses = (
+                    classification_loss.item(),
+                    regression_loss.item(),
+                    leftness_loss.item(),
+                    adjacency_constraint_loss.item()
+                )
 
             return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates, eval_losses]
 #END def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05)

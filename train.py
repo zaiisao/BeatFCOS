@@ -37,8 +37,9 @@ def configure_log():
 
 configure_log()
 
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+#os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -92,6 +93,7 @@ parser.add_argument('--skip_connections', default=False, action="store_true")
 parser.add_argument('--norm_type', type=str, default='BatchNorm')
 parser.add_argument('--act_type', type=str, default='PReLU')
 parser.add_argument('--fcos', action='store_true')
+parser.add_argument('--verifocal', action='store_true')
 parser.add_argument('--reg_loss_type', type=str, default='l1')
 parser.add_argument('--downbeat_weight', type=float, default=0.6)
 parser.add_argument('--pretrained', default=False, action="store_true")
@@ -317,12 +319,15 @@ if __name__ == '__main__':
 
             try:
                 optimizer.zero_grad()
-
+                torch.autograd.set_detect_anomaly(True)
                 if args.fcos:
-                    classification_loss, regression_loss,\
-                    leftness_loss, adjacency_constraint_loss =\
-                        retinanet((audio, target)) # retinanet = model.resnet50(**dict_args)
-                                                   # this calls the forward function of resnet50
+                    if args.verifocal:
+                        classification_loss, regression_loss, adjacency_constraint_loss = retinanet((audio, target))
+                        leftness_loss = torch.zeros(1)
+                    else:
+                        classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss =\
+                            retinanet((audio, target)) # retinanet = model.resnet50(**dict_args)
+                                                    # this calls the forward function of resnet50
                 else:
                     classification_loss, regression_loss = retinanet((audio, target))
                     leftness_loss = torch.zeros(1)
@@ -337,7 +342,10 @@ if __name__ == '__main__':
                 lft_losses.append(leftness_loss.item())
                 adj_losses.append(adjacency_constraint_loss.item())
 
-                loss = classification_loss + regression_loss + leftness_loss + adjacency_constraint_loss
+                if args.fcos and not args.verifocal:
+                    loss = classification_loss + regression_loss + leftness_loss + adjacency_constraint_loss
+                else:
+                    loss = classification_loss + regression_loss + adjacency_constraint_loss
 
                 if bool(loss == 0):
                     continue
