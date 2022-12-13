@@ -731,9 +731,19 @@ class AdjacencyConstraintLoss(nn.Module):
 
         return class_x2_and_x1_loss
 
+    # def forward(
+    #     self,
+    #     jth_classification_targets,
+    #     jth_regression_pred,
+    #     jth_regression_targets,
+    #     jth_positive_anchor_points,
+    #     jth_positive_anchor_strides,
+    #     jth_annotations
+    # ):
     def forward(
         self,
-        jth_classification_targets,
+        positive_anchor_indices,
+        normalized_annotations,
         jth_regression_pred,
         jth_regression_targets,
         jth_positive_anchor_points,
@@ -743,9 +753,18 @@ class AdjacencyConstraintLoss(nn.Module):
         # With the classification targets, we can easily figure out what anchor corresponds to what box type
         # If jth_classification_targets[:, 0] is 1, the corresponding anchor is associated with a downbeat
         # If jth_classification_targets[:, 1] is 1, the corresponding anchor is associated with a beat
+        
+        class_ids_of_positive_anchors = normalized_annotations[positive_anchor_indices, 2].long()
 
-        boolean_indices_to_downbeats_for_positive_anchors = jth_classification_targets[:, 0] > 0 # JA: == 1
-        boolean_indices_to_beats_for_positive_anchors = jth_classification_targets[:, 1] > 0 # JA: == 1
+        jth_classification_binary_targets = \
+            torch.zeros((positive_anchor_indices.size(dim=0), 2)).to(positive_anchor_indices.device)
+        jth_classification_binary_targets[positive_anchor_indices, class_ids_of_positive_anchors] = 1
+        jth_classification_binary_targets = jth_classification_binary_targets[positive_anchor_indices]
+
+        # JA: boolean_indices_to_downbeats_for_positive_anchors = jth_classification_targets[:, 0] > 0 # JA: == 1
+        boolean_indices_to_downbeats_for_positive_anchors = jth_classification_binary_targets[:, 0] == 1
+        # JA: boolean_indices_to_beats_for_positive_anchors = jth_classification_targets[:, 1] > 0 # JA: == 1
+        boolean_indices_to_beats_for_positive_anchors = jth_classification_binary_targets[:, 1] == 1
 
         downbeat_lengths = jth_annotations[jth_annotations[:, 2] == 0, 1] - jth_annotations[jth_annotations[:, 2] == 0, 0]
         beat_lengths = jth_annotations[jth_annotations[:, 2] == 1, 1] - jth_annotations[jth_annotations[:, 2] == 1, 0]
@@ -895,17 +914,24 @@ class CombinedLoss(nn.Module):
         # #   but gt_iou, that is, the iou of the predicted bbox of the positive anchor and the gt box
         
         # To calculate GIoU, convert prediction and targets from (l, r) to (x_1, x_2)
-        jth_regression_xx_pred = jth_regression_pred
-        jth_regression_xx_targets = jth_regression_targets
+        jth_regression_xx_pred = jth_regression_pred.clone()
+        jth_regression_xx_targets = jth_regression_targets.clone()
 
         # Flip the sign of x_1 to turn the (l, r) box into a (x_1, x_2) bounding box offset from 0
         # (For GIoU calculation, the bounding box offset does not matter as much as the two boxes' relative positions)
         jth_regression_xx_pred[:, 0] *= -1
         jth_regression_xx_targets[:, 0] *= -1
+        
+        # jth_regression_xx_targets[~positive_anchor_indices] = 0
 
         # JA: positive_anchor_regression_giou = calc_giou(jth_regression_xx_pred.clone(), jth_regression_xx_targets)
-        positive_anchor_regression_iou = calc_giou(jth_regression_xx_pred.clone(), jth_regression_xx_targets, use_iou=True)
-        
+        positive_anchor_regression_iou = calc_giou(jth_regression_xx_pred.clone(), jth_regression_xx_targets, use_iou=False)
+
+        jth_regression_pred_lengths = jth_regression_pred[:, 1] - jth_regression_pred[:, 0]
+        jth_zero_length_regression_preds = jth_regression_pred_lengths == 0
+
+        positive_anchor_regression_iou[jth_zero_length_regression_preds] = 0
+
         #JA: jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = positive_anchor_regression_giou 
         jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = 1
         jth_classification_targets *= positive_anchor_regression_iou[:, None]
@@ -1069,7 +1095,9 @@ class CombinedLoss(nn.Module):
                 strides_for_all_anchors = torch.cat((strides_for_all_anchors, stride_for_anchors_per_level), dim=0)
 
             jth_adjacency_constraint_loss = self.adjacency_constraint_loss(
-                jth_classification_targets[positive_anchor_indices],
+                # JA: jth_classification_targets[positive_anchor_indices],
+                positive_anchor_indices,
+                normalized_annotations_for_anchors,
                 jth_regression_pred[positive_anchor_indices],
                 jth_regression_targets[positive_anchor_indices],
                 all_anchor_points[positive_anchor_indices],
