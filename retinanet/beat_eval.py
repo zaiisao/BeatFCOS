@@ -730,7 +730,10 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
 
 
             print(f"{index}/{len(dataloader)} {metadata['Filename']}")
-            print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f} | CLS: {losses[0]:0.3f} | REG: {losses[1]:0.3f} | LFT: {losses[2]:0.3f} | ADJ: {losses[3]:0.3f}")
+            if len(losses) == 3:
+                print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f} | CLS: {losses[0]:0.3f} | REG: {losses[1]:0.3f} | ADJ: {losses[2]:0.3f}")
+            elif len(losses) == 4:
+                print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f} | CLS: {losses[0]:0.3f} | REG: {losses[1]:0.3f} | LFT: {losses[2]:0.3f} | ADJ: {losses[3]:0.3f}")
             #print("LEFT")
             # print(f"BEAT (F-measure): {beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_left['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_left['F-measure']:0.3f}")
@@ -776,8 +779,8 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
                 'downbeat_scores': downbeat_scores,
                 'cls_loss': losses[0],
                 'reg_loss': losses[1],
-                'lft_loss': losses[2],
-                'adj_loss': losses[3],
+                'lft_loss': None if len(losses) == 2 else losses[2],
+                'adj_loss': losses[2] if len(losses) == 2 else losses[3],
 
                 # 'beat_scores_left': beat_scores_left,
                 # 'downbeat_scores_left': downbeat_scores_left,
