@@ -39,7 +39,7 @@ configure_log()
 
 #os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
