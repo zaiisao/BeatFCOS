@@ -129,7 +129,7 @@ torch.backends.cudnn.benchmark = True
 args.default_root_dir = os.path.join("lightning_logs", "full")
 print(args.default_root_dir)
 
-state_dicts = glob.glob('./ablation_tests/freeze_backbone, freeze_bn, left, pretrained, softnms/*.pt')
+state_dicts = glob.glob('./checkpoints/*.pt')
 start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:
@@ -284,12 +284,11 @@ if __name__ == '__main__':
     _, _, results = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.2)
 
     print(f"F1 beat: {np.mean([result['beat_scores']['F-measure'] for result in results])}")
-    print(f"F1 downbeat: {np.mean([result['downbeat_scores']['F-measure'] for result in results])}")
-    print()
     print(f"CMLt beat: {np.mean([result['beat_scores']['Correct Metric Level Total'] for result in results])}")
-    print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Correct Metric Level Total'] for result in results])}")
-    print()
     print(f"CMLt beat: {np.mean([result['beat_scores']['Any Metric Level Total'] for result in results])}")
+    print()
+    print(f"F1 downbeat: {np.mean([result['downbeat_scores']['F-measure'] for result in results])}")
+    print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Correct Metric Level Total'] for result in results])}")
     print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Any Metric Level Total'] for result in results])}")
     print()
     #evaluate_beat_ap(test_dataloader, retinanet)
