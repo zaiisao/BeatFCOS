@@ -112,7 +112,7 @@ args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
 #datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
-datasets = ["smc"]
+datasets = ["gtzan"]
 
 # set the seed
 seed = 42

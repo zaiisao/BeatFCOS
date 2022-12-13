@@ -629,19 +629,16 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     gnet.load_state_dict(checkpoint['model_state_dict'])
                     gnet.eval()
 
-                    detections = torch.stack((  #MJ: regression_boxes are those obtained by filtering out whose scores are less than score_threshold
+                    data = torch.stack((  #MJ: regression_boxes are those obtained by filtering out whose scores are less than score_threshold
                         regression_boxes[:, 0],
                         torch.zeros(regression_boxes.size(dim=0)).to(regression_boxes.device),
                         regression_boxes[:, 1],
                         torch.ones(regression_boxes.size(dim=0)).to(regression_boxes.device),
-                    ), dim=1) #MJ: detections refer to predicted bboxes by beat-fcos
-
-                    data = [{
-                        'scores': scores,
-                        'detections': detections
-                    }]
+                        torch.ones(scores.shape).to(scores.device) * class_id,
+                        scores
+                    ), dim=1).unsqueeze(dim=0) #MJ: detections refer to predicted bboxes by beat-fcos
                     
-                    logit_scores = gnet(batch=data, no_detections=9999999)  #MJ: scores for each detection/anchor point
+                    logit_scores = gnet(batch=data)  #MJ: scores for each detection/anchor point
                     logit_scores = logit_scores[0]
                     scores = torch.sigmoid(logit_scores)
                     

@@ -770,8 +770,8 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
             image_result = {
                 'image_id': metadata["Filename"],
                 #'category_id': dataset.label_to_coco_label(label),
-                'score': float(predicted_score),
-                'bbox': predicted_box.tolist(),
+                #'score': float(predicted_score),
+                #'bbox': predicted_box.tolist(),
                 'beat_scores': beat_scores,
                 'downbeat_scores': downbeat_scores,
                 'cls_loss': losses[0],
