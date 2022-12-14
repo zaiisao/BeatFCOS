@@ -99,6 +99,7 @@ parser.add_argument('--freeze_bn', default=False, action="store_true")
 parser.add_argument('--freeze_backbone', default=False, action="store_true")
 parser.add_argument('--centerness', default=False, action="store_true")
 parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
+parser.add_argument('--no_adj', default=False, action="store_true")
 
 # THIS LINE IS KEY TO PULL THE MODEL NAME
 temp_args, _ = parser.parse_known_args()
@@ -330,7 +331,7 @@ if __name__ == '__main__':
                 classification_loss = classification_loss.mean() * classification_loss_weight
                 regression_loss = regression_loss.mean() * regression_loss_weight
                 leftness_loss = leftness_loss.mean()
-                adjacency_constraint_loss = adjacency_constraint_loss.mean() * adjacency_constraint_loss_weight
+                adjacency_constraint_loss = 0 if args.no_adj else adjacency_constraint_loss.mean() * adjacency_constraint_loss_weight
 
                 cls_losses.append(classification_loss.item())
                 reg_losses.append(regression_loss.item())
