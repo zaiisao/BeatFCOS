@@ -331,7 +331,7 @@ if __name__ == '__main__':
                 classification_loss = classification_loss.mean() * classification_loss_weight
                 regression_loss = regression_loss.mean() * regression_loss_weight
                 leftness_loss = leftness_loss.mean()
-                adjacency_constraint_loss = torch.zeros(1) if args.no_adj else adjacency_constraint_loss.mean() * adjacency_constraint_loss_weight
+                adjacency_constraint_loss = torch.zeros(1).to(adjacency_constraint_loss.device) if args.no_adj else adjacency_constraint_loss.mean() * adjacency_constraint_loss_weight
 
                 cls_losses.append(classification_loss.item())
                 reg_losses.append(regression_loss.item())
