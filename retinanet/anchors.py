@@ -12,14 +12,22 @@ class Anchors(nn.Module):
         self.fcos = fcos
 
         #self.pyramid_levels = [8, 9, 10, 11, 12] # Actual strides we use are [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
-        # self.pyramid_levels = [1, 2, 3, 4, 5]
-        self.pyramid_levels = [0, 1, 2, 3, 4]
+        self.pyramid_levels = [1, 2, 3, 4, 5]
+        # self.pyramid_levels = [0, 1, 2, 3, 4]
         
         # # (1, 2, 3, 4, 5) with base_level=0. Actual strides are [2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4, 2 ** 5]
         self.strides = [2 ** x for x in self.pyramid_levels]
         # self.strides = [2 ** x for x in self.pyramid_levels]
+        
+        #MJ: When using spectrogram:  self.strides = [2**x for x in self.pyramid_levels] * spectrogram_downsampling_factor
+        #Here spectrogram_downsampling_factor is such that the resolution of the spectrogram * spectrogram_downsampling_factor = the resolution of the raw audio
+        # spectrogram_downsampling_factor = 1 / hop_length_in_samples (which is used to convert raw audio to spectrogram)
 
         self.sizes = [x * 22050 / audio_downsampling_factor for x in [0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922]]
+        # self.sizes = [x * 22050 / audio_downsampling_factor for x in [0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922]]
+        # audio_downsampling_factor represents the level of C6 from the raw audio in our implementation
+        # If we represent the target beat location on the raw audio, then the anchor point coordinates are represented on the
+        # raw audio as well and the audio_downsampling_factor should be 1
 
         if self.fcos:            
             #self.sizes = [0 for x in self.pyramid_levels]
@@ -43,9 +51,13 @@ class Anchors(nn.Module):
         # ]
 
         feature_map_shapes = [
-            (base_image_shape_array + (2 ** x) - 1) // (2 ** x)
+            (base_image_shape_array + (2 ** (x - 1)) - 1) // (2 ** (x - 1)) #stride * args.spectrogram_scale_factor
             for x in self.pyramid_levels
         ]
+        # feature_map_shapes = [
+        #     (base_image_shape_array + ((2 ** x) * args.spectrogram_scale_factor) - 1) // ((2 ** x) * args.spectrogram_scale_factor)
+        #     for x in self.pyramid_levels
+        # ]
 
         all_anchors = []
 
@@ -126,6 +138,9 @@ def anchors_for_shape(
 def shift(idx, feature_map_shapes, stride, anchors, fcos=False): # create one anchor point for each location on the feature map i
     shift_x = (np.arange(0, feature_map_shapes[0]) + 0.5) * stride # feature_map_shapes[0] is the ith feature map x resolution
     # shift_x is the x resolution of the ith feature map projected back to the base image
+
+    # shift_x = (np.arange(0, feature_map_shapes[0]) + 0.5) * stride * args.spectrogram_scale_factor (hop length in samples, for example 1024)
+    # args.spectrogram_scale_factor represents the scale from the base level of the feature maps to the raw audio level
 
     shifts = np.vstack((
        shift_x.ravel(), shift_x.ravel()

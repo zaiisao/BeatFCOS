@@ -1,3 +1,6 @@
 [submodule "gossipnet"]
 	path = gossipnet
 	url = https://github.com/zaiisao/gossipnet-pytorch.git
+[submodule "beat-tracking-tcn"]
+	path = beat-tracking-tcn
+	url = https://github.com/zaiisao/beat-tracking-tcn.git
