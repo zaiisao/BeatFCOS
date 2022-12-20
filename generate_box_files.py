@@ -38,7 +38,7 @@ def configure_log():
 configure_log()
 
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -110,7 +110,8 @@ temp_args, _ = parser.parse_known_args()
 # parse them args
 args = parser.parse_args()
 
-datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular"]
+datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "smc", "gtzan"]
+#datasets = ["ballroom"]
 
 # set the seed
 seed = 42
@@ -127,7 +128,7 @@ torch.backends.cudnn.benchmark = True
 args.default_root_dir = os.path.join("lightning_logs", "full")
 print(args.default_root_dir)
 
-state_dicts = glob.glob('./ablation_tests/freeze_backbone, freeze_bn, left, pretrained, greedynms/*.pt')
+state_dicts = glob.glob('./ablation_tests/freeze_bn, left, pretrained, softnms, patience 3, lr 1e-3/*.pt')
 start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:
@@ -142,6 +143,7 @@ else:
 train_datasets = []
 
 for dataset in datasets:
+    subset = "test"
     if dataset == "beatles":
         audio_dir = args.beatles_audio_dir
         annot_dir = args.beatles_annot_dir
@@ -160,9 +162,11 @@ for dataset in datasets:
     elif dataset == "gtzan":
         audio_dir = args.gtzan_audio_dir
         annot_dir = args.gtzan_annot_dir
+        subset = "full-val"
     elif dataset == "smc":
         audio_dir = args.smc_audio_dir
         annot_dir = args.smc_annot_dir
+        subset = "full-val"
 
     if not audio_dir or not annot_dir:
         continue
@@ -172,7 +176,7 @@ for dataset in datasets:
                                 dataset=dataset,
                                 audio_sample_rate=args.audio_sample_rate,
                                 audio_downsampling_factor=args.audio_downsampling_factor,
-                                subset="train_with_metadata",
+                                subset=subset,
                                 augment=False,
                                 half=True,
                                 preload=args.preload,

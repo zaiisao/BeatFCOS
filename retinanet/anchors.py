@@ -12,8 +12,8 @@ class Anchors(nn.Module):
         self.fcos = fcos
 
         #self.pyramid_levels = [8, 9, 10, 11, 12] # Actual strides we use are [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
-        self.pyramid_levels = [1, 2, 3, 4, 5]
-        # self.pyramid_levels = [0, 1, 2, 3, 4]
+        #self.pyramid_levels = [1, 2, 3, 4, 5]
+        self.pyramid_levels = [0, 1, 2, 3, 4]
         
         # # (1, 2, 3, 4, 5) with base_level=0. Actual strides are [2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4, 2 ** 5]
         self.strides = [2 ** x for x in self.pyramid_levels]
@@ -51,7 +51,7 @@ class Anchors(nn.Module):
         # ]
 
         feature_map_shapes = [
-            (base_image_shape_array + (2 ** (x - 1)) - 1) // (2 ** (x - 1)) #stride * args.spectrogram_scale_factor
+            (base_image_shape_array + (2 ** x) - 1) // (2 ** x)
             for x in self.pyramid_levels
         ]
         # feature_map_shapes = [

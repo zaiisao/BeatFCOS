@@ -38,7 +38,7 @@ def configure_log():
 configure_log()
 
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -112,7 +112,7 @@ args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
 #datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
-datasets = ["gtzan"]
+datasets = ["beatles"]
 
 # set the seed
 seed = 42
@@ -144,7 +144,7 @@ else:
 test_datasets = []
 
 for dataset in datasets:
-    subset = "test"
+    subset="full-val"#subset = "test"
     if dataset == "beatles":
         audio_dir = args.beatles_audio_dir
         annot_dir = args.beatles_annot_dir

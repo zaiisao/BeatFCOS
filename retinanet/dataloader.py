@@ -62,7 +62,8 @@ class BeatDataset(torch.utils.data.Dataset):
                  augment=False,
                  dry_run=False,
                  pad_mode='constant',
-                 examples_per_epoch=1000):
+                 examples_per_epoch=1000,
+                 validation_fold=None):
         """
         Args:
             audio_dir (str): Path to the root directory containing the audio (.wav) files.
@@ -99,6 +100,7 @@ class BeatDataset(torch.utils.data.Dataset):
         self.pad_mode = pad_mode
         self.dataset = dataset
         self.examples_per_epoch = examples_per_epoch
+        self.validation_fold = validation_fold
 
         # if length = 2097152 and audio_downsampling_factor is 256, target_length = 8192
         # downsampling tcn's output tensor dimension is (b, 256, 8192) (b, channel, width/length)
@@ -116,24 +118,70 @@ class BeatDataset(torch.utils.data.Dataset):
         else:
             raise ValueError(f"Invalid dataset: {self.dataset}")
 
-        self.audio_files = glob.glob(os.path.join(self.audio_dir, "**", file_ext))
-        if len(self.audio_files) == 0: # try from the root audio dir
-            self.audio_files = glob.glob(os.path.join(self.audio_dir, file_ext))
+        fold_files = glob.glob(os.path.join(self.annot_dir, "*.folds"))  #MJ: /mount/beat-tracking/ballroom/label/???.folds etc
+        if self.validation_fold is not None and len(fold_files) > 0 and self.subset in ["train", "val", "test"]:
+            fold_file = fold_files[0]  #MJ: len(fold_files) = 1
+            self.audio_files = []
 
-        random.shuffle(self.audio_files) # shuffle them
+            k = 8 # JA: k = 8 is the standard in beat tracking
 
-        if self.subset in ["train", "train_with_metadata"]:
-            start = 0
-            stop = int(len(self.audio_files) * 0.8)
-        elif self.subset == "val":
-            start = int(len(self.audio_files) * 0.8)
-            stop = int(len(self.audio_files) * 0.9)
-        elif self.subset == "test":
-            start = int(len(self.audio_files) * 0.9)
-            stop = None
-        elif self.subset in ["full-train", "full-val"]:
-            start = 0
-            stop = None
+            with open(fold_file, 'r') as fp:
+                lines = fp.readlines()
+
+                for line in lines:
+                    line = line.strip('\n')
+                    line = line.replace('\t', ' ')
+                    audio_filename, fold_number = line.split(' ')
+                    audio_filename_start = len(self.dataset) + 1 # Each line in a .folds file starts with "DATASET_"
+
+                    test_fold = (validation_fold + 1) % k
+                    is_valid_and_training = \
+                        self.subset == "train" \
+                        and validation_fold != int(fold_number) \
+                        and test_fold != int(fold_number) #MJ: is the file for training
+
+                    is_valid_and_validation = \
+                        self.subset == "val" and \
+                        validation_fold == int(fold_number) #MJ: is the file for  validation or testing????
+
+                    is_valid_and_test = \
+                        self.subset == "test" \
+                        and test_fold == int(fold_number)
+
+                    if is_valid_and_training or is_valid_and_validation or is_valid_and_test:
+                        audio_file_path = os.path.join(self.audio_dir, audio_filename[audio_filename_start:] + ".wav")
+                        if not os.path.isfile(audio_file_path): #MJ: audio_file_path is not a file? If recursive is true, the pattern “**” will match any files and zero or more directories and subdirectories. If the pattern is followed by an os.sep, only directories and subdirectories match.
+                            audio_file_paths = glob.glob(os.path.join(self.audio_dir, "**", audio_filename[audio_filename_start:] + ".wav"), recursive=True)
+                            if len(audio_file_paths) > 0:
+                                audio_file_path = audio_file_paths[0]
+
+                        if os.path.isfile(audio_file_path):
+                            self.audio_files.append(audio_file_path)
+                        else:
+                            print(f"{audio_file_path} not found; skipping")
+
+            #random.shuffle(self.audio_files) # shuffle them: using random()
+        else: #MJ: the original version of wavebeat
+            self.audio_files = glob.glob(os.path.join(self.audio_dir, "**", file_ext))
+            if len(self.audio_files) == 0: # try from the root audio dir
+                self.audio_files = glob.glob(os.path.join(self.audio_dir, file_ext))
+
+            self.audio_files = sorted(self.audio_files)
+
+            #random.shuffle(self.audio_files) # shuffle them
+
+            if self.subset in ["train", "train_with_metadata"]:
+                start = 0
+                stop = int(len(self.audio_files) * 0.8)
+            elif self.subset == "val":
+                start = int(len(self.audio_files) * 0.8)
+                stop = int(len(self.audio_files) * 0.9)
+            elif self.subset == "test":
+                start = int(len(self.audio_files) * 0.9)
+                stop = None
+            elif self.subset in ["full-train", "full-val"]:
+                start = 0
+                stop = None
 
         # select one file for the dry run
         if self.dry_run: 
@@ -141,7 +189,9 @@ class BeatDataset(torch.utils.data.Dataset):
             print(f"Selected 1 file for dry run.")
         else:
             # now pick out subset of audio files
-            self.audio_files = self.audio_files[start:stop]
+            if self.validation_fold is None:
+                self.audio_files = self.audio_files[start:stop]
+
             print(f"Selected {len(self.audio_files)} files for {self.subset} set from {self.dataset} dataset.")
 
         self.annot_files = []

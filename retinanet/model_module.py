@@ -11,6 +11,7 @@ from retinanet import losses
 from retinanet.losses2 import CombinedLoss
 from retinanet.dstcn import dsTCNModel
 from gossipnet.model.gnet import GNet
+from tcn2019.beat_tracking_tcn.models.beat_net import BeatNet
 
 model_urls = {
 #    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -19,9 +20,16 @@ model_urls = {
 #    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
 #    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
     'wavebeat8': './backbone/wavebeat8.pth',
+    'wavebeat_fold_0': './backbone/wavebeat_folds/fold_0.pth',
+    'wavebeat_fold_1': './backbone/wavebeat_folds/fold_1.pth',
+    'wavebeat_fold_2': './backbone/wavebeat_folds/fold_2.pth',
+    'wavebeat_fold_3': './backbone/wavebeat_folds/fold_3.pth',
+    'wavebeat_fold_4': './backbone/wavebeat_folds/fold_4.pth',
+    'wavebeat_fold_5': './backbone/wavebeat_folds/fold_5.pth',
+    'wavebeat_fold_6': './backbone/wavebeat_folds/fold_6.pth',
+    'wavebeat_fold_7': './backbone/wavebeat_folds/fold_7.pth',
     'gnet': './backbone/gnet.pth',
 }
-
 
 class PyramidFeatures(nn.Module):
     # feature_size is the number of channels in each feature map
@@ -217,6 +225,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         audio_downsampling_factor=32,
         centerness=False,
         postprocessing_type="soft_nms",
+        backbone_type="wavebeat",
         **kwargs
     ):
         #self.inplanes = 64
@@ -245,7 +254,13 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # With 8 layers, each with stride 2, we downsample the signal by a factor of 2^8 = 256,
         # which, given an input sample rate of 22.05 kHz produces an output signal with a
         # sample rate of 86 Hz
-        self.dstcn = dsTCNModel(**kwargs) # 
+        
+        self.backbone_type = backbone_type
+
+        if self.backbone_type == "wavebeat":
+            self.dstcn = dsTCNModel(**kwargs)
+        elif self.backbone_type == "tcn2019":
+            self.tcn2019 = BeatNet(downbeats=True)
         #MJ:  downsampled tcn's output tensor dimension: shape = (b, 256, 8192) =(b, channel, width/length), 8192 = 2^13 samples
         
 
@@ -263,7 +278,12 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         # fpn_sizes =[ 512,1024,2048 ]  
         # self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2])   
         # self.fpn = PyramidFeatures(*(block.out_ch for block in self.dstcn.blocks[-3:]))  #MJ: The feature maps starts with C_{8}, the cnn block at stride 2^8 from the base level image
-        self.fpn = PyramidFeatures(*(block.out_ch for block in self.dstcn.blocks[-2:]))
+        if backbone_type == "wavebeat":
+            C4_size, C5_size = self.dstcn.blocks[-2].out_ch, self.dstcn.blocks[-1].out_ch
+        elif backbone_type == "tcn2019":
+            C4_size, C5_size = self.tcn2019.tcn.layers[-2].out_ch, self.tcn2019.tcn.layers[-1].out_ch
+
+        self.fpn = PyramidFeatures(C4_size, C5_size)
 
         num_anchors = 3
         if self.fcos:
@@ -357,7 +377,11 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         number_of_backbone_layers = 2
         base_image_level = math.log2(self.audio_downsampling_factor)    # The image at level 7 is the downsampled base on which the regression targets are defined
                                 # and the feature map strides are defined relative to it
-        tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
+        if self.backbone_type == "wavebeat":
+            tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
+        elif self.backbone_type == "tcn2019":
+             # JA: here the audio_batch is a batch of spectrograms
+            tcn_layers, base_level_image_shape = self.tcn2019(audio_batch, number_of_backbone_layers, base_image_level)
 
         # The following is the 1D version of RetinaNet
         # x = self.conv1(audio_batch)
@@ -402,7 +426,9 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         # anchors_list is the list of all anchor points on the feature maps if self.fcos is true
         #anchors_list = self.anchors(tcn_layers[-3])
-        anchors_list = self.anchors(base_level_image_shape)
+        anchors_list = self.anchors(base_level_image_shape) # JA: Out of memory error occurred here
+                                                # If we use the spectrogram, the input to self.anchors would be the spectrogram shape
+
         #number_of_classes = classification_outputs.size(dim=2)
         # All classification outputs should be the same so we just pick the 0th one
         number_of_classes = classification_outputs.size(dim=2)
@@ -649,7 +675,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     #scores[scores < 0.5] = 0  #MJ: discard detections whose confidence scores are low, say less than 0.5
                     # num_remaining_scores = torch.count_nonzero(scores)
                     # num_remaining_scores = torch.sum(scores > (scores.min() + scores.max()) / 4)
-                    num_remaining_scores = torch.sum(scores > 0.05)
+                    num_remaining_scores = torch.sum(scores > 0.2)
 
                     anchors_nms_idx = torch.argsort(scores, descending=True)[:num_remaining_scores]
                 elif self.postprocessing_type == 'nms':
@@ -712,6 +738,9 @@ def resnet50(num_classes, args, **kwargs):
 
     if args.pretrained:
         model_key = 'wavebeat8'
+        if args.validation_fold is not None:
+            model_key = f"wavebeat_fold_{args.validation_fold}"
+
         state_dict = torch.load(model_urls[model_key])['state_dict']
         new_dict = OrderedDict()
 

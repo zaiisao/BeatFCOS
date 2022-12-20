@@ -14,7 +14,6 @@ from os.path import join as ospj
 
 from retinanet import model_module
 from retinanet.dataloader import BeatDataset, collater
-from retinanet.dstcn import dsTCNModel
 from retinanet.beat_eval import evaluate_beat_f_measure
 
 class Logger(object):
@@ -61,7 +60,7 @@ parser.add_argument('--carnatic_annot_dir', type=str, default=None)
 parser.add_argument('--preload', action="store_true")
 parser.add_argument('--audio_sample_rate', type=int, default=44100)
 # parser.add_argument('--audio_downsampling_factor', type=int, default=256) # block 하나당 곱하기 2
-parser.add_argument('--audio_downsampling_factor', type=int, default=128) # block 하나당 곱하기 2
+parser.add_argument('--audio_downsampling_factor', type=int, default=64) # block 하나당 곱하기 2
 parser.add_argument('--shuffle', type=bool, default=True)
 parser.add_argument('--train_subset', type=str, default='train')
 parser.add_argument('--val_subset', type=str, default='val')
@@ -100,6 +99,8 @@ parser.add_argument('--freeze_backbone', default=False, action="store_true")
 parser.add_argument('--centerness', default=False, action="store_true")
 parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
 parser.add_argument('--no_adj', default=False, action="store_true")
+parser.add_argument('--validation_fold', type=int, default=None)
+parser.add_argument('--backbone_type', type=str, default="wavebeat")
 
 # THIS LINE IS KEY TO PULL THE MODEL NAME
 temp_args, _ = parser.parse_known_args()
@@ -108,7 +109,7 @@ temp_args, _ = parser.parse_known_args()
 args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
-datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
+datasets = ["ballroom"]#, "hainsworth", "rwc_popular", "beatles"]
 
 # set the seed
 seed = 42
@@ -170,7 +171,8 @@ for dataset in datasets:
                                     half=True,
                                     preload=args.preload,
                                     length=args.train_length,
-                                    dry_run=args.dry_run)
+                                    dry_run=args.dry_run,
+                                    validation_fold=args.validation_fold)
     train_datasets.append(train_dataset)
 
     val_dataset = BeatDataset(audio_dir,
@@ -183,7 +185,8 @@ for dataset in datasets:
                                  half=True,
                                  preload=args.preload,
                                  length=args.eval_length,
-                                 dry_run=args.dry_run)
+                                 dry_run=args.dry_run,
+                                 validation_fold=args.validation_fold)
     val_datasets.append(val_dataset)
 
 train_dataset_list = torch.utils.data.ConcatDataset(train_datasets)
