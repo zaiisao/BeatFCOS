@@ -11,7 +11,7 @@ from retinanet import losses
 from retinanet.losses2 import CombinedLoss
 from retinanet.dstcn import dsTCNModel
 from gossipnet.model.gnet import GNet
-from tcn2019.beat_tracking_tcn.models.beat_net import BeatNet
+#from tcn2019.beat_tracking_tcn.models.beat_net import BeatNet
 
 model_urls = {
 #    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
