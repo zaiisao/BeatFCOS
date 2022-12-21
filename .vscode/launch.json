@@ -10,11 +10,11 @@
             "request": "launch",
             "program": "${file}",
             "args": [
-                "--ballroom_audio_dir", "/mount/beat-tracking/br_test/data",
-                "--ballroom_annot_dir", "/mount/beat-tracking/br_test/label",
+                "--ballroom_audio_dir", "/mount/beat-tracking/ballroom/data",
+                "--ballroom_annot_dir", "/mount/beat-tracking/ballroom/label",
                 "--preload", "--patience", "10",
-                "--train_length", "2097152",
-                "--eval_length", "2097152",
+                "--train_length", "3000",// "--train_length", "2097152",
+                "--eval_length", "3000",// "--eval_length", "2097152",
                 "--act_type", "PReLU",
                 "--norm_type", "BatchNorm",
                 "--channel_width", "32",
@@ -26,10 +26,9 @@
                 "--fcos",
                 "--lr", "1e-4",
                 "--postprocessing_type", "soft_nms",
-                "--audio_downsampling_factor", "64",
                 //"--validation_fold", "0",
-                "--pretrained"//,
-                //"--backbone_type", "tcn2019"
+                //"--pretrained",
+                "--backbone_type", "tcn2019"
                 // "--checkpoints_dir", "checkpoints"
             ],
             "console": "integratedTerminal",

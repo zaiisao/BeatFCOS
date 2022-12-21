@@ -1,3 +1,4 @@
+import math
 import os
 import glob
 import torch
@@ -101,6 +102,7 @@ parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
 parser.add_argument('--no_adj', default=False, action="store_true")
 parser.add_argument('--validation_fold', type=int, default=None)
 parser.add_argument('--backbone_type', type=str, default="wavebeat")
+parser.add_argument('--hop_length_in_seconds', type=float, default=0.01) # This is from Spectral TCN
 
 # THIS LINE IS KEY TO PULL THE MODEL NAME
 temp_args, _ = parser.parse_known_args()
@@ -160,6 +162,10 @@ for dataset in datasets:
     if not audio_dir or not annot_dir:
         continue
 
+    if args.backbone_type == "tcn2019":
+        # Only if using spectrograms, use the hop length to calculate the audio downsampling factor
+        args.audio_downsampling_factor = math.floor(args.hop_length_in_seconds * args.audio_sample_rate)
+
     train_dataset = BeatDataset(audio_dir,
                                     annot_dir,
                                     dataset=dataset,
@@ -172,6 +178,7 @@ for dataset in datasets:
                                     preload=args.preload,
                                     length=args.train_length,
                                     dry_run=args.dry_run,
+                                    spectral=True if args.backbone_type == "tcn2019" else False,
                                     validation_fold=args.validation_fold)
     train_datasets.append(train_dataset)
 
@@ -186,6 +193,7 @@ for dataset in datasets:
                                  preload=args.preload,
                                  length=args.eval_length,
                                  dry_run=args.dry_run,
+                                 spectral=True if args.backbone_type == "tcn2019" else False,
                                  validation_fold=args.validation_fold)
     val_datasets.append(val_dataset)
 

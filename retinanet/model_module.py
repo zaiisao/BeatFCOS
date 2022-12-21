@@ -236,7 +236,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         self.fcos = fcos
         self.downbeat_weight = downbeat_weight
-        self.audio_downsampling_factor = audio_downsampling_factor
+        self.audio_downsampling_factor = audio_downsampling_factor  #MJ: 220 with tcn2019, this factor comparaible with 2^7 = 128
         self.postprocessing_type = postprocessing_type
 
         # self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -375,13 +375,15 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
         # audio_batch is the original audio sampled at 22050 Hz
         number_of_backbone_layers = 2
-        base_image_level = math.log2(self.audio_downsampling_factor)    # The image at level 7 is the downsampled base on which the regression targets are defined
-                                # and the feature map strides are defined relative to it
+
         if self.backbone_type == "wavebeat":
+            base_image_level = math.log2(self.audio_downsampling_factor)    # The image at level 7 is the downsampled base on which the regression targets are defined
+                                                                            # and the feature map strides are defined relative to it
             tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
         elif self.backbone_type == "tcn2019":
-             # JA: here the audio_batch is a batch of spectrograms
-            tcn_layers, base_level_image_shape = self.tcn2019(audio_batch, number_of_backbone_layers, base_image_level)
+            # JA: here the audio_batch is a batch of spectrograms
+            base_image_level_from_top = 2
+            tcn_layers, base_level_image_shape = self.tcn2019(audio_batch, number_of_backbone_layers, base_image_level_from_top)
 
         # The following is the 1D version of RetinaNet
         # x = self.conv1(audio_batch)
