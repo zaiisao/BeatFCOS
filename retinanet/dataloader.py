@@ -191,8 +191,9 @@ class BeatDataset(torch.utils.data.Dataset):
             # now pick out subset of audio files
             if self.validation_fold is None:
                 self.audio_files = self.audio_files[start:stop]
+                print(f"Selected {len(self.audio_files)} files for {self.subset} set from {self.dataset} dataset.")
 
-            print(f"Selected {len(self.audio_files)} files for {self.subset} set from {self.dataset} dataset.")
+            print(self.audio_files)
 
         self.annot_files = []
         for audio_file in self.audio_files:
