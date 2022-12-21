@@ -63,6 +63,8 @@ class BeatDataset(torch.utils.data.Dataset):
                  dry_run=False,
                  pad_mode='constant',
                  examples_per_epoch=1000,
+                 spectral=False,
+                 trim_size=(81, 3000),
                  validation_fold=None):
         """
         Args:
@@ -100,6 +102,8 @@ class BeatDataset(torch.utils.data.Dataset):
         self.pad_mode = pad_mode
         self.dataset = dataset
         self.examples_per_epoch = examples_per_epoch
+        self.spectral = spectral
+        self.trim_size = trim_size
         self.validation_fold = validation_fold
 
         # if length = 2097152 and audio_downsampling_factor is 256, target_length = 8192
@@ -168,6 +172,8 @@ class BeatDataset(torch.utils.data.Dataset):
 
             self.audio_files = sorted(self.audio_files)
 
+            random1 = random.Random(4)
+            random1.shuffle(self.audio_files)
             #random.shuffle(self.audio_files) # shuffle them
 
             if self.subset in ["train", "train_with_metadata"]:
@@ -239,11 +245,15 @@ class BeatDataset(torch.utils.data.Dataset):
                                                         ncols=80):
                     audio, target, metadata = self.load_data(audio_filename, annot_filename)
                     if self.half:
-                        audio = audio.half()
+                        if not self.spectral:
+                            audio = audio.half()
                         target = target.half()
                     self.data.append((audio, target, metadata))
 
     def __len__(self):
+        if self.spectral:
+            return len(self.audio_files)
+
         if self.subset in ["test", "val", "full-val", "full-test", "train_with_metadata"]:
             length = len(self.audio_files)
         else:
@@ -261,42 +271,55 @@ class BeatDataset(torch.utils.data.Dataset):
             annot_filename = self.annot_files[idx % len(self.audio_files)]
             audio, target, metadata = self.load_data(audio_filename, annot_filename)
 
-        # do all processing in float32 not float16
-        audio = audio.float()
-        target = target.float()
-
         # apply augmentations 
-        if self.augment:
-            audio, target = self.apply_augmentations(audio, target)
+        if self.spectral:
+            """Overload square bracket indexing on object"""
+            raw_spec = audio
+            trimmed_spec = np.zeros(self.trim_size) # JA: trim_size is (H, W) = (81, 3000) 
 
-        N_audio = audio.shape[-1]   # audio samples
-        N_target = target.shape[-1] # target samples
+            to_h = self.trim_size[0]
+            to_w = min(self.trim_size[1], raw_spec.shape[1])
 
-        # random crop of the audio and target if larger than desired
-        if (N_audio > self.length or N_target > self.target_length) and self.subset not in ['val', 'test', 'full-val']:
-            audio_start = np.random.randint(0, N_audio - self.length - 1)
-            audio_stop  = audio_start + self.length
-            target_start = int(audio_start / self.audio_downsampling_factor)
-            target_stop = int(audio_stop / self.audio_downsampling_factor)
-            audio = audio[:,audio_start:audio_stop]
-            target = target[:,target_start:target_stop]
+            trimmed_spec[:to_h, :to_w] = raw_spec[:, :to_w] # trimmed_spec.T (3000, 81): This tensor will be transformed to (B, 16, 3000, 1) tensor
 
-        # pad the audio and target is shorter than desired
-        if audio.shape[-1] < self.length and self.subset not in ['val', 'test', 'full-val']: 
-            pad_size = self.length - audio.shape[-1]
-            padl = pad_size - (pad_size // 2)
-            padr = pad_size // 2
-            audio = torch.nn.functional.pad(audio, 
-                                            (padl, padr), 
-                                            mode=self.pad_mode)
+            audio = torch.from_numpy(np.expand_dims(trimmed_spec.T, axis=0)).float()
+            target = target.float() # from WaveBeat
+        else:
+            # do all processing in float32 not float16
+            audio = audio.float()
+            target = target.float()
 
-        if target.shape[-1] < self.target_length and self.subset not in ['val', 'test', 'full-val']: 
-            pad_size = self.target_length - target.shape[-1]
-            padl = pad_size - (pad_size // 2)
-            padr = pad_size // 2
-            target = torch.nn.functional.pad(target, 
-                                             (padl, padr), 
-                                             mode=self.pad_mode)
+            if self.augment:
+                audio, target = self.apply_augmentations(audio, target)
+
+            N_audio = audio.shape[-1]   # audio samples
+            N_target = target.shape[-1] # target samples
+
+            # random crop of the audio and target if larger than desired
+            if (N_audio > self.length or N_target > self.target_length) and self.subset not in ['val', 'test', 'full-val']:
+                audio_start = np.random.randint(0, N_audio - self.length - 1)
+                audio_stop  = audio_start + self.length
+                target_start = int(audio_start / self.audio_downsampling_factor)
+                target_stop = int(audio_stop / self.audio_downsampling_factor)
+                audio = audio[:,audio_start:audio_stop]
+                target = target[:,target_start:target_stop]
+
+            # pad the audio and target is shorter than desired
+            if audio.shape[-1] < self.length and self.subset not in ['val', 'test', 'full-val']: 
+                pad_size = self.length - audio.shape[-1]
+                padl = pad_size - (pad_size // 2)
+                padr = pad_size // 2
+                audio = torch.nn.functional.pad(audio, 
+                                                (padl, padr), 
+                                                mode=self.pad_mode)
+
+            if target.shape[-1] < self.target_length and self.subset not in ['val', 'test', 'full-val']: 
+                pad_size = self.target_length - target.shape[-1]
+                padl = pad_size - (pad_size // 2)
+                padr = pad_size // 2
+                target = torch.nn.functional.pad(target, 
+                                                (padl, padr), 
+                                                mode=self.pad_mode)
 
         annot = self.make_intervals(target)
 
@@ -310,20 +333,24 @@ class BeatDataset(torch.utils.data.Dataset):
 
     def load_data(self, audio_filename, annot_filename):
         # first load the audio file
-        audio, sr = torchaudio.load(audio_filename)
-        audio = audio.float()
+        if self.spectral:
+            spectrogram_filename = audio_filename.replace('/data/', '/spectrogram_dir/').replace('.wav', '.npy')
+            audio = np.load(spectrogram_filename) # (81, 3022) will be trimmed to (81, 3000)
+        else:
+            audio, sr = torchaudio.load(audio_filename)
+            audio = audio.float()
 
-        # resample if needed
-        if sr != self.audio_sample_rate:
-            audio = julius.resample_frac(audio, sr, self.audio_sample_rate)   
+            # resample if needed
+            if sr != self.audio_sample_rate:
+                audio = julius.resample_frac(audio, sr, self.audio_sample_rate)   
 
-        # convert to mono by averaging the stereo; in_ch becomes 1
-        if len(audio) == 2:
-            #print("WARNING: Audio is not mono")
-            audio = torch.mean(audio, dim=0).unsqueeze(0)
+            # convert to mono by averaging the stereo; in_ch becomes 1
+            if len(audio) == 2:
+                #print("WARNING: Audio is not mono")
+                audio = torch.mean(audio, dim=0).unsqueeze(0)
 
-        # normalize all audio inputs -1 to 1
-        audio /= audio.abs().max()
+            # normalize all audio inputs -1 to 1
+            audio /= audio.abs().max()
 
         # now get the annotation information
         annot = self.load_annot(annot_filename)
