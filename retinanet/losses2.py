@@ -6,6 +6,7 @@ from retinanet.utils import BBoxTransform, calc_iou, calc_giou, AnchorPointTrans
 INF = 100000000
 
 def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor, centerness=False, beat_radius=2.5, downbeat_radius=4.5):
+    
     audio_target_rate = 22050 / audio_downsampling_factor
 
     sizes = [
@@ -692,10 +693,10 @@ class CombinedLoss(nn.Module):
             jth_regression_pred = regressions[j, :, :]           # (B, A, 2)
             jth_leftness_pred = leftnesses[j, :, :]              # (B, A, 1)
 
-            jth_padded_annotations = annotations[j, :, :]
+            jth_padded_annotations = annotations[j, :, :] #MJ: jth_padded_annotations[:, 2]= class id
 
-            # The dummy gt boxes that are labeled as -1 are added to each image in the batch to make all the annotations have the same shape,
-            # so those gt boxes should be removed.
+            # The dummy gt boxes that are labeled as -1 are added to each batch by the collater function of DataSet to make all the annotations have the same shape,
+            # To really process them,  those gt boxes should be removed. MJ: jth_annotations: shape=(57,3); annotations:shape=(127,3)
             jth_annotations = jth_padded_annotations[jth_padded_annotations[:, 2] != -1]
             
             # If there are no targets for the current audio in the batch, skip the audio
@@ -831,7 +832,7 @@ class CombinedLoss(nn.Module):
         # END for j in range(batch_size)
 
         if len(classification_losses_batch) == 0:
-            classification_losses_batch.append(0)
+            classification_losses_batch.append(0)  #MJ: append zero tensor rather number 0
             
         if len(regression_losses_batch) == 0:
             regression_losses_batch.append(0)

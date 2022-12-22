@@ -234,8 +234,12 @@ class ClipBoxes(nn.Module):
 
     def forward(self, boxes, img):
 
-        #batch_size, num_channels, height, width = img.shape
-        batch_size, num_channels, width = img.shape
+        if len(img.shape) == 4:
+            batch_size, num_channels, _, width = img.shape
+        elif len(img.shape) == 3:
+            batch_size, num_channels, width = img.shape
+        else:
+            raise NotImplementedError
 
         boxes[:, :, 0] = torch.clamp(boxes[:, :, 0], min=0)
         #boxes[:, :, 1] = torch.clamp(boxes[:, :, 1], min=0)

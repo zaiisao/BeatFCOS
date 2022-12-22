@@ -11,7 +11,7 @@ from retinanet import losses
 from retinanet.losses2 import CombinedLoss
 from retinanet.dstcn import dsTCNModel
 from gossipnet.model.gnet import GNet
-#from tcn2019.beat_tracking_tcn.models.beat_net import BeatNet
+from tcn2019.beat_tracking_tcn.models.beat_net import BeatNet
 
 model_urls = {
 #    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -64,7 +64,7 @@ class PyramidFeatures(nn.Module):
         self.P8_1 = nn.ReLU()
         self.P8_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=2, padding=1)
 
-    def forward(self, inputs):
+    def forward(self, inputs): #MJ: called by feature_maps = self.fpn([x2, x3])
         # C3, C4, C5 = inputs
         C4, C5 = inputs
 
@@ -281,7 +281,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         if backbone_type == "wavebeat":
             C4_size, C5_size = self.dstcn.blocks[-2].out_ch, self.dstcn.blocks[-1].out_ch
         elif backbone_type == "tcn2019":
-            C4_size, C5_size = self.tcn2019.tcn.layers[-2].out_ch, self.tcn2019.tcn.layers[-1].out_ch
+            C4_size, C5_size = self.tcn2019.tcn.blocks[-2].out_ch, self.tcn2019.tcn.blocks[-1].out_ch
 
         self.fpn = PyramidFeatures(C4_size, C5_size)
 
@@ -368,21 +368,23 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         else:
             audio_batch = inputs
 
-        # From WaveBeat model
-        # With 8 layers, each with stride 2, we downsample the signal by a factor of 2^8 = 256,
-        # which, given an input sample rate of 22.05 kHz produces an output signal with a
-        # sample rate of 86 Hz
 
-        # audio_batch is the original audio sampled at 22050 Hz
-        number_of_backbone_layers = 2
+        number_of_backbone_layers = 2 #MJ: now execute the backbone net
 
         if self.backbone_type == "wavebeat":
+            # audio_batch is the original audio sampled at 22050 Hz
+
+            # From WaveBeat model
+            # With 8 layers, each with stride 2, we downsample the signal by a factor of 2^8 = 256,
+            # which, given an input sample rate of 22.05 kHz produces an output signal with a
+            # sample rate of 86 Hz
+
             base_image_level = math.log2(self.audio_downsampling_factor)    # The image at level 7 is the downsampled base on which the regression targets are defined
                                                                             # and the feature map strides are defined relative to it
             tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
         elif self.backbone_type == "tcn2019":
             # JA: here the audio_batch is a batch of spectrograms
-            base_image_level_from_top = 2
+            base_image_level_from_top = 1
             tcn_layers, base_level_image_shape = self.tcn2019(audio_batch, number_of_backbone_layers, base_image_level_from_top)
 
         # The following is the 1D version of RetinaNet
@@ -404,8 +406,8 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         #x2 = tcn_layers[-3]
         #x3 = tcn_layers[-2]
         #x4 = tcn_layers[-1]
-        x2 = tcn_layers[-2]
-        x3 = tcn_layers[-1]
+        x2 = tcn_layers[-2]  #MJ: shape = (8,16,3000)
+        x3 = tcn_layers[-1]  #MJ: shape = (8,16,750) => should be 1500
         #feature_maps = self.fpn([x2, x3, x4])
         feature_maps = self.fpn([x2, x3])
 

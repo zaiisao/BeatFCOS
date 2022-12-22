@@ -188,11 +188,14 @@ def get_results_from_model(audio, target, model, iou_threshold=0.5, score_thresh
         audio = audio.to('cuda')
         target = target.to('cuda')
 
-    nblocks = len(model.module.dstcn.blocks)
+    try:
+        nblocks = len(model.module.dstcn.blocks)
 
-    target_length = -(audio.size(dim=2) // -2**nblocks) * 2**nblocks
-    audio_pad = (0, target_length - audio.size(dim=2))
-    audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
+        target_length = -(audio.size(dim=2) // -2**nblocks) * 2**nblocks
+        audio_pad = (0, target_length - audio.size(dim=2))
+        audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
+    except:
+        print("test")
 
     # run network
     # scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))

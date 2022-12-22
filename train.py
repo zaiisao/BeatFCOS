@@ -321,8 +321,8 @@ if __name__ == '__main__':
         lft_losses = []
         adj_losses = []
 
-        for iter_num, data in enumerate(train_dataloader):
-            audio, target = data
+        for iter_num, data in enumerate(train_dataloader): #target[:,:,0:2]=interval, target[:,:,2]=class
+            audio, target = data  #MJ: audio:shape =(8,1,3000,820; target:shape=(8,127,3)
             if use_gpu and torch.cuda.is_available():
                 audio = audio.cuda()
                 target = target.cuda()

@@ -128,6 +128,14 @@ class dsTCNModel(torch.nn.Module):
                  **kwargs):
         super(dsTCNModel, self).__init__()
 
+        #MJ: 
+        
+       #class ModuleList(Module):
+       # Holds submodules in a list. torch.nn.ModuleList` can be indexed like a regular Python list, but
+       #  modules it contains are properly registered, and will be visible by all torch.nn.Module` methods.
+
+       # Args:    modules (iterable, optional): an iterable of modules to add
+
         self.blocks = torch.nn.ModuleList()
 
         for n in range(nblocks): 
