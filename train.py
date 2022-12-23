@@ -110,7 +110,7 @@ temp_args, _ = parser.parse_known_args()
 # parse them args
 args = parser.parse_args()
 
-datasets = ["ballroom"]
+datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 #MJ: for testing: datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 
 # set the seed
