@@ -425,6 +425,9 @@ if __name__ == '__main__':
             print(f"Saving checkpoint at {new_checkpoint_path}")
             torch.save(retinanet.state_dict(), new_checkpoint_path)
 
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     retinanet.eval()
 
     torch.save(retinanet, './checkpoints/model_final.pt')
