@@ -762,9 +762,11 @@ def resnet50(num_classes, args, **kwargs):
             if args.backbone_type == "wavebeat":
                 model_key = f"wavebeat_fold_{args.validation_fold}"
 
-        state_dict = torch.load(model_urls[model_key], map_location='cuda:0')
         if args.backbone_type == "wavebeat":
+            state_dict = torch.load(model_urls[model_key])
             state_dict = state_dict['state_dict']
+        elif args.backbone_type == "tcn2019":
+            state_dict = torch.load(model_urls[model_key], map_location='cuda:0')
 
         new_dict = OrderedDict()
 
