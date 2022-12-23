@@ -132,13 +132,12 @@ state_dicts = glob.glob('./checkpoints/*.pt')
 start_epoch = 0
 checkpoint_path = None
 
-#MJ: comment out for debugging:
-# if len(state_dicts) > 0:
-#     checkpoint_path = state_dicts[-1]
-#     start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
-#     print("loaded:" + checkpoint_path)
-# else:
-#     print("no checkpoint found")
+if len(state_dicts) > 0:
+    checkpoint_path = state_dicts[-1]
+    start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
+    print("loaded:" + checkpoint_path)
+else:
+    print("no checkpoint found")
 
 # setup the dataloaders
 train_datasets = []
