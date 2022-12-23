@@ -13,30 +13,33 @@ torchaudio.set_audio_backend("sox_io")
 
 def collater(data):
     # data = one batch of [audio, annot(, metadata)]
-    audios = [s[0] for s in data]
-    annots = [s[1] for s in data]
+    audios = [s[0] for s in data]  #MJ: s[0]:  shape = (1, 3000, 81), a single channel 2D tensor for spectrogram input
+                                   #MJ: s[0]: shape = = (1,N) = (1,  num of audio samples) for raw audio
+    annots = [s[1] for s in data]  #MJ: s[1]:   shape = (M,3)=(num of beat intervals in spectoram frame unit,3)=(57,3) for spectrogram input;
+                                   #              shape = (M,3)= (num of beat intervals in target base-level sample unit, 3)
     metadata = None
 
     if len(data[0]) > 2:
         metadata = [s[2] for s in data]
 
-    new_audios = torch.stack(audios) # new_audios shape: (B, C, W) = (B, 1, num of audio samples)
+    new_audios = torch.stack(audios) # new_audios shape: (B, C, W) = (B, 1, num of audio samples) in wavebeat
+                                     #  new_audios shape: (B,C,H,W) =(B,1,3000, 81) for spectrogram input (single channel 2D tensor)
 
     max_num_annots = max(annot.shape[0] for annot in annots)
     
     if max_num_annots > 0:
 
         new_annots = torch.ones((len(annots), max_num_annots, 3)) * -1  # new_annots shape: (B, max_num_annots, 3) = (B, W, C)
-                                                                        # in PyTorch, 2D tensors are written as (B, C, H, W)
-                                                                        #             1D tensors are written as (B, C, W)
+                                                                        # in PyTorch, input 2D tensors are written as (B, C, H, W)
+                                                                        #             input 1D tensors are written as (B, C, W)
                                                                         # whereas the target or annotations are written as (B, H, W, C)
-                                                                        # new_annots[B, j, 2] = -1, which means it is a non-object
+                                                                        # new_annots[B, j, 2] = -1, which means jth element is  zero padded-element
 
         if max_num_annots > 0:
             for idx, annot in enumerate(annots):
                 #print(annot.shape)
                 if annot.shape[0] > 0:
-                    new_annots[idx, :annot.shape[0], :] = annot
+                    new_annots[idx, :annot.shape[0], :] = annot  #MJ: annot.shape[0] = num of beat locations; new_annots shape: (B, M, 3)
     else:
         new_annots = torch.ones((len(annots), 1, 3)) * -1 # new_annots shape: (B, 1, 3)
 
@@ -55,7 +58,7 @@ class BeatDataset(torch.utils.data.Dataset):
                  audio_downsampling_factor=32,
                  dataset="ballroom",
                  subset="train", 
-                 length=16384, 
+                 length=16384, #MJ: = 3000 frames in the case of spectrogram input
                  preload=False, 
                  half=True, 
                  fraction=1.0,
@@ -86,6 +89,8 @@ class BeatDataset(torch.utils.data.Dataset):
         Notes:
             - The SMC dataset contains only beats (no downbeats), so it should be used only for beat evaluation.
         """
+        
+        #MJ: spectrogram)t,w) = SFFT(t,w)^2
         self.audio_dir = audio_dir
         self.annot_dir = annot_dir
         self.audio_sample_rate = audio_sample_rate
@@ -223,8 +228,8 @@ class BeatDataset(torch.utils.data.Dataset):
             elif self.dataset == "hainsworth":
                 self.annot_files.append(os.path.join(self.annot_dir, f"{filename}.txt"))
             elif self.dataset == "beatles":
-                album_dir = os.path.basename(os.path.dirname(audio_file))
-                annot_file = os.path.join(self.annot_dir, album_dir, f"{filename}.txt")
+                #album_dir = os.path.basename(os.path.dirname(audio_file))
+                annot_file = os.path.join(self.annot_dir, f"{filename}.txt")
                 self.annot_files.append(annot_file)
             elif self.dataset == "rwc_popular":
                 album_dir = os.path.basename(os.path.dirname(audio_file))
@@ -268,7 +273,7 @@ class BeatDataset(torch.utils.data.Dataset):
         return length
         #return len(self.audio_files)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx): #MJ: this function does annot = self.make_intervals(target)
 
         if self.preload:
             audio, target, metadata = self.data[idx % len(self.audio_files)]
@@ -281,28 +286,33 @@ class BeatDataset(torch.utils.data.Dataset):
         # apply augmentations 
         if self.spectral:
             """Overload square bracket indexing on object"""
-            raw_spec = audio
+            raw_spec = audio #MJ: spectrogram = (81, 3187) 
             trimmed_spec = np.zeros(self.trim_size) # JA: trim_size is (H, W) = (81, 3000) 
 
             to_h = self.trim_size[0]
             to_w = min(self.trim_size[1], raw_spec.shape[1])
 
-            trimmed_spec[:to_h, :to_w] = raw_spec[:, :to_w] # trimmed_spec.T (3000, 81): This tensor will be transformed to (B, 16, 3000, 1) tensor
+            trimmed_spec[:to_h, :to_w] = raw_spec[:, :to_w] # trimmed_spec: shape =(81,3000)
           
-            audio = torch.from_numpy(np.expand_dims(trimmed_spec.T, axis=0)).float()
-            # spectrogram = torch.from_numpy(np.expand_dims(trimmed_spec.T, axis=0)).float()
-            # audio = audio.float()
-            target = target.float() # from WaveBeat
+            #MJ: Do conversion in order to transform a tensor of shape (3000,81) into a single channel 2D tensor of shape
+            # (1, 3000, 81). This is the required input shape for BeatNet from SpectralTCN:
+            
+            audio = torch.from_numpy(np.expand_dims( trimmed_spec.T, axis=0)).float()
+            
+            # audio =  trimmed_spec  #audio: shape = (1, 3000, 81)
+            
+           
+            target = target[:, :to_w].float() # target: shape = (2,3000); cf. target = torch.zeros(2,N)
         else:
             # do all processing in float32 not float16
-            audio = audio.float()
-            target = target.float()
+            audio = audio.float()  #MJ: audio: shape =(1,N)
+            target = target.float() #MJ: target: shape =(2,N)
 
             if self.augment:
                 audio, target = self.apply_augmentations(audio, target)
 
-            N_audio = audio.shape[-1]   # audio samples
-            N_target = target.shape[-1] # target samples
+            N_audio = audio.shape[-1]   # audio: shape =(1,N)
+            N_target = target.shape[-1] # target: shape =(2,N)
 
             # random crop of the audio and target if larger than desired
             if (N_audio > self.length or N_target > self.target_length) and self.subset not in ['val', 'test', 'full-val']:
@@ -331,7 +341,7 @@ class BeatDataset(torch.utils.data.Dataset):
                                                 mode=self.pad_mode)
         #END else of  if self.spectral
         
-        annot = self.make_intervals(target)
+        annot = self.make_intervals(target)  ##MJ: # target: shape =(2,3000)2402; annot: shape =(M,3)=(57,3)
 
         if self.subset in ["train", "full-train"]:
             return audio, annot
@@ -340,7 +350,8 @@ class BeatDataset(torch.utils.data.Dataset):
             return audio, annot, metadata
         else:
             raise RuntimeError(f"Invalid subset: `{self.subset}`")
-
+    #END def __getitem__(self, idx)
+    
     def load_data(self, audio_filename, annot_filename):
   
        
@@ -348,7 +359,7 @@ class BeatDataset(torch.utils.data.Dataset):
         #MJ: audio has several roles in computing the target beat locations in DataSet,
         # Override audio with  spectrogram at the end of load_data().
         #         
-        audio, sr = torchaudio.load(audio_filename)
+        audio, sr = torchaudio.load(audio_filename) #MJ: auido: shape=(1,1329330), sr = 44100
         audio = audio.float()
 
         # resample if needed
@@ -358,28 +369,33 @@ class BeatDataset(torch.utils.data.Dataset):
         # convert to mono by averaging the stereo; in_ch becomes 1
         if len(audio) == 2:
             #print("WARNING: Audio is not mono")
-            audio = torch.mean(audio, dim=0).unsqueeze(0)
-
+            audio = torch.mean(audio, dim=0).unsqueeze(0)  #MJ: audio: shape =(1,N); do we need to get the mono version for gettting spectrogram? No, spectrogram allows stereo
+            #MJ: audio: shape =(1,664665)
         # normalize all audio inputs -1 to 1
         audio /= audio.abs().max()
         #END of if self.spectral
         
-        # now get the annotation information
+        # now get the beat location annotation in seconds
+        
         annot = self.load_annot(annot_filename)
-        beat_samples, downbeat_samples, beat_indices, time_signature = annot
+        beat_samples, downbeat_samples, beat_indices, time_signature = annot #len(beat_samples)=88; len(downbeat_samples)=22
 
         # get metadata
         genre = os.path.basename(os.path.dirname(audio_filename))
 
-        # convert beat_samples to beat_seconds
+        # convert beat_samples in 22050Hz to beat_seconds
         beat_sec = np.array(beat_samples) / self.audio_sample_rate
         downbeat_sec = np.array(downbeat_samples) / self.audio_sample_rate
 
-        T = audio.shape[-1]/self.audio_sample_rate # audio length in sec
-        N = int(T * self.target_sample_rate) + 1   # target length in samples= samples/sec
+        T = audio.shape[-1]/self.audio_sample_rate # audio length in sec: 30.14 sec
+        
+        N = int(T * self.target_sample_rate) + 1   # target length in samples= samples/sec: 3022
+                                                   # MJ: target length in spectrogram frames in the case of spectrogram input, where
+                                                   # MJ: target_sample_rate = audio_sample_rate / audio_downsampling_factor = (22050/s) / 200 = 110 /s
+                                                   #MJ: in the case of raw audio: target_sample_rate = 22050/s / 128 = 172 /s => Spectrogram downsamples less than wavebeat!
         target = torch.zeros(2,N)
 
-        # now convert from seconds to new sample rate
+        # now convert from seconds to new sample rate / spectrogram frames
         beat_samples = np.array(beat_sec * self.target_sample_rate)
         downbeat_samples = np.array(downbeat_sec * self.target_sample_rate)
 
@@ -401,7 +417,7 @@ class BeatDataset(torch.utils.data.Dataset):
 
         if self.spectral:
             spectrogram_filename = audio_filename.replace('/data/', '/spectrogram_dir/').replace('.wav', '.npy')
-            audio  = np.load(spectrogram_filename) # (81, 3187) will be trimmed to (81, 3000)
+            audio  = np.load(spectrogram_filename) # The shape of spectrogram = (81, 3187) for example; will be trimmed to (81, 3000) later on
         
         return audio, target, metadata  #MJ: audio may be raw audio or its spectrogram
 
@@ -477,7 +493,7 @@ class BeatDataset(torch.utils.data.Dataset):
 
         return beat_samples, downbeat_samples, beat_indices, time_signature
 
-    def make_intervals(self, target):
+    def make_intervals(self, target): #MJ: target: shape = (2,N)
         beats = target[0, :]
         downbeats = target[1, :]
         #non_downbeats = beats - downbeats
@@ -500,7 +516,9 @@ class BeatDataset(torch.utils.data.Dataset):
         
         # parse annotations
         def make_interval_subset(samples, class_id):
+            
             intervals = torch.zeros((0, 3))
+            
             for beat_index, current_beat_location in enumerate(samples[:-1]):
                 # next downbeat location 또는 next beat location
                 next_beat_location = samples[beat_index + 1]
@@ -512,7 +530,7 @@ class BeatDataset(torch.utils.data.Dataset):
 
                 intervals = torch.cat((intervals, interval), axis=0)
 
-            return intervals
+            return intervals  #MJ: shape =(M,3)
 
         annotations = torch.cat((
             annotations,

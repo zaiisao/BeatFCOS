@@ -37,8 +37,8 @@ def configure_log():
 
 configure_log()
 
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+#MJ: os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1" #MJ: for testing beat-fcos+ spectralTCN
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -110,8 +110,8 @@ temp_args, _ = parser.parse_known_args()
 # parse them args
 args = parser.parse_args()
 
-#datasets = ["ballroom", "hainsworth", "carnatic"]
-datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
+datasets = ["ballroom"]
+#MJ: for testing: datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 
 # set the seed
 seed = 42
@@ -131,12 +131,14 @@ print(args.default_root_dir)
 state_dicts = glob.glob('./checkpoints/*.pt')
 start_epoch = 0
 checkpoint_path = None
-if len(state_dicts) > 0:
-    checkpoint_path = state_dicts[-1]
-    start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
-    print("loaded:" + checkpoint_path)
-else:
-    print("no checkpoint found")
+
+#MJ: comment out for debugging:
+# if len(state_dicts) > 0:
+#     checkpoint_path = state_dicts[-1]
+#     start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
+#     print("loaded:" + checkpoint_path)
+# else:
+#     print("no checkpoint found")
 
 # setup the dataloaders
 train_datasets = []
@@ -322,7 +324,7 @@ if __name__ == '__main__':
         adj_losses = []
 
         for iter_num, data in enumerate(train_dataloader): #target[:,:,0:2]=interval, target[:,:,2]=class
-            audio, target = data  #MJ: audio:shape =(8,1,3000,820; target:shape=(8,127,3)
+            audio, target = data  #MJ: audio:shape =(16,1,3000,81); target:shape=(16,128,3)
             if use_gpu and torch.cuda.is_available():
                 audio = audio.cuda()
                 target = target.cuda()

@@ -188,20 +188,18 @@ def get_results_from_model(audio, target, model, iou_threshold=0.5, score_thresh
         audio = audio.to('cuda')
         target = target.to('cuda')
 
-    try:
+    if model.module.dstcn is not None:
         nblocks = len(model.module.dstcn.blocks)
 
         target_length = -(audio.size(dim=2) // -2**nblocks) * 2**nblocks
         audio_pad = (0, target_length - audio.size(dim=2))
         audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
-    except:
-        print("test")
 
     # run network
     # scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
     # predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
 
-    predicted_scores, predicted_labels, predicted_boxes, losses = model(
+    predicted_scores, predicted_labels, predicted_boxes, losses = model( #MJ: shape =(15,) (15,) (15,2)
         (audio, target),
         iou_threshold=iou_threshold,
         score_threshold=score_threshold
@@ -415,10 +413,10 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
         #image_ids = []
 
         for index, data in enumerate(dataloader):
-            audio, target, metadata = data
+            audio, target, metadata = data #MJ: audio: shape =(1,1,3000,81) =(B,C,H,W); target: shape=(1,56,3) =(B,L,C)
 
             # if we have metadata, it is only during evaluation where batch size is always 1
-            metadata = metadata[0]
+            metadata = metadata[0] #MJ: predicted_labels[] = all 0 = all downbeats?
         
             predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model, score_threshold=score_threshold)
 

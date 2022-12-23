@@ -111,7 +111,7 @@ def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor,
         # )
 
         # JA: New radius implementation
-        stride = 2**(i + 1)
+        stride = 2**i
         radius_per_class = (jth_annotations[:, 2] == 0) * downbeat_radius + (jth_annotations[:, 2] == 1) * beat_radius
 
         if centerness:
@@ -788,7 +788,7 @@ class CombinedLoss(nn.Module):
 
             strides_for_all_anchors = torch.zeros(0).to(classifications.device)
             for i, anchors_per_level in enumerate(anchors_list):
-                stride_per_level = torch.tensor(2**(i + 1)).to(strides_for_all_anchors.device)
+                stride_per_level = torch.tensor(2**i).to(strides_for_all_anchors.device)
                 stride_for_anchors_per_level = stride_per_level[None].expand(anchors_per_level.size(dim=0))
                 strides_for_all_anchors = torch.cat((strides_for_all_anchors, stride_for_anchors_per_level), dim=0)
 

@@ -36,7 +36,7 @@ class Anchors(nn.Module):
             self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
 
     #def forward(self, base_image):
-    def forward(self, base_image_shape):
+    def forward(self, base_image_shape): #MJ: base_image_shape =(16,16,3000) =(B,C,L)
         # We need the shape of the base level image to compute the anchor points on each feature map
         #base_image_shape = base_image.shape[2:] # The base image is at the level of 2**7 stride, that is, the number of data samples is 2**14
         #print(f"base_image_shape: {base_image_shape}")

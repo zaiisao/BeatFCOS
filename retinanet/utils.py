@@ -235,7 +235,7 @@ class ClipBoxes(nn.Module):
     def forward(self, boxes, img):
 
         if len(img.shape) == 4:
-            batch_size, num_channels, _, width = img.shape
+            batch_size, num_channels, width, _ = img.shape
         elif len(img.shape) == 3:
             batch_size, num_channels, width = img.shape
         else:

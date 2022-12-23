@@ -29,6 +29,7 @@ model_urls = {
     'wavebeat_fold_6': './backbone/wavebeat_folds/fold_6.pth',
     'wavebeat_fold_7': './backbone/wavebeat_folds/fold_7.pth',
     'gnet': './backbone/gnet.pth',
+    'tcn2019': './backbone/tcn2019.pth',
 }
 
 class PyramidFeatures(nn.Module):
@@ -257,10 +258,19 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         
         self.backbone_type = backbone_type
 
+        self.dstcn = None
+        self.tcn2019 = None
+
         if self.backbone_type == "wavebeat":
             self.dstcn = dsTCNModel(**kwargs)
         elif self.backbone_type == "tcn2019":
             self.tcn2019 = BeatNet(downbeats=True)
+            # self.tcn2019_last_output_conv = nn.Conv1d(
+            #     self.tcn2019.tcn.blocks[-1].out_ch,
+            #     self.tcn2019.tcn.blocks[-1].out_ch,
+            #     kernel_size=1,
+            #     stride=2
+            # )
         #MJ:  downsampled tcn's output tensor dimension: shape = (b, 256, 8192) =(b, channel, width/length), 8192 = 2^13 samples
         
 
@@ -359,12 +369,12 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             if isinstance(layer, nn.BatchNorm1d):
                 layer.eval()
 
-    def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05):
+    def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05): #:forward_call = forward
         # inputs = audio, target
         # self.training = len(inputs) == 2
 
         if len(inputs) == 2:
-            audio_batch, annotations = inputs
+            audio_batch, annotations = inputs  #MJ: audio_batch: shape = (16/1,1,3000,81); annotations: shape=(16/1,128,3)
         else:
             audio_batch = inputs
 
@@ -384,8 +394,9 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
         elif self.backbone_type == "tcn2019":
             # JA: here the audio_batch is a batch of spectrograms
-            base_image_level_from_top = 1
+            base_image_level_from_top = 1   #MJ: audio_batch: shape =(1,3000,81)
             tcn_layers, base_level_image_shape = self.tcn2019(audio_batch, number_of_backbone_layers, base_image_level_from_top)
+            # tcn_layers[-1] = self.tcn2019_last_output_conv(tcn_layers[-1])
 
         # The following is the 1D version of RetinaNet
         # x = self.conv1(audio_batch)
@@ -406,12 +417,12 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         #x2 = tcn_layers[-3]
         #x3 = tcn_layers[-2]
         #x4 = tcn_layers[-1]
-        x2 = tcn_layers[-2]  #MJ: shape = (8,16,3000)
-        x3 = tcn_layers[-1]  #MJ: shape = (8,16,750) => should be 1500
+        x2 = tcn_layers[-2]  #MJ: shape = (16/1,16,3000)
+        x3 = tcn_layers[-1]  #MJ: shape = (16/1,16,1500)
         #feature_maps = self.fpn([x2, x3, x4])
-        feature_maps = self.fpn([x2, x3])
+        feature_maps = self.fpn([x2, x3]) #MJ feature_maps[0].shape=(16,256,3000)...feature_maps[4].shape=(16,256,188)=(B,C,L)
 
-        if self.fcos:
+        if self.fcos: #MJ: classification_outputs: shape =(16/1,5813,2) =(B,L,C)
             classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
             regression_outputs = []
             leftness_outputs = []
@@ -597,12 +608,13 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     # size_of_interest_per_level = anchor_points_per_level.new_tensor([sizes[i][0] * audio_target_rate, sizes[i][1] * audio_target_rate])
                     # size_of_interest_for_anchors_per_level = size_of_interest_per_level[None].expand(anchor_points_per_level.size(dim=0), -1)
 
-                    stride_per_level = torch.tensor(2**(i + 1)).to(strides_for_all_anchors.device)
-                    stride_for_anchors_per_level = stride_per_level[None].expand(anchors_per_level.size(dim=0))
-                    # print(f"stride_per_level {stride_per_level.shape}:\n{stride_per_level}")
+                    #MJ:  stride_per_level = torch.tensor(2**i).to(strides_for_all_anchors.device) #stride_per_level =2**0, 2**1, 2**2, 2**3,2**4
+                    stride_per_level = torch.tensor(2**i).to(strides_for_all_anchors.device) #stride_per_level =2**1, 2**2, 2**3, 2**4,2**5
+                    stride_per_level_for_anchors = stride_per_level[None].expand(anchors_per_level.size(dim=0)) #MJ:anchors_per_level.size(dim=0)=188
+                    # print(f"stride_per_level {stride_per_level.shape}:\n{stride_per_level}") #MJ:anchors_per_level: shape = Size([188])
                     # print(f"stride_per_level[None] {stride_per_level[None].shape}:\n{stride_per_level[None]}")
-                    # print(f"stride_for_anchors_per_level {stride_for_anchors_per_level.shape}:\n{stride_for_anchors_per_level}")
-                    strides_for_all_anchors = torch.cat((strides_for_all_anchors, stride_for_anchors_per_level), dim=0)
+                    # print(f"stride_for_anchors_per_level {stride_for_anchors_per_level.shape}:\n{stride_for_anchors_per_level}") :shape= Size([188])
+                    strides_for_all_anchors = torch.cat((strides_for_all_anchors, stride_per_level_for_anchors), dim=0)
                 # print(f"strides_for_all_anchors {strides_for_all_anchors.shape}: {strides_for_all_anchors}")
                 #END for i, anchors_per_level in enumerate(anchors_list)
                 
@@ -614,7 +626,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 #     anchors_list[i] + regression_output[0, :, 1] * stride
                 # ), dim=1).unsqueeze(dim=0)
 
-                # anchor_point_transform function assumes that the regression_outputs have the batch dimension
+                # anchor_point_transform function assumes that the regression_outputs have the batch dimension: strides_for_all_anchors:Size=[5813]
                 transformed_regression_boxes = self.anchor_point_transform(all_anchors, regression_outputs, strides_for_all_anchors)
 
                 #scores = torch.squeeze(classification_output[:, :, class_id])
@@ -627,7 +639,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 if self.fcos:
                     scores = classification_outputs[:, :, class_id] * leftness_outputs[:, :, 0] # We predict the max number for beats will be less than the num of anchors
                 else:
-                    scores = classification_outputs[:, :, class_id]
+                    scores = classification_outputs[:, :, class_id]  #MJ: scores: shape =(1,5813)
                     
                 #scores = scores / torch.max(scores)
 
@@ -638,7 +650,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
 
                 # print(f"scores: {scores.shape}")
                 
-                scores = scores[scores_over_thresh]
+                scores = scores[scores_over_thresh]  #MJ: shape=(371,)
                 
                 #anchorBoxes = torch.squeeze(transformed_regression_boxes)
                 # print(f"transformed_regression_boxes: {transformed_regression_boxes.shape}")
@@ -688,7 +700,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     #MJ: regression_boxes are those obtained by filtering out whose scores are less than score_threshold
                     #    Get all the filtered detections and store them for use in training gnet.
                 elif self.postprocessing_type == 'soft_nms':
-                    anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=0.5, thresh=0.2)
+                    anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=0.5, thresh=0.2)  #MJ: = 16
                 elif self.postprocessing_type == 'none':
                     anchors_nms_idx = torch.arange(0, regression_boxes.size(dim=0))
 
@@ -741,11 +753,19 @@ def resnet50(num_classes, args, **kwargs):
     model = ResNet(num_classes, Bottleneck, [3, 4, 6, 3], **kwargs)
 
     if args.pretrained:
-        model_key = 'wavebeat8'
-        if args.validation_fold is not None:
-            model_key = f"wavebeat_fold_{args.validation_fold}"
+        if args.backbone_type == "wavebeat":
+            model_key = 'wavebeat8'
+        elif args.backbone_type == "tcn2019":
+            model_key = 'tcn2019'
 
-        state_dict = torch.load(model_urls[model_key])['state_dict']
+        if args.validation_fold is not None:
+            if args.backbone_type == "wavebeat":
+                model_key = f"wavebeat_fold_{args.validation_fold}"
+
+        state_dict = torch.load(model_urls[model_key], map_location='cuda:0')
+        if args.backbone_type == "wavebeat":
+            state_dict = state_dict['state_dict']
+
         new_dict = OrderedDict()
 
         for k, v in state_dict.items():
@@ -754,7 +774,11 @@ def resnet50(num_classes, args, **kwargs):
             # For example, if the name of the parallelized module is "model_ddp" then the module_ddp.module refers to the original unwrapped model
             new_dict[key] = v
 
-        missing_keys, unexpected_keys = model.dstcn.load_state_dict(new_dict, strict=False)
+        if args.backbone_type == "wavebeat":
+            missing_keys, unexpected_keys = model.dstcn.load_state_dict(new_dict, strict=False)
+        elif args.backbone_type == "tcn2019":
+            missing_keys, unexpected_keys = model.tcn2019.load_state_dict(new_dict, strict=False)
+
         print(f"Loaded {model_key} backbone. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}")
 
         if args.freeze_bn:

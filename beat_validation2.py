@@ -38,7 +38,7 @@ def configure_log():
 configure_log()
 
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -103,6 +103,9 @@ parser.add_argument('--freeze_bn', default=False, action="store_true")
 parser.add_argument('--freeze_backbone', default=False, action="store_true")
 parser.add_argument('--centerness', default=False, action="store_true")
 parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
+parser.add_argument('--lr', type=float, default=1e-3)
+parser.add_argument('--backbone_type', type=str, default="wavebeat")
+parser.add_argument('--validation_fold', type=int, default=None)
 
 # THIS LINE IS KEY TO PULL THE MODEL NAME
 temp_args, _ = parser.parse_known_args()
@@ -112,7 +115,7 @@ args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
 #datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
-datasets = ["beatles"]
+datasets = ["gtzan"]
 
 # set the seed
 seed = 42
@@ -129,7 +132,7 @@ torch.backends.cudnn.benchmark = True
 args.default_root_dir = os.path.join("lightning_logs", "full")
 print(args.default_root_dir)
 
-state_dicts = glob.glob('./checkpoints/*.pt')
+state_dicts = glob.glob('./ablation_tests/801010_frozen_backbone/*.pt')
 start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:

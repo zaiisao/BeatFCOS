@@ -10,8 +10,10 @@
             "request": "launch",
             "program": "${file}",
             "args": [
-                "--ballroom_audio_dir", "/mount/beat-tracking/br_test/data",
-                "--ballroom_annot_dir", "/mount/beat-tracking/br_test/label",
+                // "--ballroom_audio_dir", "/mount/beat-tracking/br_test/data",
+                // "--ballroom_annot_dir", "/mount/beat-tracking/br_test/label",
+                "--gtzan_audio_dir", "/mount/beat-tracking/gtzan/data",
+                "--gtzan_annot_dir", "/mount/beat-tracking/gtzan/label",
                 "--preload", "--patience", "10",
                 "--train_length", "2097152",
                 "--eval_length", "2097152",
@@ -24,12 +26,13 @@
                 "--num_workers", "0",
                 "--reg_loss_type", "giou",
                 "--fcos",
-                "--lr", "1e-4",
+                "--lr", "1e-3",
                 "--postprocessing_type", "soft_nms",
-                //"--validation_fold", "0",
+                "--validation_fold", "0",
                 "--pretrained",
                 "--freeze_bn",
                 "--backbone_type", "wavebeat"
+                //"--backbone_type", "tcn2019"
                 // "--checkpoints_dir", "checkpoints"
             ],
             "console": "integratedTerminal",
@@ -43,22 +46,28 @@
             "args": [
                 "--ballroom_audio_dir", "/mount/beat-tracking/ballroom/data",
                 "--ballroom_annot_dir", "/mount/beat-tracking/ballroom/label",
+                // "--hainsworth_audio_dir", "/mount/beat-tracking/hains/data",
+                // "--hainsworth_annot_dir", "/mount/beat-tracking/hains/label",
+                // "--beatles_audio_dir", "/mount/beat-tracking/beatles/data",
+                // "--beatles_annot_dir", "/mount/beat-tracking/beatles/label",
+                // "--rwc_popular_audio_dir", "/mount/beat-tracking/rwc_popular/data",
+                // "--rwc_popular_annot_dir", "/mount/beat-tracking/rwc_popular/label",   
                 "--preload", "--patience", "10",
-                "--train_length", "3000",
-                "--eval_length", "3000",
+                "--train_length", "3000", // MJ: the length of the frames in the spectrogram of the raw audio
+                "--eval_length", "3000",  // MJ: In evaluation also, the spectrogram is cut to eval_length ?
                 "--act_type", "PReLU",
                 "--norm_type", "BatchNorm",
                 "--channel_width", "32",
                 "--channel_growth", "32",
-                "--augment", "--batch_size", "8",
+                "--augment", "--batch_size", "16",
                 "--audio_sample_rate", "22050",
                 "--num_workers", "0",
                 "--reg_loss_type", "giou",
                 "--fcos",
-                "--lr", "1e-4",
+                "--lr", "1e-3",
                 "--postprocessing_type", "soft_nms",
-                //"--validation_fold", "0",
                 //"--pretrained",
+                "--validation_fold", "0",
                 "--backbone_type", "tcn2019"
                 // "--checkpoints_dir", "checkpoints"
             ],
