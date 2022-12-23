@@ -38,7 +38,7 @@ def configure_log():
 configure_log()
 
 #MJ: os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1" #MJ: for testing beat-fcos+ spectralTCN
+os.environ["CUDA_VISIBLE_DEVICES"] = "0" #MJ: for testing beat-fcos+ spectralTCN
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
