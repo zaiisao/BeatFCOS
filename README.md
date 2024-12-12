@@ -1,6 +1,6 @@
-# beat-retinanet
+# BeatFCOS
 
-Pytorch-implemented modified version of RetinaNet object detection model, as described in [Focal Loss for Dense Object Detection](https://arxiv.org/abs/1708.02002) by Tsung-Yi Lin et al,, used instead for the task of beat tracking in musical audio.
+Beat tracking model that uses a 1-D version of FCOS to detect beats and downbeats.
 
 ## Results
 
