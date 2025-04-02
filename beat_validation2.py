@@ -102,7 +102,7 @@ parser.add_argument('--pretrained', default=False, action="store_true")  #--pret
 parser.add_argument('--freeze_bn', default=False, action="store_true")
 parser.add_argument('--freeze_backbone', default=False, action="store_true")
 parser.add_argument('--centerness', default=False, action="store_true")
-parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
+parser.add_argument('--postprocessing_type', type=str, default='soft_nms')  #MJ: called with   "--postprocessing_type", "none" in the launch.json
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--backbone_type', type=str, default="wavebeat")
 parser.add_argument('--validation_fold', type=int, default=None)
@@ -132,7 +132,7 @@ torch.backends.cudnn.benchmark = True
 args.default_root_dir = os.path.join("lightning_logs", "full")
 print(args.default_root_dir)
 
-state_dicts = glob.glob('./ablation_tests/801010_frozen_backbone/*.pt')
+state_dicts = glob.glob('./*.pt') #glob.glob('./ablation_tests/801010_frozen_backbone/*.pt')
 start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:
@@ -256,7 +256,7 @@ if __name__ == '__main__':
         retinanet = model_module.resnet18(num_classes=2, **dict_args)
     elif args.depth == 34:
         retinanet = model_module.resnet34(num_classes=2, **dict_args)
-    elif args.depth == 50:
+    elif args.depth == 50: #MJ: This is the case
         retinanet = model_module.resnet50(num_classes=2, args=args, **dict_args)
     elif args.depth == 101:
         retinanet = model_module.resnet101(num_classes=2, **dict_args)
@@ -284,16 +284,45 @@ if __name__ == '__main__':
 
     print('Evaluating dataset')
 
-    _, _, results = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.2)
+    # max_threshs = [1, 0.7, 0.6, 0.5, 0.4, 0.2, 0.1, 0.05, 0]
+    max_threshs = [0.1, 0]
 
-    print(f"F1 beat: {np.mean([result['beat_scores']['F-measure'] for result in results])}")
-    print(f"CMLt beat: {np.mean([result['beat_scores']['Correct Metric Level Total'] for result in results])}")
-    print(f"CMLt beat: {np.mean([result['beat_scores']['Any Metric Level Total'] for result in results])}")
-    print()
-    print(f"F1 downbeat: {np.mean([result['downbeat_scores']['F-measure'] for result in results])}")
-    print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Correct Metric Level Total'] for result in results])}")
-    print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Any Metric Level Total'] for result in results])}")
-    print()
+    for i, max_thresh in enumerate(max_threshs):
+        if i + 1 == len(max_threshs):
+            break
+
+        min_thresh = max_threshs[i + 1]
+        _, _, results = evaluate_beat_f_measure(test_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=min_thresh, max_thresh=max_thresh)
+
+    # for iou_thresh in [0.3, 0.4]:
+    #     score_thresh = 0.05
+    #     _, _, results = evaluate_beat_f_measure(
+    #         test_dataloader,
+    #         retinanet,
+    #         args.audio_downsampling_factor,
+    #         score_threshold=score_thresh,
+    #         iou_threshold=iou_thresh
+    #     )
+
+        # print(f"Results with IOU threshold of {iou_thresh} and score threshold of {score_thresh}")
+        # print()
+        # print(f"F1 beat: {np.mean([result['beat_scores']['F-measure'] for result in results])}")
+        # print(f"CMLt beat: {np.mean([result['beat_scores']['Correct Metric Level Total'] for result in results])}")
+        # print(f"CMLt beat: {np.mean([result['beat_scores']['Any Metric Level Total'] for result in results])}")
+        # print()
+        # print(f"F1 downbeat: {np.mean([result['downbeat_scores']['F-measure'] for result in results])}")
+        # print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Correct Metric Level Total'] for result in results])}")
+        # print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Any Metric Level Total'] for result in results])}")
+        # print()
+
+    # print(f"F1 beat: {np.mean([result['beat_scores']['F-measure'] for result in results])}")
+    # print(f"CMLt beat: {np.mean([result['beat_scores']['Correct Metric Level Total'] for result in results])}")
+    # print(f"CMLt beat: {np.mean([result['beat_scores']['Any Metric Level Total'] for result in results])}")
+    # print()
+    # print(f"F1 downbeat: {np.mean([result['downbeat_scores']['F-measure'] for result in results])}")
+    # print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Correct Metric Level Total'] for result in results])}")
+    # print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Any Metric Level Total'] for result in results])}")
+    # print()
     #evaluate_beat_ap(test_dataloader, retinanet)
     
     # evaluate_beat_ap(test_dataloader, retinanet, args.audio_downsampling_factor)

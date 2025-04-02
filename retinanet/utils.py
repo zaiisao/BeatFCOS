@@ -274,7 +274,7 @@ def soft_nms(regression_boxes, box_scores, sigma=0.5, thresh=0.05, use_regular_n
     """
 
     # Indexes concatenate boxes with the last column
-    N = regression_boxes.shape[0]
+    N = regression_boxes.shape[0]  #MJ: N = 10022
     indexes = torch.arange(0, N, dtype=torch.float).to(regression_boxes.device).view(N, 1)
     dets = torch.cat((regression_boxes, indexes), dim=1)
 
@@ -289,18 +289,50 @@ def soft_nms(regression_boxes, box_scores, sigma=0.5, thresh=0.05, use_regular_n
     #areas = (x2 - x1 + 1) * (y2 - y1 + 1)
     areas = (x2 - x1 + 1) #* (y2 - y1 + 1)
 
+    scores_9     = torch.tensor([], device=x1.device)
+    scores_8     = torch.tensor([], device=x1.device)
+    scores_7     = torch.tensor([], device=x1.device)
+    scores_6     = torch.tensor([], device=x1.device)
+    scores_5     = torch.tensor([], device=x1.device)
+    scores_4     = torch.tensor([], device=x1.device)
+    scores_3     = torch.tensor([], device=x1.device)
+    scores_2     = torch.tensor([], device=x1.device)
+    scores_1     = torch.tensor([], device=x1.device)
+    scores_00001 = torch.tensor([], device=x1.device)
+    scores_less  = torch.tensor([], device=x1.device)
+    scores_0     = torch.tensor([], device=x1.device)
+
+    ious_9       = torch.tensor([], device=x1.device)
+    ious_8       = torch.tensor([], device=x1.device)
+    ious_7       = torch.tensor([], device=x1.device)
+    ious_6       = torch.tensor([], device=x1.device)
+    ious_5       = torch.tensor([], device=x1.device)
+    ious_4       = torch.tensor([], device=x1.device)
+    ious_3       = torch.tensor([], device=x1.device)
+    ious_2       = torch.tensor([], device=x1.device)
+    ious_1       = torch.tensor([], device=x1.device)
+    ious_00001   = torch.tensor([], device=x1.device)
+    ious_less    = torch.tensor([], device=x1.device)
+    ious_0       = torch.tensor([], device=x1.device)
+
     for i in range(N):
         # intermediate parameters for later parameters exchange
-        tscore = scores[i].clone()
+        tscore = scores[i].clone() 
         pos = i + 1
 
+        #MJ: compare the current box’s score (tscore) with the maximum score (maxscore) among the boxes that come after the current box.
         if i != N - 1:
-            maxscore, maxpos = torch.max(scores[pos:], dim=0)
+            maxscore, maxpos = torch.max(scores[pos:], dim=0) #MJ: get the max box in the following boxes after the current ith box
+            # Even though the tensor is one-dimensional in this context, specifying dim=0 is necessary when you want to obtain both the maximum value and its index. Without dim=0, you might only get the maximum value, 
             if tscore < maxscore:
-                dets[i], dets[maxpos.item() + i + 1] = dets[maxpos.item() + i + 1].clone(), dets[i].clone()
+                dets[i], dets[ maxpos.item() + i + 1]  = dets[ maxpos.item() + i + 1].clone(), dets[i].clone() # JA: dets[i] is the i'th box with its left position, right position, and index
                 scores[i], scores[maxpos.item() + i + 1] = scores[maxpos.item() + i + 1].clone(), scores[i].clone()
                 areas[i], areas[maxpos + i + 1] = areas[maxpos + i + 1].clone(), areas[i].clone()
-
+            #MJ: => This swaps the max box with the current box at the ith index;
+            #As the algorithm iterates through the boxes, the one with the highest score among the remaining boxes is always moved to the current position, 
+            #It  is a typical strategy in non-maximum suppression methods to prioritize the most confident detections.
+         
+        #MJ: now dets[i] plays the same role as M in the pseudo code of the soft-nms paper     
         # IoU calculate
         #yy1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
         #xx1 = np.maximum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
@@ -309,29 +341,96 @@ def soft_nms(regression_boxes, box_scores, sigma=0.5, thresh=0.05, use_regular_n
         
         #xx1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
         #xx2 = np.minimum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
-        xx1 = torch.maximum(dets[i, 0], dets[pos:, 0])
-        xx2 = torch.minimum(dets[i, 1], dets[pos:, 1])
+        xx1 = torch.maximum(dets[i, 0], dets[pos:, 0]) # JA: xx1 compares the i'th box's left with all following boxes' lefts
+        xx2 = torch.minimum(dets[i, 1], dets[pos:, 1]) # JA: xx2 compares the i'th box's right with all following boxes' rights
         
         #w = np.maximum(0.0, xx2 - xx1 + 1)
         w = xx2 - xx1 + 1
-        w = torch.clamp(w, min=0)
+        w = torch.clamp(w, min=0) # JA: w is the overlapping interval
 
         #h = np.maximum(0.0, yy2 - yy1 + 1)
         #inter = torch.tensor(w * h).to(dets.device)
         inter = torch.tensor(w).to(dets.device)
-        ovr = torch.div(inter, (areas[i] + areas[pos:] - inter))
+        ious = torch.div(inter, (areas[i] + areas[pos:] - inter))
 
-        if use_regular_nms == True:
-            weight = torch.where(ovr > sigma, torch.zeros(ovr.shape).to(ovr.device), torch.ones(ovr.shape).to(ovr.device))
-        else:
-            # Gaussian decay
-            weight = torch.exp(-(ovr * ovr) / sigma)
+        #MJ: ious= ious(M,b_i's) in the pseudo code of the paper
+        if use_regular_nms == True:  #MJ: sigma=0.5 is used as N_t in the pseudo code of the paper
+            weights = torch.where(ious > sigma, torch.zeros(ious.shape).to(ious.device), torch.ones(ious.shape).to(ious.device))
+        else: #MJ: sigma=0.5 
+            # Gaussian decay: 
+            weights = torch.exp(-(ious * ious) / sigma)
 
-        scores[pos:] = weight * scores[pos:]
+        #MJ: For every ith box, which is now the max score box, M, rescore all the remaining boxes b_i, using ious(M,b_i):
+        scores[pos:] = weights * scores[pos:]
 
+        #### JA: Following lines are added for debugging purpose => delete the debugging code from here
+        condition_9 = (ious > 0.9)
+        if condition_9.any():
+            scores_9 = torch.cat((scores_9, scores[pos:][condition_9]))
+            ious_9   = torch.cat((ious_9,   ious[condition_9]))
+
+        condition_8 = torch.logical_and(ious > 0.8, ious <= 0.9)
+        if condition_8.any():
+            scores_8 = torch.cat((scores_8, scores[pos:][condition_8]))
+            ious_8   = torch.cat((ious_8,   ious[condition_8]))
+
+        condition_7 = torch.logical_and(ious > 0.7, ious <= 0.8)
+        if condition_7.any():
+            scores_7 = torch.cat((scores_7, scores[pos:][condition_7]))
+            ious_7   = torch.cat((ious_7,   ious[condition_7]))
+
+        condition_6 = torch.logical_and(ious > 0.6, ious <= 0.7)
+        if condition_6.any():
+            scores_6 = torch.cat((scores_6, scores[pos:][condition_6]))
+            ious_6   = torch.cat((ious_6,   ious[condition_6]))
+
+        condition_5 = torch.logical_and(ious > 0.5, ious <= 0.6)
+        if condition_5.any():
+            scores_5 = torch.cat((scores_5, scores[pos:][condition_5]))
+            ious_5   = torch.cat((ious_5,   ious[condition_5]))
+
+        condition_4 = torch.logical_and(ious > 0.4, ious <= 0.5)
+        if condition_4.any():
+            scores_4 = torch.cat((scores_4, scores[pos:][condition_4]))
+            ious_4   = torch.cat((ious_4,   ious[condition_4]))
+
+        condition_3 = torch.logical_and(ious > 0.3, ious <= 0.4)
+        if condition_3.any():
+            scores_3 = torch.cat((scores_3, scores[pos:][condition_3]))
+            ious_3   = torch.cat((ious_3,   ious[condition_3]))
+
+        condition_2 = torch.logical_and(ious > 0.2, ious <= 0.3)
+        if condition_2.any():
+            scores_2 = torch.cat((scores_2, scores[pos:][condition_2]))
+            ious_2   = torch.cat((ious_2,   ious[condition_2]))
+
+        condition_1 = torch.logical_and(ious > 0.1, ious <= 0.2)
+        if condition_1.any():
+            scores_1 = torch.cat((scores_1, scores[pos:][condition_1]))
+            ious_1   = torch.cat((ious_1,   ious[condition_1]))
+
+        condition_00001 = torch.logical_and(ious > 0.00001, ious <= 0.1)
+        if condition_00001.any():
+            scores_00001 = torch.cat((scores_00001, scores[pos:][condition_00001]))
+            ious_00001   = torch.cat((ious_00001,   ious[condition_00001]))
+
+        condition_less = torch.logical_and(ious > 0, ious <= 0.00001)
+        if condition_less.any():
+            scores_less = torch.cat((scores_less, scores[pos:][condition_less]))
+            ious_less   = torch.cat((ious_less,   ious[condition_less]))
+
+        condition_0 = (ious == 0)
+        if condition_0.any():
+            scores_0 = torch.cat((scores_0, scores[pos:][condition_0]))
+            ious_0   = torch.cat((ious_0,   ious[condition_0]))
+        #### JA: Above lines are added for debugging purpose
+    #End for i in range(N):
+    
+    #MJ: Add the debugging code here
+    
     # select the boxes and keep the corresponding indexes
     #keep = dets[:, 4][scores > thresh].int()
-    keep = dets[:, 2][scores > thresh].long()
+    keep = dets[:, 2][scores > thresh].long() #MJ: sigma=0.5, thresh=0.05
 
     return keep
 

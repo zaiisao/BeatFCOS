@@ -10,8 +10,6 @@ from retinanet.anchors import Anchors
 from retinanet import losses
 from retinanet.losses2 import CombinedLoss
 from retinanet.dstcn import dsTCNModel
-from gossipnet.model.gnet import GNet
-from tcn2019.beat_tracking_tcn.models.beat_net import BeatNet
 
 model_urls = {
 #    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -264,6 +262,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
         if self.backbone_type == "wavebeat":
             self.dstcn = dsTCNModel(**kwargs)
         elif self.backbone_type == "tcn2019":
+            from tcn2019.beat_tracking_tcn.models.beat_net import BeatNet
             self.tcn2019 = BeatNet(downbeats=True)
             # self.tcn2019_last_output_conv = nn.Conv1d(
             #     self.tcn2019.tcn.blocks[-1].out_ch,
@@ -369,7 +368,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
             if isinstance(layer, nn.BatchNorm1d):
                 layer.eval()
 
-    def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05): #:forward_call = forward
+    def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05, max_thresh=1): #:forward_call = forward
         # inputs = audio, target
         # self.training = len(inputs) == 2
 
@@ -626,15 +625,15 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 #     anchors_list[i] + regression_output[0, :, 1] * stride
                 # ), dim=1).unsqueeze(dim=0)
 
-                # anchor_point_transform function assumes that the regression_outputs have the batch dimension: strides_for_all_anchors:Size=[5813]
+                # anchor_point_transform function assumes that the regression_outputs have the batch dimension
                 transformed_regression_boxes = self.anchor_point_transform(all_anchors, regression_outputs, strides_for_all_anchors)
-
+                #MJ: all_anchors: shape=[10022]; regression_outputs.shape = [1,10022,2]; strides_for_all_anchors.shape =torch.Size([10022])
                 #scores = torch.squeeze(classification_output[:, :, class_id])
             else:
                 transformed_regression_boxes = self.regressBoxes(torch.cat(anchors_list, dim=0).unsqueeze(dim=0), torch.cat(regression_outputs, dim=1))
 
             transformed_regression_boxes = self.clipBoxes(transformed_regression_boxes, audio_batch)
-
+            #MJ: audio_batch.shape = torch.Size([1, 1, 662016])
             for class_id in range(classification_outputs.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
                 if self.fcos:
                     scores = classification_outputs[:, :, class_id] * leftness_outputs[:, :, 0] # We predict the max number for beats will be less than the num of anchors
@@ -643,7 +642,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                     
                 #scores = scores / torch.max(scores)
 
-                scores_over_thresh = (scores > score_threshold)
+                scores_over_thresh = torch.logical_and(scores > score_threshold, scores <= max_thresh)
                 if scores_over_thresh.sum() == 0:
                     # no boxes to NMS, just continue
                     continue
@@ -665,6 +664,7 @@ class ResNet(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defi
                 # Otherwise both predictions are considered redundant so that one is removed.
 
                 if self.postprocessing_type == 'gnet':
+                    from gossipnet.model.gnet import GNet
                     gnet = GNet(numBlocks=4)
                     gnet.cuda()
                     checkpoint = torch.load(model_urls['gnet'])
