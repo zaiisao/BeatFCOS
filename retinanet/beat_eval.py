@@ -178,7 +178,7 @@ def compute_ap(recall, precision):
     ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     return ap
 
-def get_results_from_model(audio, target, model, iou_threshold=0.5, score_threshold=0.05):
+def get_results_from_model(audio, target, model, iou_threshold=0.5, score_threshold=0.05, max_thresh=1):
     #data = dataset[index]
     #scale = data['scale']
     #audio, target = data
@@ -202,8 +202,9 @@ def get_results_from_model(audio, target, model, iou_threshold=0.5, score_thresh
     predicted_scores, predicted_labels, predicted_boxes, losses = model( #MJ: shape =(15,) (15,) (15,2)
         (audio, target),
         iou_threshold=iou_threshold,
-        score_threshold=score_threshold
-    )
+        score_threshold=score_threshold,
+        max_thresh=max_thresh
+    ) #MJ: The results of model() has been obtained by applying the nms process
 
     predicted_scores = predicted_scores.cpu()
     predicted_labels = predicted_labels.cpu()
@@ -404,7 +405,8 @@ def evaluate_beat_ap(
 
     return average_precisions
 
-def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_threshold=0.20):
+def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_threshold=0.2, iou_threshold=0.5, max_thresh=1):
+# def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_threshold=0):
     model.eval()
     
     with torch.no_grad():
@@ -412,14 +414,21 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
         results = []
         #image_ids = []
 
+        all_beat_ious = []
+        all_downbeat_ious = []
+
         for index, data in enumerate(dataloader):
+            # if index >= 10:
+            #     break # Temporary code by JA to test only ten songs
+
             audio, target, metadata = data #MJ: audio: shape =(1,1,3000,81) =(B,C,H,W); target: shape=(1,56,3) =(B,L,C)
 
             # if we have metadata, it is only during evaluation where batch size is always 1
             metadata = metadata[0] #MJ: predicted_labels[] = all 0 = all downbeats?
         
-            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model, score_threshold=score_threshold)
-
+            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model, score_threshold=score_threshold, iou_threshold=iou_threshold, max_thresh=max_thresh)
+            #MJ: Note that the results predicted_scores, predicted_labels, predicted_boxes have been obtained by applying the nms process
+            
             #evaluate_ap(target, (predicted_scores, predicted_labels, predicted_boxes))
 
             # correct boxes for image scale
@@ -499,14 +508,19 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
                     last_pred_downbeat_index = right_position_index
                 elif predicted_label == 1 and (last_pred_beat_index is None or right_position_index > last_pred_beat_index):
                     last_pred_beat_index = right_position_index
-
+            #End  for box_id in range(predicted_boxes.shape[0]):
+            
             beat_scores = predicted_scores[predicted_labels == 1]
             beat_intervals = predicted_boxes[predicted_labels == 1][beat_scores >= score_threshold]
             if beat_scores.size(dim=0) == 0:
                 sorted_beat_intervals = beat_intervals
             else:
                 sorted_beat_intervals = beat_intervals[beat_intervals[:, 0].sort()[1]]
-            beat_ious = torch.zeros(1, 0).to(sorted_beat_intervals.device)
+                #MJ: beat_intervals[:, 0] accesses the first column of the beat_intervals array, which corresponds to the start time of each predicted beat interval.
+                #beat_intervals[:, 0].sort()[1]: This part selects the indices that would reorder the beat_intervals in ascending order of the start time.
+                #beat_intervals[beat_intervals[:, 0].sort()[1]]
+                
+            beat_ious = torch.zeros(1, 0).to(sorted_beat_intervals.device) #MJ: Shape (1, 0) means it is a tensor with one row and zero columns.
 
             downbeat_scores = predicted_scores[predicted_labels == 0]
             downbeat_intervals = predicted_boxes[predicted_labels == 0][downbeat_scores >= score_threshold]
@@ -556,6 +570,12 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
 
                 beat_iou = calc_iou(beat_interval[None], next_beat_interval[None])
                 beat_ious = torch.cat((beat_ious, beat_iou), dim=1)
+                #MJ: torch.cat((beat_ious, beat_iou), dim=1) adds the newly computed IoU value to the beat_ious tensor, 
+                # building the collection of IoU values over time.
+                #MJ: The result is that beat_ious will store the IoU values between all consecutive predicted beat intervals. 
+                # These values are accumulated over time, 
+                # giving you a collection of IoUs for all adjacent pairs of predicted beat intervals.
+
 
             for downbeat_index, downbeat_interval in enumerate(sorted_downbeat_intervals[:-1]):
                 next_downbeat_interval = sorted_downbeat_intervals[downbeat_index + 1]
@@ -565,6 +585,9 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
 
             # print(f"Beat IoUs: {beat_ious}")
             # print(f"Downbeat IoUs: {downbeat_ious}")
+
+            all_beat_ious += beat_ious.tolist()[0]
+            all_downbeat_ious += downbeat_ious.tolist()[0]
 
             if last_pred_beat_index is not None:
                 #wavebeat_format_pred_left[0, min(last_pred_beat_index, length - 1)] = 1
@@ -627,7 +650,8 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
                     last_target_downbeat_index = right_position_index
                 elif label == 1 and (last_target_beat_index is None or right_position_index > last_target_beat_index):
                     last_target_beat_index = right_position_index
-
+            #End for beat_interval in target[0]:
+            
             #wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
             #wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
             beat_target_left_positions.append(last_target_beat_index * audio_downsampling_factor / 22050)
@@ -799,7 +823,7 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
         # if not len(results):
         #     return
 
-        beat_mean_f_measure = np.mean([result['beat_scores']['F-measure'] for result in results])  #MJ: results = detection results
+        beat_mean_f_measure = np.mean([result['beat_scores']['F-measure'] for result in results])  #MJ: results = detection results of the batch of the test-dataset
         downbeat_mean_f_measure = np.mean([result['downbeat_scores']['F-measure'] for result in results])
         cls_loss_mean = np.mean([result['cls_loss'] for result in results])
         reg_loss_mean = np.mean([result['reg_loss'] for result in results])
@@ -830,6 +854,53 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
         print()
         # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
         # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
+
+        import matplotlib.pyplot as plt
+
+        def create_histogram(data, path, title):
+            total = len(data)
+
+            # Create histogram and capture the counts, bin edges, and patches
+            counts, bins, patches = plt.hist(data, bins=10, edgecolor='black')
+
+            # Calculate bin centers for annotation
+            bin_centers = 0.5 * (bins[1:] + bins[:-1])
+
+            # Annotate each bin with the count and percentage
+            for i, count in enumerate(counts):
+                if count > 0:  # Only annotate bins with at least one entry
+                    percentage = (count / total) * 100
+                    # Place text at the top of each bar
+                    plt.text(
+                        bin_centers[i],        # x position: center of bin
+                        count,                 # y position: bar height (count)
+                        f'{int(count)}\n({percentage:.1f}%)',
+                        ha='center',           # horizontally center text
+                        va='bottom'            # place text above the bar
+                    )
+
+            # Add labels and title
+            plt.xlabel('IoU')
+            plt.ylabel('Frequency')
+            plt.title(title)
+
+            # Save the plot as a PNG file
+            plt.savefig(path)
+
+            # Close the plot to free up memory
+            plt.close()
+        #End def create_histogram(data, path, title):
+        
+
+        create_histogram(
+            all_beat_ious, f"beat_histogram_{score_threshold}.png",
+            f"Beat Histogram Before NMS (threshold = {score_threshold}~{max_thresh})"
+        )
+
+        create_histogram(
+            all_downbeat_ious, f"downbeat_histogram_{score_threshold}.png",
+            f"Downbeat Histogram Before NMS (threshold = {score_threshold}~{max_thresh})"
+        )
 
         model.train()
 

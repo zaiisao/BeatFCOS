@@ -230,7 +230,7 @@ def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor,
         #assigned_annotations_for_anchors_per_level = annotations_per_class[argmax_boolean_indices_to_bboxes_for_anchors]
 
         assigned_annotations_for_anchors_per_level = jth_annotations[indices_to_min_bboxes_for_anchors] # Among the annotations, choose the ones associated with box with minimum area
-        assigned_annotations_for_anchors_per_level[min_areas_for_anchors == INF, 2] = 0 # Assigned background class label to the anchor boxes whose min area with respect to the bboxes is INF
+        assigned_annotations_for_anchors_per_level[min_areas_for_anchors == INF, 2] = 0 # Assigned background class label 0  to the anchor boxes whose min area with respect to the bboxes is INF
         
         # boolean_indices_to_min_bboxes_for_anchors[i] represents the index to the min area of anchor i
         # If the areas of all boxes are INF, this index will be 0
@@ -635,6 +635,196 @@ class AdjacencyConstraintLoss(nn.Module):
 
         return all_adjacency_constraint_losses.mean()
 
+class AdjacencyConstraintLossNonVectorized(nn.Module):
+    def __init__(self):
+        super(AdjacencyConstraintLossNonVectorized, self).__init__()
+        self.anchor_point_transform = AnchorPointTransform()
+
+    #MJ:  (l, r) <-> (x1, x2): At the left end (x1) of the downbeat interval and the the left end (x1) of the beat interval
+    def calculate_downbeat_and_beat_x1_loss(
+        self,
+        transformed_target_regression_boxes,
+        transformed_pred_regression_boxes,
+        boolean_indices_to_downbeats_for_positive_anchors,
+        boolean_indices_to_beats_for_positive_anchors,
+        effective_audio_length
+    ):
+        device = transformed_target_regression_boxes.device
+        eps = 1.0  # clamp floor for divisor, same as vectorized version
+
+        # Gather the indices
+        #   Example: downbeat_indices = [i for i in range(N) if boolean_indices_to_downbeats_for_positive_anchors[i]]
+        downbeat_indices = torch.nonzero(boolean_indices_to_downbeats_for_positive_anchors).flatten()
+        beat_indices = torch.nonzero(boolean_indices_to_beats_for_positive_anchors).flatten()
+
+        # If either set is empty, no possible incidences
+        if (len(downbeat_indices) == 0) or (len(beat_indices) == 0):
+            return torch.tensor(0.0, device=device, dtype=torch.float32)
+
+        # Convert to a scalar so we can do the exact same division
+        effective_audio_length = torch.clamp(effective_audio_length, min=eps).item()
+
+        loss_val = 0.0
+
+        # Loop over all downbeat anchors
+        for i_db in downbeat_indices:
+            # target & pred x1 for downbeat
+            t_db_x1 = transformed_target_regression_boxes[i_db, 0].item()
+            p_db_x1 = transformed_pred_regression_boxes[i_db, 0].item()
+
+            # For each beat anchor
+            for i_b in beat_indices:
+                t_b_x1 = transformed_target_regression_boxes[i_b, 0].item()
+                p_b_x1 = transformed_pred_regression_boxes[i_b, 0].item()
+
+                # Check if the target x1 positions *match* (i.e. same event) 
+                if t_db_x1 == t_b_x1:
+                    diff = (p_db_x1 - p_b_x1) / effective_audio_length
+                    loss_val += diff * diff
+
+        return torch.tensor(loss_val, device=device, dtype=torch.float32)
+
+    #MJ:  (l, r) <-> (x1, x2): At the right end (x2) of the beat/downbeat interval and the the left end (x1) of the beat/downbeat interval
+    def calculate_x2_and_x1_loss(
+        self,
+        transformed_target_regression_boxes,
+        transformed_pred_regression_boxes,
+        boolean_indices_to_classes_for_positive_anchors,
+        effective_audio_length
+    ):
+        """
+        Non-vectorized version of calculate_x2_and_x1_loss
+        """
+        device = transformed_target_regression_boxes.device
+        eps = 1.0
+
+        # Indices for the chosen class
+        class_indices = torch.nonzero(boolean_indices_to_classes_for_positive_anchors).flatten()
+        if len(class_indices) == 0:
+            return torch.tensor(0.0, device=device, dtype=torch.float32)
+
+        effective_audio_length = torch.clamp(effective_audio_length, min=eps).item()
+
+        loss_val = 0.0
+
+        # We are comparing 'x2' vs 'x1' anchors *within* this class
+        for i_a in class_indices:
+            # Target & predicted for anchor i_a
+            t_a_x2 = transformed_target_regression_boxes[i_a, 1].item()
+            
+            p_a_x2 = transformed_pred_regression_boxes[i_a, 1].item()
+            t_a_x1 = transformed_target_regression_boxes[i_a, 0].item()
+            p_a_x1 = transformed_pred_regression_boxes[i_a, 0].item()
+
+            for i_b in class_indices:
+                # Compare anchor i_b
+                t_b_x2 = transformed_target_regression_boxes[i_b, 1].item()
+                p_b_x2 = transformed_pred_regression_boxes[i_b, 1].item()
+                
+                t_b_x1 = transformed_target_regression_boxes[i_b, 0].item()
+                
+                p_b_x1 = transformed_pred_regression_boxes[i_b, 0].item()
+
+                # Incidence means t_a_x2 == t_b_x1
+                if t_a_x2 == t_b_x1:
+                    diff = (p_a_x2 - p_b_x1) / effective_audio_length
+                    loss_val += diff * diff
+
+        return torch.tensor(loss_val, device=device, dtype=torch.float32)
+
+
+    def forward(
+        self,
+        jth_classification_targets,
+        jth_regression_pred,
+        jth_regression_targets,
+        jth_positive_anchor_points,
+        jth_positive_anchor_strides,
+        jth_annotations
+    ):
+        """
+        Equivalent to the vectorized forward() in your example code,
+        but the sub‐losses call the non‐vectorized functions above.
+        """
+        device = jth_classification_targets.device
+
+        # Boolean indexing for downbeats & beats: jth_classification_targets: shape=[144,2]
+        boolean_indices_to_downbeats_for_positive_anchors = (jth_classification_targets[:, 0] == 1)
+        boolean_indices_to_beats_for_positive_anchors = (jth_classification_targets[:, 1] == 1)
+
+        # We get the earliest and latest times for downbeats & beats
+        # (Same as in your code)
+        downbeat_times = jth_annotations[ jth_annotations[:, 2] == 0, :2]
+        beat_times     = jth_annotations[ jth_annotations[:, 2] == 1, :2]
+
+        downbeat_lengths = downbeat_times[:, 1] - downbeat_times[:, 0]  # (r - l)
+        beat_lengths     = beat_times[:, 1] - beat_times[:, 0]
+
+        max_downbeat_length = torch.max(downbeat_lengths) if len(downbeat_lengths) else 1.0
+        max_beat_length     = torch.max(beat_lengths)     if len(beat_lengths)     else 1.0
+
+        first_downbeat = torch.min(downbeat_times[:, 0]) if len(downbeat_times) else torch.tensor(0.0, device=device)
+        last_downbeat  = torch.max(downbeat_times[:, 1]) if len(downbeat_times) else torch.tensor(0.0, device=device)
+        first_beat     = torch.min(beat_times[:, 0])     if len(beat_times)     else torch.tensor(0.0, device=device)
+        last_beat      = torch.max(beat_times[:, 1])     if len(beat_times)     else torch.tensor(0.0, device=device)
+
+        # Divisors for each sub‐loss
+        downbeat_and_beat_x1_loss_divisor = torch.max(last_beat, last_downbeat) - torch.min(first_beat, first_downbeat)
+        downbeat_x2_and_x1_loss_divisor   = last_downbeat - first_downbeat
+        beat_x2_and_x1_loss_divisor       = last_beat - first_beat
+
+        # Transform from (l, r) -> (x1, x2)
+        # to replicate "calculate_downbeat_and_beat_x1_loss" and "calculate_x2_and_x1_loss"
+        jth_regression_targets_1xm = jth_regression_targets[None]
+        jth_regression_pred_1xn    = jth_regression_pred[None]
+
+        # (B=1, N, 2)
+        transformed_target_regression_boxes_batch = self.anchor_point_transform(
+            jth_positive_anchor_points,
+            jth_regression_targets_1xm,
+            jth_positive_anchor_strides
+        )
+        transformed_target_regression_boxes = transformed_target_regression_boxes_batch[0, :, :]
+
+        transformed_pred_regression_boxes_batch = self.anchor_point_transform(
+            jth_positive_anchor_points,
+            jth_regression_pred_1xn,
+            jth_positive_anchor_strides
+        )
+        transformed_pred_regression_boxes = transformed_pred_regression_boxes_batch[0, :, :]
+
+        # Compute each part of the adjacency constraint
+        downbeat_and_beat_x1_loss = self.calculate_downbeat_and_beat_x1_loss(
+            transformed_target_regression_boxes,
+            transformed_pred_regression_boxes,
+            boolean_indices_to_downbeats_for_positive_anchors,
+            boolean_indices_to_beats_for_positive_anchors,
+            downbeat_and_beat_x1_loss_divisor,
+        )
+
+        downbeat_x2_and_x1_loss = self.calculate_x2_and_x1_loss(
+            transformed_target_regression_boxes,
+            transformed_pred_regression_boxes,
+            boolean_indices_to_downbeats_for_positive_anchors,
+            downbeat_x2_and_x1_loss_divisor
+        )
+
+        beat_x2_and_x1_loss = self.calculate_x2_and_x1_loss(
+            transformed_target_regression_boxes,
+            transformed_pred_regression_boxes,
+            boolean_indices_to_beats_for_positive_anchors,
+            beat_x2_and_x1_loss_divisor
+        )
+
+        # Sum (or average) the three losses
+        all_adjacency_constraint_losses = torch.stack([
+            downbeat_and_beat_x1_loss,
+            downbeat_x2_and_x1_loss,
+            beat_x2_and_x1_loss
+        ])
+
+        return all_adjacency_constraint_losses.mean()
+
 class CombinedLoss(nn.Module):
     def __init__(self, audio_downsampling_factor, centerness=False):
         super(CombinedLoss, self).__init__()
@@ -642,7 +832,9 @@ class CombinedLoss(nn.Module):
         self.classification_loss = FocalLoss()
         self.regression_loss = RegressionLoss()
         self.leftness_loss = LeftnessLoss()
+        #MJ: for debugging
         self.adjacency_constraint_loss = AdjacencyConstraintLoss()
+        #self.adjacency_constraint_loss = AdjacencyConstraintLossNonVectorized()
         
         self.audio_downsampling_factor = audio_downsampling_factor
         self.centerness = centerness
@@ -801,6 +993,17 @@ class CombinedLoss(nn.Module):
                 jth_annotations
             )
 
+            # jth_adjacency_constraint_loss2 = self.adjacency_constraint_loss2(
+            #     jth_classification_targets[positive_anchor_indices],
+            #     jth_regression_pred[positive_anchor_indices],
+            #     jth_regression_targets[positive_anchor_indices],
+            #     all_anchor_points[positive_anchor_indices],
+            #     strides_for_all_anchors[positive_anchor_indices],
+            #     jth_annotations
+            # )
+
+            # if not torch.isclose(jth_adjacency_constraint_loss, jth_adjacency_constraint_loss2):
+            #     raise ValueError
             # torch.set_printoptions(sci_mode=False, edgeitems=100000000, linewidth=10000)
             # concatenated_output = torch.cat((
             #     jth_classification_targets[positive_anchor_indices],
