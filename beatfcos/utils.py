@@ -102,120 +102,11 @@ class BasicBlock(nn.Module):
 
         return out
 
-
-class Bottleneck(nn.Module):
-    expansion = 4  #Class field?
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        # self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        # self.bn1 = nn.BatchNorm2d(planes)
-        # self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-        #                        padding=1, bias=False)
-        # self.bn2 = nn.BatchNorm2d(planes)
-        # self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        # self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.conv1 = nn.Conv1d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm1d(planes)
-        self.conv2 = nn.Conv1d(planes, planes, kernel_size=3, stride=stride,
-                               padding=1, bias=False)
-        self.bn2 = nn.BatchNorm1d(planes)
-        self.conv3 = nn.Conv1d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm1d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-
-        out = self.conv3(out)
-        out = self.bn3(out)
-
-        if self.downsample is not None:
-            residual = self.downsample(x)
-
-        out += residual
-        out = self.relu(out)
-
-        return out
-
-class BBoxTransform(nn.Module):
-
-    def __init__(self, mean=None, std=None):
-        super(BBoxTransform, self).__init__()
-        if mean is None:
-            if torch.cuda.is_available():
-                #self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32)).cuda()
-                self.mean = torch.from_numpy(np.array([0, 0]).astype(np.float32)).cuda()
-            else:
-                #self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
-                self.mean = torch.from_numpy(np.array([0, 0]).astype(np.float32))
-
-        else:
-            self.mean = mean
-        if std is None:
-            if torch.cuda.is_available():
-                #self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32)).cuda()
-                self.std = torch.from_numpy(np.array([0.1, 0.2]).astype(np.float32)).cuda()
-            else:
-                #self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
-                self.std = torch.from_numpy(np.array([0.1, 0.2]).astype(np.float32))
-        else:
-            self.std = std
-
-    def forward(self, boxes, deltas):
-
-        #widths  = boxes[:, :, 2] - boxes[:, :, 0]
-        widths  = boxes[:, :, 1] - boxes[:, :, 0]
-        #heights = boxes[:, :, 3] - boxes[:, :, 1]
-        ctr_x   = boxes[:, :, 0] + 0.5 * widths
-        #ctr_y   = boxes[:, :, 1] + 0.5 * heights
-
-        dx = deltas[:, :, 0] * self.std[0] + self.mean[0]
-        #dy = deltas[:, :, 1] * self.std[1] + self.mean[1]
-        #dw = deltas[:, :, 2] * self.std[2] + self.mean[2]
-        dw = deltas[:, :, 1] * self.std[1] + self.mean[1]
-        #dh = deltas[:, :, 3] * self.std[3] + self.mean[3]
-
-        pred_ctr_x = ctr_x + dx * widths
-        #pred_ctr_y = ctr_y + dy * heights
-        pred_w     = torch.exp(dw) * widths
-        #pred_h     = torch.exp(dh) * heights
-
-        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
-        #pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
-        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
-        #pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
-
-        #pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
-        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_x2], dim=2)
-
-        return pred_boxes
-
 class AnchorPointTransform(nn.Module):
     def __init__(self):
         super(AnchorPointTransform, self).__init__()
 
     def forward(self, all_anchors, regression_outputs, strides_for_all_anchors):
-        # regression_outputs[:, :, 0] shape is (B, number of anchors)
-        # regression_outputs[:, :, 1] shape is (B, number of anchors)
-        # all_anchors shape is (number of anchors,) -> (None, number of anchors)
-        # strides_for_all_anchors shape is (number of anchors,) -> (None, number of anchors)
-
-        # print(f"all_anchors[None] shape: {all_anchors[None].shape}")
-        # print(f"regression_outputs shape: {regression_outputs.shape}")
-        # print(f"regression_outputs[:, :, 0] shape: {regression_outputs[:, :, 0].shape}")
-        # print(f"strides_for_all_anchors[None] shape: {strides_for_all_anchors[None].shape}")
-
         transformed_regressions_x1 = all_anchors[None] - regression_outputs[:, :, 0] * strides_for_all_anchors[None]
         transformed_regressions_x2 = all_anchors[None] + regression_outputs[:, :, 1] * strides_for_all_anchors[None]
 
@@ -242,11 +133,7 @@ class ClipBoxes(nn.Module):
             raise NotImplementedError
 
         boxes[:, :, 0] = torch.clamp(boxes[:, :, 0], min=0)
-        #boxes[:, :, 1] = torch.clamp(boxes[:, :, 1], min=0)
-
-        #boxes[:, :, 2] = torch.clamp(boxes[:, :, 2], max=width)
         boxes[:, :, 1] = torch.clamp(boxes[:, :, 1], max=width)
-        #boxes[:, :, 3] = torch.clamp(boxes[:, :, 3], max=height)
       
         return boxes
 
@@ -279,41 +166,11 @@ def soft_nms(regression_boxes, box_scores, sigma=0.5, thresh=0.05, use_regular_n
     dets = torch.cat((regression_boxes, indexes), dim=1)
 
     # The order of boxes coordinate is [y1,x1,y2,x2]
-    #y1 = dets[:, 0]
-    #x1 = dets[:, 1]
-    #y2 = dets[:, 2]
-    #x2 = dets[:, 3]
+
     x1 = dets[:, 0]
     x2 = dets[:, 1]
     scores = box_scores.clone()
-    #areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    areas = (x2 - x1 + 1) #* (y2 - y1 + 1)
-
-    scores_9     = torch.tensor([], device=x1.device)
-    scores_8     = torch.tensor([], device=x1.device)
-    scores_7     = torch.tensor([], device=x1.device)
-    scores_6     = torch.tensor([], device=x1.device)
-    scores_5     = torch.tensor([], device=x1.device)
-    scores_4     = torch.tensor([], device=x1.device)
-    scores_3     = torch.tensor([], device=x1.device)
-    scores_2     = torch.tensor([], device=x1.device)
-    scores_1     = torch.tensor([], device=x1.device)
-    scores_00001 = torch.tensor([], device=x1.device)
-    scores_less  = torch.tensor([], device=x1.device)
-    scores_0     = torch.tensor([], device=x1.device)
-
-    ious_9       = torch.tensor([], device=x1.device)
-    ious_8       = torch.tensor([], device=x1.device)
-    ious_7       = torch.tensor([], device=x1.device)
-    ious_6       = torch.tensor([], device=x1.device)
-    ious_5       = torch.tensor([], device=x1.device)
-    ious_4       = torch.tensor([], device=x1.device)
-    ious_3       = torch.tensor([], device=x1.device)
-    ious_2       = torch.tensor([], device=x1.device)
-    ious_1       = torch.tensor([], device=x1.device)
-    ious_00001   = torch.tensor([], device=x1.device)
-    ious_less    = torch.tensor([], device=x1.device)
-    ious_0       = torch.tensor([], device=x1.device)
+    areas = (x2 - x1 + 1)
 
     for i in range(N):
         # intermediate parameters for later parameters exchange
@@ -334,13 +191,6 @@ def soft_nms(regression_boxes, box_scores, sigma=0.5, thresh=0.05, use_regular_n
          
         #MJ: now dets[i] plays the same role as M in the pseudo code of the soft-nms paper     
         # IoU calculate
-        #yy1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
-        #xx1 = np.maximum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
-        #yy2 = np.minimum(dets[i, 2].to("cpu").numpy(), dets[pos:, 2].to("cpu").numpy())
-        #xx2 = np.minimum(dets[i, 3].to("cpu").numpy(), dets[pos:, 3].to("cpu").numpy())
-        
-        #xx1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
-        #xx2 = np.minimum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
         xx1 = torch.maximum(dets[i, 0], dets[pos:, 0]) # JA: xx1 compares the i'th box's left with all following boxes' lefts
         xx2 = torch.minimum(dets[i, 1], dets[pos:, 1]) # JA: xx2 compares the i'th box's right with all following boxes' rights
         
@@ -362,72 +212,8 @@ def soft_nms(regression_boxes, box_scores, sigma=0.5, thresh=0.05, use_regular_n
 
         #MJ: For every ith box, which is now the max score box, M, rescore all the remaining boxes b_i, using ious(M,b_i):
         scores[pos:] = weights * scores[pos:]
-
-        #### JA: Following lines are added for debugging purpose => delete the debugging code from here
-        condition_9 = (ious > 0.9)
-        if condition_9.any():
-            scores_9 = torch.cat((scores_9, scores[pos:][condition_9]))
-            ious_9   = torch.cat((ious_9,   ious[condition_9]))
-
-        condition_8 = torch.logical_and(ious > 0.8, ious <= 0.9)
-        if condition_8.any():
-            scores_8 = torch.cat((scores_8, scores[pos:][condition_8]))
-            ious_8   = torch.cat((ious_8,   ious[condition_8]))
-
-        condition_7 = torch.logical_and(ious > 0.7, ious <= 0.8)
-        if condition_7.any():
-            scores_7 = torch.cat((scores_7, scores[pos:][condition_7]))
-            ious_7   = torch.cat((ious_7,   ious[condition_7]))
-
-        condition_6 = torch.logical_and(ious > 0.6, ious <= 0.7)
-        if condition_6.any():
-            scores_6 = torch.cat((scores_6, scores[pos:][condition_6]))
-            ious_6   = torch.cat((ious_6,   ious[condition_6]))
-
-        condition_5 = torch.logical_and(ious > 0.5, ious <= 0.6)
-        if condition_5.any():
-            scores_5 = torch.cat((scores_5, scores[pos:][condition_5]))
-            ious_5   = torch.cat((ious_5,   ious[condition_5]))
-
-        condition_4 = torch.logical_and(ious > 0.4, ious <= 0.5)
-        if condition_4.any():
-            scores_4 = torch.cat((scores_4, scores[pos:][condition_4]))
-            ious_4   = torch.cat((ious_4,   ious[condition_4]))
-
-        condition_3 = torch.logical_and(ious > 0.3, ious <= 0.4)
-        if condition_3.any():
-            scores_3 = torch.cat((scores_3, scores[pos:][condition_3]))
-            ious_3   = torch.cat((ious_3,   ious[condition_3]))
-
-        condition_2 = torch.logical_and(ious > 0.2, ious <= 0.3)
-        if condition_2.any():
-            scores_2 = torch.cat((scores_2, scores[pos:][condition_2]))
-            ious_2   = torch.cat((ious_2,   ious[condition_2]))
-
-        condition_1 = torch.logical_and(ious > 0.1, ious <= 0.2)
-        if condition_1.any():
-            scores_1 = torch.cat((scores_1, scores[pos:][condition_1]))
-            ious_1   = torch.cat((ious_1,   ious[condition_1]))
-
-        condition_00001 = torch.logical_and(ious > 0.00001, ious <= 0.1)
-        if condition_00001.any():
-            scores_00001 = torch.cat((scores_00001, scores[pos:][condition_00001]))
-            ious_00001   = torch.cat((ious_00001,   ious[condition_00001]))
-
-        condition_less = torch.logical_and(ious > 0, ious <= 0.00001)
-        if condition_less.any():
-            scores_less = torch.cat((scores_less, scores[pos:][condition_less]))
-            ious_less   = torch.cat((ious_less,   ious[condition_less]))
-
-        condition_0 = (ious == 0)
-        if condition_0.any():
-            scores_0 = torch.cat((scores_0, scores[pos:][condition_0]))
-            ious_0   = torch.cat((ious_0,   ious[condition_0]))
-        #### JA: Above lines are added for debugging purpose
     #End for i in range(N):
-    
-    #MJ: Add the debugging code here
-    
+
     # select the boxes and keep the corresponding indexes
     #keep = dets[:, 4][scores > thresh].int()
     keep = dets[:, 2][scores > thresh].long() #MJ: sigma=0.5, thresh=0.05

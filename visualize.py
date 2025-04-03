@@ -14,7 +14,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, models, transforms
 
-from retinanet.dataloader import CocoDataset, CSVDataset, collater, Resizer, AspectRatioBasedSampler, Augmenter, \
+from beatfcos.dataloader import CocoDataset, CSVDataset, collater, Resizer, AspectRatioBasedSampler, Augmenter, \
 	UnNormalizer, Normalizer
 
 
@@ -24,7 +24,7 @@ print('CUDA available: {}'.format(torch.cuda.is_available()))
 
 
 def main(args=None):
-	parser = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
+	parser = argparse.ArgumentParser(description='Simple training script for training a BeatFCOS network.')
 
 	parser.add_argument('--dataset', help='Dataset type, must be one of csv or coco.')
 	parser.add_argument('--coco_path', help='Path to COCO directory')
@@ -45,20 +45,20 @@ def main(args=None):
 	sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=1, drop_last=False)
 	dataloader_val = DataLoader(dataset_val, num_workers=1, collate_fn=collater, batch_sampler=sampler_val)
 
-	retinanet = torch.load(parser.model)
+	beatfcos = torch.load(parser.model)
 
 	use_gpu = True
 
 	if use_gpu:
 		if torch.cuda.is_available():
-			retinanet = retinanet.cuda()
+			beatfcos = beatfcos.cuda()
 
 	if torch.cuda.is_available():
-		retinanet = torch.nn.DataParallel(retinanet).cuda()
+		beatfcos = torch.nn.DataParallel(beatfcos).cuda()
 	else:
-		retinanet = torch.nn.DataParallel(retinanet)
+		beatfcos = torch.nn.DataParallel(beatfcos)
 
-	retinanet.eval()
+	beatfcos.eval()
 
 	unnormalize = UnNormalizer()
 
@@ -73,9 +73,9 @@ def main(args=None):
 		with torch.no_grad():
 			st = time.time()
 			if torch.cuda.is_available():
-				scores, classification, transformed_anchors = retinanet(data['img'].cuda().float())
+				scores, classification, transformed_anchors = beatfcos(data['img'].cuda().float())
 			else:
-				scores, classification, transformed_anchors = retinanet(data['img'].float())
+				scores, classification, transformed_anchors = beatfcos(data['img'].float())
 			print('Elapsed time: {}'.format(time.time()-st))
 			idxs = np.where(scores.cpu()>0.5)
 			img = np.array(255 * unnormalize(data['img'][0, :, :, :])).copy()

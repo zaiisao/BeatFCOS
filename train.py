@@ -13,9 +13,9 @@ import traceback
 import sys
 from os.path import join as ospj
 
-from retinanet import model_module
-from retinanet.dataloader import BeatDataset, collater
-from retinanet.beat_eval import evaluate_beat_f_measure
+from beatfcos import model_module
+from beatfcos.dataloader import BeatDataset, collater
+from beatfcos.beat_eval import evaluate_beat_f_measure
 
 class Logger(object):
     """Log stdout messages."""
@@ -37,8 +37,7 @@ def configure_log():
 
 configure_log()
 
-#MJ: os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0" #MJ: for testing beat-fcos+ spectralTCN
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -59,8 +58,7 @@ parser.add_argument('--rwc_popular_annot_dir', type=str, default=None)
 parser.add_argument('--carnatic_audio_dir', type=str, default=None)
 parser.add_argument('--carnatic_annot_dir', type=str, default=None)
 parser.add_argument('--preload', action="store_true")
-parser.add_argument('--audio_sample_rate', type=int, default=44100)
-# parser.add_argument('--audio_downsampling_factor', type=int, default=256) # block 하나당 곱하기 2
+parser.add_argument('--audio_sample_rate', type=int, default=22050)
 parser.add_argument('--audio_downsampling_factor', type=int, default=128) # block 하나당 곱하기 2
 parser.add_argument('--shuffle', type=bool, default=True)
 parser.add_argument('--train_subset', type=str, default='train')
@@ -72,7 +70,6 @@ parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--num_workers', type=int, default=0)
 parser.add_argument('--augment', action='store_true')
 parser.add_argument('--dry_run', action='store_true')
-parser.add_argument('--depth', default=50)
 parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
 parser.add_argument('--lr', type=float, default=1e-2)
 parser.add_argument('--patience', type=int, default=10)
@@ -91,11 +88,8 @@ parser.add_argument('--causal', default=False, action="store_true")
 parser.add_argument('--skip_connections', default=False, action="store_true")
 parser.add_argument('--norm_type', type=str, default='BatchNorm')
 parser.add_argument('--act_type', type=str, default='PReLU')
-parser.add_argument('--fcos', action='store_true')
-parser.add_argument('--reg_loss_type', type=str, default='l1')
 parser.add_argument('--downbeat_weight', type=float, default=0.6)
 parser.add_argument('--pretrained', default=False, action="store_true")
-parser.add_argument('--freeze_bn', default=False, action="store_true")
 parser.add_argument('--freeze_backbone', default=False, action="store_true")
 parser.add_argument('--centerness', default=False, action="store_true")
 parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
@@ -134,7 +128,7 @@ checkpoint_path = None
 
 if len(state_dicts) > 0:
     checkpoint_path = state_dicts[-1]
-    start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
+    start_epoch = int(re.search("beatfcos_(.*).pt", checkpoint_path).group(1)) + 1
     print("loaded:" + checkpoint_path)
 else:
     print("no checkpoint found")
@@ -216,105 +210,38 @@ val_dataloader = torch.utils.data.DataLoader(val_dataset_list,
 
 dict_args = vars(args)
 
-#MJ: The commandline on the terminal:
-
-# From https://github.com/csteinmetz1/wavebeat
-# python train.py \
-# --ballroom_audio_dir /path/to/BallroomData \
-# --ballroom_annot_dir /path/to/BallroomAnnotations \
-# --beatles_audio_dir /path/to/The_Beatles \
-# --beatles_annot_dir /path/to/The_Beatles_Annotations/beat/The_Beatles \
-# --hainsworth_audio_dir /path/to/hainsworth/wavs \   ?
-# --hainsworth_annot_dir /path/to/hainsworth/beat \
-# --rwc_popular_audio_dir /path/to/rwc_popular/audio \
-# --rwc_popular_annot_dir /path/to/rwc_popular/beat \
-# --gpus 1 \          ?
-# --preload \
-# --precision 16 \    ?
-# --patience 10 \
-# --train_length 2097152 \
-# --eval_length 2097152 \
-# --model_type dstcn \
-# --act_type PReLU \
-# --norm_type BatchNorm \
-# --channel_width 32 \
-# --channel_growth 32 \
-# --augment \
-# --batch_size 16 \
-# --lr 1e-3 \                 ?
-# --gradient_clip_val 4.0 \  ?
-# --audio_sample_rate 22050 \
-# --num_workers 24 \  ?
-# --max_epochs 100 \
-
-
-
-#OURS (? Colab?): python train.py --ballroom_audio_dir ../../beat-tracking-dataset/labeled_data/train/br_test/data 
-# --ballroom_annot_dir ../../beat-tracking-dataset/labeled_data/train/br_test/label --preload --patience 10 
-# --train_length 2097152 --eval_length 2097152 --act_type PReLU --norm_type BatchNorm --channel_width 32 --channel_growth 32 
-# --augment --batch_size 1 --audio_sample_rate 22050 --num_workers 0
-
-#MJ: print( dict_args) ?
-
 if __name__ == '__main__':
     # Create the model
-    if args.depth == 18:
-        retinanet = model_module.resnet18(num_classes=2, **dict_args)
-    elif args.depth == 34:
-        retinanet = model_module.resnet34(num_classes=2, **dict_args)
-    elif args.depth == 50:
-        retinanet = model_module.resnet50(num_classes=2, args=args, **dict_args)
-    elif args.depth == 101:
-        retinanet = model_module.resnet101(num_classes=2, **dict_args)
-    elif args.depth == 152:
-        retinanet = model_module.resnet152(num_classes=2, **dict_args)
-    else:
-        raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
-
-    use_gpu = True
-
-    if use_gpu:
-        if torch.cuda.is_available():
-            retinanet = retinanet.cuda()
+    beatfcos = model_module.create_beatfcos_model(num_classes=2, args=args, **dict_args)
 
     if torch.cuda.is_available():
-        retinanet = torch.nn.DataParallel(retinanet).cuda()
+        beatfcos = torch.nn.DataParallel(beatfcos.cuda())
     else:
-        retinanet = torch.nn.DataParallel(retinanet)
+        beatfcos = torch.nn.DataParallel(beatfcos)
 
     if checkpoint_path:
-        retinanet.load_state_dict(torch.load(
+        beatfcos.load_state_dict(torch.load(
             checkpoint_path,
             torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         ))
 
-    retinanet.training = True
+    beatfcos.training = True
 
-    optimizer = torch.optim.Adam(retinanet.parameters(), lr=args.lr, weight_decay=1e-4) # Default weight decay is 0
-
+    optimizer = torch.optim.Adam(beatfcos.parameters(), lr=args.lr, weight_decay=1e-4) # Default weight decay is 0
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=args.patience, verbose=True)
-
     loss_hist = collections.deque(maxlen=500)
 
-    retinanet.train()
-    #retinanet.module.freeze_bn()
+    beatfcos.train()
 
     print('Num training images: {}'.format(len(train_dataset_list)))
 
     if not os.path.exists("./checkpoints"):
         os.makedirs("./checkpoints")
 
-    classification_loss_weight = 1#0.6
-    regression_loss_weight = 1#0.4
-    adjacency_constraint_loss_weight = 1#0.01
-
-    #highest_beat_mean_f_measure = 0
-    #highest_downbeat_mean_f_measure = 0
     highest_joint_f_measure = 0
 
     for epoch_num in range(start_epoch, args.epochs):
-        retinanet.train()
-        #retinanet.module.freeze_bn()
+        beatfcos.train()
 
         epoch_loss = []
         cls_losses = []
@@ -324,26 +251,21 @@ if __name__ == '__main__':
 
         for iter_num, data in enumerate(train_dataloader): #target[:,:,0:2]=interval, target[:,:,2]=class
             audio, target = data  #MJ: audio:shape =(16,1,3000,81); target:shape=(16,128,3)
-            if use_gpu and torch.cuda.is_available():
+            if torch.cuda.is_available():
                 audio = audio.cuda()
                 target = target.cuda()
 
             try:
                 optimizer.zero_grad()
 
-                if args.fcos:
-                    classification_loss, regression_loss,\
-                    leftness_loss, adjacency_constraint_loss =\
-                        retinanet((audio, target)) # retinanet = model.resnet50(**dict_args)
-                                                   # this calls the forward function of resnet50
-                else:
-                    classification_loss, regression_loss = retinanet((audio, target))
-                    leftness_loss = torch.zeros(1)
+                classification_loss, regression_loss,\
+                leftness_loss, adjacency_constraint_loss =\
+                    beatfcos((audio, target))
     
-                classification_loss = classification_loss.mean() * classification_loss_weight
-                regression_loss = regression_loss.mean() * regression_loss_weight
+                classification_loss = classification_loss.mean()
+                regression_loss = regression_loss.mean()
                 leftness_loss = leftness_loss.mean()
-                adjacency_constraint_loss = torch.zeros(1).to(adjacency_constraint_loss.device) if args.no_adj else adjacency_constraint_loss.mean() * adjacency_constraint_loss_weight
+                adjacency_constraint_loss = torch.zeros(1).to(adjacency_constraint_loss.device) if args.no_adj else adjacency_constraint_loss.mean()
 
                 cls_losses.append(classification_loss.item())
                 reg_losses.append(regression_loss.item())
@@ -356,30 +278,20 @@ if __name__ == '__main__':
                     continue
 
                 loss.backward()
-                # print(torch.abs(retinanet.module.classificationModel.output.weight.grad).sum())
-                # print(torch.abs(retinanet.module.regressionModel.regression.weight.grad).sum())
-                # if args.fcos:
-                #     print(torch.abs(retinanet.module.regressionModel.leftness.weight.grad).sum())
 
-                torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
+                torch.nn.utils.clip_grad_norm_(beatfcos.parameters(), 0.1)
 
                 optimizer.step()
 
                 loss_hist.append(float(loss))
-
                 epoch_loss.append(float(loss))
 
-                if args.fcos:
-                    print(
-                        'Epoch: {} | Iteration: {} | CLS: {:1.5f} | REG: {:1.5f} | LFT: {:1.5f} | ADJ: {:1.5f} | Running loss: {:1.5f}'.format(
-                            epoch_num, iter_num,
-                            float(classification_loss), float(regression_loss),
-                            float(leftness_loss), float(adjacency_constraint_loss), np.mean(loss_hist))
-                    )
-                else:
-                    print(
-                        'Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
-                            epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
+                print(
+                    'Epoch: {} | Iteration: {} | CLS: {:1.5f} | REG: {:1.5f} | LFT: {:1.5f} | ADJ: {:1.5f} | Running loss: {:1.5f}'.format(
+                        epoch_num, iter_num,
+                        float(classification_loss), float(regression_loss),
+                        float(leftness_loss), float(adjacency_constraint_loss), np.mean(loss_hist))
+                )
 
                 del classification_loss
                 del regression_loss
@@ -396,20 +308,13 @@ if __name__ == '__main__':
 
         # Evaluate the evaluation dataset in each epoch
         print('Evaluating dataset')
-        # beat_mean_f_measure, downbeat_mean_f_measure, dbn_beat_mean_f_measure, dbn_downbeat_mean_f_measure = evaluate_beat(val_dataloader, retinanet)
         beat_mean_f_measure, downbeat_mean_f_measure, _ = evaluate_beat_f_measure(
-            val_dataloader, retinanet, args.audio_downsampling_factor, score_threshold=0.20)
+            val_dataloader, beatfcos, args.audio_downsampling_factor, score_threshold=0.20)
         
         joint_f_measure = (beat_mean_f_measure + downbeat_mean_f_measure)/2
 
         print(f"Epoch = {epoch_num} | Beat score: {beat_mean_f_measure:0.3f} | Downbeat score: {downbeat_mean_f_measure:0.3f} | Joint score: {joint_f_measure:0.3f}")
-        # print(f"Average beat score: {beat_mean_f_measure:0.3f}")
-        # print(f"Average downbeat score: {downbeat_mean_f_measure:0.3f}")
-        # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
-        # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
-
         print(f"Epoch = {epoch_num} | CLS: {np.mean(cls_losses):0.3f} | REG: {np.mean(reg_losses):0.3f} | LFT: {np.mean(lft_losses):0.3f} | ADJ: {np.mean(adj_losses):0.3f}")
-        #scheduler.step(np.mean(epoch_loss))
         scheduler.step(joint_f_measure)
 
         should_save_checkpoint = False
@@ -420,13 +325,13 @@ if __name__ == '__main__':
 
         #should_save_checkpoint = True # FOR DEBUGGING
         if should_save_checkpoint:
-            new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
+            new_checkpoint_path = './checkpoints/beatfcos_{}.pt'.format(epoch_num)
             print(f"Saving checkpoint at {new_checkpoint_path}")
-            torch.save(retinanet.state_dict(), new_checkpoint_path)
+            torch.save(beatfcos.state_dict(), new_checkpoint_path)
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    retinanet.eval()
+    beatfcos.eval()
 
-    torch.save(retinanet, './checkpoints/model_final.pt')
+    torch.save(beatfcos, './checkpoints/model_final.pt')

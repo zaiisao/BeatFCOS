@@ -1,305 +1,285 @@
-import argparse
-import torch
 import os
 import glob
-from tqdm import tqdm
-from torchvision import transforms
+import torch
+import torchsummary
+import re
+import random
 import numpy as np
-import json
+import collections
+from itertools import product
+from argparse import ArgumentParser
+import traceback
+import sys
+from os.path import join as ospj
 
-from retinanet import model_module
-from retinanet.dataloader import BeatDataset
-from retinanet.beat_eval import evaluate
+from beatfcos import model_module
+from beatfcos.dataloader import BeatDataset, collater
+from beatfcos.dstcn import dsTCNModel
+from beatfcos.beat_eval import evaluate_beat_f_measure, evaluate_beat_ap
 
-assert torch.__version__.split('.')[0] == '1'
+class Logger(object):
+    """Log stdout messages."""
+    def __init__(self, outfile):
+        self.terminal = sys.stdout
+        self.log = open(outfile, "w")
+        sys.stdout = self
 
-print('CUDA available: {}'.format(torch.cuda.is_available()))
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+
+def configure_log():
+    log_file_name = ospj("./", 'log.log')
+    Logger(log_file_name)
+
+configure_log()
+
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+
+torch.multiprocessing.set_sharing_strategy('file_system')
+
+torch.backends.cudnn.benchmark = True
+
+parser = ArgumentParser()
+
+# add PROGRAM level args
+parser.add_argument('--dataset', type=str, default='ballroom')
+parser.add_argument('--beatles_audio_dir', type=str, default=None)
+parser.add_argument('--beatles_annot_dir', type=str, default=None)
+parser.add_argument('--ballroom_audio_dir', type=str, default=None)
+parser.add_argument('--ballroom_annot_dir', type=str, default=None)
+parser.add_argument('--hainsworth_audio_dir', type=str, default=None)
+parser.add_argument('--hainsworth_annot_dir', type=str, default=None)
+parser.add_argument('--rwc_popular_audio_dir', type=str, default=None)
+parser.add_argument('--rwc_popular_annot_dir', type=str, default=None)
+parser.add_argument('--carnatic_audio_dir', type=str, default=None)
+parser.add_argument('--carnatic_annot_dir', type=str, default=None)
+parser.add_argument('--gtzan_audio_dir', type=str, default=None)
+parser.add_argument('--gtzan_annot_dir', type=str, default=None)
+parser.add_argument('--smc_audio_dir', type=str, default=None)
+parser.add_argument('--smc_annot_dir', type=str, default=None)
+parser.add_argument('--preload', action="store_true")
+parser.add_argument('--audio_sample_rate', type=int, default=44100)
+# parser.add_argument('--audio_downsampling_factor', type=int, default=256) # block 하나당 곱하기 2
+parser.add_argument('--audio_downsampling_factor', type=int, default=128) # block 하나당 곱하기 2
+parser.add_argument('--shuffle', type=bool, default=True)
+parser.add_argument('--train_subset', type=str, default='train')
+parser.add_argument('--val_subset', type=str, default='test')
+parser.add_argument('--train_length', type=int, default=65536)
+parser.add_argument('--train_fraction', type=float, default=1.0)
+parser.add_argument('--eval_length', type=int, default=131072)
+parser.add_argument('--batch_size', type=int, default=32)
+parser.add_argument('--num_workers', type=int, default=0)
+parser.add_argument('--augment', action='store_true')
+parser.add_argument('--dry_run', action='store_true')
+parser.add_argument('--depth', default=50)
+parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
+#parser.add_argument('--lr', type=float, default=1e-2)
+parser.add_argument('--patience', type=int, default=40)
+# --- tcn model related ---
+parser.add_argument('--ninputs', type=int, default=1)
+parser.add_argument('--noutputs', type=int, default=2)
+parser.add_argument('--nblocks', type=int, default=8)
+parser.add_argument('--kernel_size', type=int, default=15)
+parser.add_argument('--stride', type=int, default=2)
+parser.add_argument('--dilation_growth', type=int, default=8)
+parser.add_argument('--channel_growth', type=int, default=1)
+parser.add_argument('--channel_width', type=int, default=32)
+parser.add_argument('--stack_size', type=int, default=4)
+parser.add_argument('--grouped', default=False, action='store_true')
+parser.add_argument('--causal', default=False, action="store_true")
+parser.add_argument('--skip_connections', default=False, action="store_true")
+parser.add_argument('--norm_type', type=str, default='BatchNorm')
+parser.add_argument('--act_type', type=str, default='PReLU')
+parser.add_argument('--downbeat_weight', type=float, default=0.6)
+parser.add_argument('--pretrained', default=False, action="store_true")  #--pretrained is mentioned in the command line => store "true"
+parser.add_argument('--freeze_backbone', default=False, action="store_true")
+parser.add_argument('--centerness', default=False, action="store_true")
+parser.add_argument('--postprocessing_type', type=str, default='soft_nms')  #MJ: called with   "--postprocessing_type", "none" in the launch.json
+parser.add_argument('--lr', type=float, default=1e-3)
+parser.add_argument('--backbone_type', type=str, default="wavebeat")
+parser.add_argument('--validation_fold', type=int, default=None)
+
+# THIS LINE IS KEY TO PULL THE MODEL NAME
+temp_args, _ = parser.parse_known_args()
+
+# parse them args
+args = parser.parse_args()
 
 #datasets = ["ballroom", "hainsworth", "carnatic"]
-#datasets = ["ballroom", "hainsworth"]
-datasets = ["ballroom"]
-results = {}
-threshold = 0.3
+#datasets = ["ballroom", "hainsworth", "beatles", "rwc_popular", "gtzan", "smc"]
+datasets = ["gtzan"]
 
-def main(args=None):
-    parser = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
-    parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='Path to pre-trained model log directory with checkpoint.')
-    parser.add_argument('--preload', action="store_true")
-    parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--beatles_audio_dir', type=str, default='./data')
-    parser.add_argument('--beatles_annot_dir', type=str, default='./data')
-    parser.add_argument('--ballroom_audio_dir', type=str, default='../../beat-tracking-dataset/labeled_data/train/ballroom/data')
-    parser.add_argument('--ballroom_annot_dir', type=str, default='../../beat-tracking-dataset/labeled_data/train/ballroom/label')
-    parser.add_argument('--hainsworth_audio_dir', type=str, default='../../beat-tracking-dataset/labeled_data/train/hains/data')
-    parser.add_argument('--hainsworth_annot_dir', type=str, default='../../beat-tracking-dataset/labeled_data/train/hains/label')
-    parser.add_argument('--rwc_popular_audio_dir', type=str, default='./data')
-    parser.add_argument('--rwc_popular_annot_dir', type=str, default='./data')
-    parser.add_argument('--gtzan_audio_dir', type=str, default='./data')
-    parser.add_argument('--gtzan_annot_dir', type=str, default='./data')
-    parser.add_argument('--smc_audio_dir', type=str, default='./data')
-    parser.add_argument('--smc_annot_dir', type=str, default='./data')
-    parser.add_argument('--audio_sample_rate', type=int, default=22050)
-    # parser.add_argument('--channel_growth', type=int, default=32)
-    # parser.add_argument('--channel_width', type=int, default=32)
-    # parser.add_argument('--norm_type', type=str, default='BatchNorm')
-    # parser.add_argument('--act_type', type=str, default='PReLU')
-    # parser.add_argument('--patience', type=int, default=10)
-    parser.add_argument('--length', type=int, default=2097152)
-    # parser.add_argument('--ninputs', type=int, default=1)
-    # parser.add_argument('--noutputs', type=int, default=2)
-    # parser.add_argument('--nblocks', type=int, default=10)
-    # parser.add_argument('--kernel_size', type=int, default=15)
-    # parser.add_argument('--stride', type=int, default=2)
-    parser.add_argument('--audio_downsampling_factor', type=int, default=256)
-    parser.add_argument('--ninputs', type=int, default=1)
-    parser.add_argument('--noutputs', type=int, default=2)
-    parser.add_argument('--nblocks', type=int, default=10)
-    parser.add_argument('--kernel_size', type=int, default=15)
-    parser.add_argument('--stride', type=int, default=2)
-    parser.add_argument('--dilation_growth', type=int, default=5)
-    parser.add_argument('--channel_growth', type=int, default=32)
-    parser.add_argument('--channel_width', type=int, default=32)
-    parser.add_argument('--stack_size', type=int, default=5)
-    parser.add_argument('--grouped', default=False, action='store_true')
-    parser.add_argument('--causal', default=False, action="store_true")
-    parser.add_argument('--skip_connections', default=False, action="store_true")
-    parser.add_argument('--norm_type', type=str, default='BatchNorm')
-    parser.add_argument('--act_type', type=str, default='PReLU')
-    parser.add_argument('--fcos', action='store_true')
-    parser.add_argument('--reg_loss_type', type=str, default='l1')
+# set the seed
+seed = 42
 
-    args = parser.parse_args()
+random.seed(seed)
+os.environ['PYTHONHASHSEED'] = str(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = True
 
-    # find the checkpoint path
-    ckpts = glob.glob(os.path.join(args.checkpoints_dir, "*.pt"))
-    if len(ckpts) < 1:
-        raise RuntimeError(f"No checkpoints found in {args.checkpoints_dir}.")
-    else:
-        ckpt_path = ckpts[-1]
-        print(ckpt_path)
+#
+args.default_root_dir = os.path.join("lightning_logs", "full")
+print(args.default_root_dir)
 
-    # Create the model
-    #retinanet = model.resnet50(num_classes=dataset_val.num_classes(), pretrained=True)
-    dict_args = vars(args)
-    retinanet = model.resnet50(num_classes=2, **dict_args)
+state_dicts = glob.glob('./*.pt') #glob.glob('./ablation_tests/801010_frozen_backbone/*.pt')
+start_epoch = 0
+checkpoint_path = None
+if len(state_dicts) > 0:
+    checkpoint_path = state_dicts[-1]
+    start_epoch = int(re.search("beatfcos_(.*).pt", checkpoint_path).group(1)) + 1
+    print("loaded:" + checkpoint_path)
+else:
+    print("no checkpoint found")
+
+# setup the dataloaders
+# train_datasets = []
+test_datasets = []
+
+for dataset in datasets:
+    subset="full-val"#subset = "test"
+    if dataset == "beatles":
+        audio_dir = args.beatles_audio_dir
+        annot_dir = args.beatles_annot_dir
+    elif dataset == "ballroom":
+        audio_dir = args.ballroom_audio_dir
+        annot_dir = args.ballroom_annot_dir
+    elif dataset == "hainsworth":
+        audio_dir = args.hainsworth_audio_dir
+        annot_dir = args.hainsworth_annot_dir
+    elif dataset == "rwc_popular":
+        audio_dir = args.rwc_popular_audio_dir
+        annot_dir = args.rwc_popular_annot_dir
+    elif dataset == "carnatic":
+        audio_dir = args.carnatic_audio_dir
+        annot_dir = args.carnatic_annot_dir
+    elif dataset == "gtzan":
+        audio_dir = args.gtzan_audio_dir
+        annot_dir = args.gtzan_annot_dir
+        subset = "full-val"
+    elif dataset == "smc":
+        audio_dir = args.smc_audio_dir
+        annot_dir = args.smc_annot_dir
+        subset = "full-val"
+
+    if not audio_dir or not annot_dir:
+        continue
+
+    test_dataset = BeatDataset(audio_dir,
+                                    annot_dir,
+                                    dataset=dataset,
+                                    audio_sample_rate=args.audio_sample_rate,
+                                    audio_downsampling_factor=args.audio_downsampling_factor,
+                                    subset=subset,
+                                    augment=False,
+                                    half=True,
+                                    preload=args.preload)
+
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, 
+                                                    shuffle=False,
+                                                    batch_size=1,
+                                                    num_workers=args.num_workers,
+                                                    pin_memory=True)
+    test_datasets.append(test_dataset)
+
+test_dataset_list = torch.utils.data.ConcatDataset(test_datasets)
+test_dataloader = torch.utils.data.DataLoader(test_dataset_list, 
+                                            shuffle=args.shuffle,
+                                            batch_size=1,
+                                            num_workers=args.num_workers,
+                                            pin_memory=False,
+                                            collate_fn=collater)
+
+dict_args = vars(args)
+
+#MJ: The commandline on the terminal:
+
+# From https://github.com/csteinmetz1/wavebeat
+# python train.py \
+# --ballroom_audio_dir /path/to/BallroomData \
+# --ballroom_annot_dir /path/to/BallroomAnnotations \
+# --beatles_audio_dir /path/to/The_Beatles \
+# --beatles_annot_dir /path/to/The_Beatles_Annotations/beat/The_Beatles \
+# --hainsworth_audio_dir /path/to/hainsworth/wavs \   ?
+# --hainsworth_annot_dir /path/to/hainsworth/beat \
+# --rwc_popular_audio_dir /path/to/rwc_popular/audio \
+# --rwc_popular_annot_dir /path/to/rwc_popular/beat \
+# --gpus 1 \          ?
+# --preload \
+# --precision 16 \    ?
+# --patience 10 \
+# --train_length 2097152 \
+# --eval_length 2097152 \
+# --model_type dstcn \
+# --act_type PReLU \
+# --norm_type BatchNorm \
+# --channel_width 32 \
+# --channel_growth 32 \
+# --augment \
+# --batch_size 16 \
+# --lr 1e-3 \                 ?
+# --gradient_clip_val 4.0 \  ?
+# --audio_sample_rate 22050 \
+# --num_workers 24 \  ?
+
+
+if __name__ == '__main__':
+    beatfcos = model_module.create_beatfcos_model(num_classes=2, args=args, **dict_args)
 
     use_gpu = True
 
     if use_gpu:
         if torch.cuda.is_available():
-            retinanet = retinanet.cuda()
+            beatfcos = beatfcos.cuda()
 
     if torch.cuda.is_available():
-        retinanet = torch.nn.DataParallel(retinanet).cuda()
+        beatfcos = torch.nn.DataParallel(beatfcos).cuda()
     else:
-        retinanet = torch.nn.DataParallel(retinanet)
+        beatfcos = torch.nn.DataParallel(beatfcos)
 
-    retinanet.load_state_dict(torch.load(
-        ckpt_path,
-        torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    ))
+    if checkpoint_path:
+        beatfcos.load_state_dict(torch.load(
+            checkpoint_path,
+            torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        ))
 
-    #dataset_val = CocoDataset(parser.coco_path, set_name='val2017',transform=transforms.Compose([Normalizer(), Resizer()]))
-    # evaluate on each dataset using the test set
-    for dataset in datasets:
-        if dataset == "beatles":
-            audio_dir = args.beatles_audio_dir
-            annot_dir = args.beatles_annot_dir
-        elif dataset == "ballroom":
-            audio_dir = args.ballroom_audio_dir
-            annot_dir = args.ballroom_annot_dir
-        elif dataset == "hainsworth":
-            audio_dir = args.hainsworth_audio_dir
-            annot_dir = args.hainsworth_annot_dir
-        elif dataset == "rwc_popular":
-            audio_dir = args.rwc_popular_audio_dir
-            annot_dir = args.rwc_popular_annot_dir
-        elif dataset == "gtzan":
-            audio_dir = args.gtzan_audio_dir
-            annot_dir = args.gtzan_annot_dir
-        elif dataset == "smc":
-            audio_dir = args.smc_audio_dir
-            annot_dir = args.smc_annot_dir
+    print('Evaluating dataset')
 
-        test_dataset = BeatDataset(audio_dir,
-                                        annot_dir,
-                                        dataset=dataset,
-                                        audio_sample_rate=args.audio_sample_rate,
-                                        audio_downsampling_factor=args.audio_downsampling_factor,
-                                        subset="test" if not dataset in ["gtzan", "smc"] else "full-val",
-                                        augment=False,
-                                        preload=args.preload,
-                                        length=args.length)
+    _, _, results = evaluate_beat_f_measure(test_dataloader, beatfcos, args.audio_downsampling_factor, score_threshold=0.2)
 
-        test_dataloader = torch.utils.data.DataLoader(test_dataset, 
-                                                        shuffle=False,
-                                                        batch_size=1,
-                                                        num_workers=args.num_workers,
-                                                        pin_memory=True)
+    # for iou_thresh in [0.3, 0.4]:
+    #     score_thresh = 0.05
+    #     _, _, results = evaluate_beat_f_measure(
+    #         test_dataloader,
+    #         beatfcos,
+    #         args.audio_downsampling_factor,
+    #         score_threshold=score_thresh,
+    #         iou_threshold=iou_thresh
+    #     )
 
-        # setup tracking of metrics
-        results[dataset] = {
-            "F-measure" : {
-                "beat" : [],
-                "dbn beat" : [],
-                "downbeat" : [],
-                "dbn downbeat" : [],
-            },
-            "CMLt" : {
-                "beat" : [],
-                "dbn beat" : [],
-                "downbeat" : [],
-                "dbn downbeat" : [],
-            },
-            "AMLt" : {
-                "beat" : [],
-                "dbn beat" : [],
-                "downbeat" : [],
-                "dbn downbeat" : [],
-            }
-        }
+        # print(f"Results with IOU threshold of {iou_thresh} and score threshold of {score_thresh}")
+        # print()
+        # print(f"F1 beat: {np.mean([result['beat_scores']['F-measure'] for result in results])}")
+        # print(f"CMLt beat: {np.mean([result['beat_scores']['Correct Metric Level Total'] for result in results])}")
+        # print(f"CMLt beat: {np.mean([result['beat_scores']['Any Metric Level Total'] for result in results])}")
+        # print()
+        # print(f"F1 downbeat: {np.mean([result['downbeat_scores']['F-measure'] for result in results])}")
+        # print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Correct Metric Level Total'] for result in results])}")
+        # print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Any Metric Level Total'] for result in results])}")
+        # print()
 
-        for example in tqdm(test_dataloader, ncols=80):
-            audio, target, metadata = example
-
-            target_length = -(audio.size(dim=2) // -2**args.nblocks) * 2**args.nblocks
-            audio_pad = (0, target_length - audio.size(dim=2))
-            audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
-
-            if use_gpu and torch.cuda.is_available():
-                # move data to GPU
-                audio = audio.to('cuda')
-                target = target.to('cuda')
-
-            with torch.no_grad():
-                scores, labels, boxes = retinanet(audio)
-
-            # move data back to CPU
-            scores = scores.cpu()
-            labels = labels.cpu()
-            boxes = boxes.cpu()
-
-            length = audio.size(dim=2) // args.audio_downsampling_factor
-
-            wavebeat_format_pred = torch.zeros((2, length))
-            wavebeat_format_target = torch.zeros((2, length))
-
-            last_pred_beat_index, last_pred_downbeat_index = None, None
-            last_target_beat_index, last_target_downbeat_index = None, None
-
-            # construct pred tensor
-            previous_right_position_index = [None, None]
-            previous_right_and_current_left_distance = [[], []]
-            for box_id in range(boxes.shape[0]):
-                score = float(scores[box_id])
-                label = int(labels[box_id])
-                box = boxes[box_id, :]
-
-                # scores are sorted, so we can break
-                if score < threshold:
-                    continue
-
-                # if beat (label 1), first row (index 0)
-                # if downbeat (label 0), second row (index 1)
-                row = 1 - label
-                left_position_index = int(box[0])
-                right_position_index = int(box[1])
-
-                if previous_right_position_index[label] is None:
-                    previous_right_position_index[label] = right_position_index
-                else:
-                    previous_right_and_current_left_distance[label].append(
-                        left_position_index - previous_right_position_index[label]
-                    )
-
-                wavebeat_format_pred[row, left_position_index] = 1
-
-                if label == 0 and (last_pred_downbeat_index is None or right_position_index > last_pred_downbeat_index):
-                    last_pred_downbeat_index = right_position_index
-                elif label == 1 and (last_pred_beat_index is None or right_position_index > last_pred_beat_index):
-                    last_pred_beat_index = right_position_index
-
-            print(previous_right_and_current_left_distance)
-
-            if last_pred_beat_index is not None:
-                wavebeat_format_pred[0, min(last_pred_beat_index, length - 1)] = 1
-
-            if last_pred_downbeat_index is not None:
-                wavebeat_format_pred[1, min(last_pred_downbeat_index, length - 1)] = 1
-
-            # construct target tensor
-            for beat_interval in target[0]:
-                label = int(beat_interval[2])
-                row = 1 - label
-
-                left_position_index = int(beat_interval[0])
-                right_position_index = int(beat_interval[1])
-
-                wavebeat_format_target[row, min(left_position_index, length - 1)] = 1
-
-                if label == 0 and (last_target_downbeat_index is None or right_position_index > last_target_downbeat_index):
-                    last_target_downbeat_index = right_position_index
-                elif label == 1 and (last_target_beat_index is None or right_position_index > last_target_beat_index):
-                    last_target_beat_index = right_position_index
-
-            wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
-            wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
-
-            target_sample_rate = args.audio_sample_rate // args.audio_downsampling_factor
-
-            np.set_printoptions(edgeitems=10000000)
-            torch.set_printoptions(edgeitems=10000000)
-            print("target count beats", wavebeat_format_target[0, :].sum())
-            print("target count downbeats", wavebeat_format_target[1, :].sum())
-            print("AAA", wavebeat_format_pred)
-            beat_scores, downbeat_scores = evaluate(wavebeat_format_pred.view(2,-1),  
-                                                    wavebeat_format_target.view(2,-1), 
-                                                    target_sample_rate,
-                                                    use_dbn=False)
-
-            print("BBB", wavebeat_format_pred)
-            dbn_beat_scores, dbn_downbeat_scores = evaluate(wavebeat_format_pred.view(2,-1), 
-                                                    wavebeat_format_target.view(2,-1), 
-                                                    target_sample_rate,
-                                                    use_dbn=True)
-            torch.set_printoptions(edgeitems=10000000)
-            np.set_printoptions(edgeitems=3)
-
-            print()
-            print(f"beat {beat_scores['F-measure']:0.3f} mean: {np.mean(results[dataset]['F-measure']['beat']):0.3f}  ")
-            print(f"downbeat: {downbeat_scores['F-measure']:0.3f} mean: {np.mean(results[dataset]['F-measure']['downbeat']):0.3f}")
-
-            results[dataset]['F-measure']['beat'].append(beat_scores['F-measure'])
-            results[dataset]['CMLt']['beat'].append(beat_scores['Correct Metric Level Total'])
-            results[dataset]['AMLt']['beat'].append(beat_scores['Any Metric Level Total'])
-
-            results[dataset]['F-measure']['dbn beat'].append(dbn_beat_scores['F-measure'])
-            results[dataset]['CMLt']['dbn beat'].append(dbn_beat_scores['Correct Metric Level Total'])
-            results[dataset]['AMLt']['dbn beat'].append(dbn_beat_scores['Any Metric Level Total'])
-
-            results[dataset]['F-measure']['downbeat'].append(downbeat_scores['F-measure'])
-            results[dataset]['CMLt']['downbeat'].append(downbeat_scores['Correct Metric Level Total'])
-            results[dataset]['AMLt']['downbeat'].append(downbeat_scores['Any Metric Level Total'])
-
-            results[dataset]['F-measure']['dbn downbeat'].append(dbn_downbeat_scores['F-measure'])
-            results[dataset]['CMLt']['dbn downbeat'].append(dbn_downbeat_scores['Correct Metric Level Total'])
-            results[dataset]['AMLt']['dbn downbeat'].append(dbn_downbeat_scores['Any Metric Level Total'])
-
-        print()
-        print(f"{dataset}")
-        print(f"F1 beat: {np.mean(results[dataset]['F-measure']['beat'])}   F1 downbeat: {np.mean(results[dataset]['F-measure']['downbeat'])}")
-        print(f"CMLt beat: {np.mean(results[dataset]['CMLt']['beat'])}   CMLt downbeat: {np.mean(results[dataset]['CMLt']['downbeat'])}")
-        print(f"AMLt beat: {np.mean(results[dataset]['AMLt']['beat'])}   AMLt downbeat: {np.mean(results[dataset]['AMLt']['downbeat'])}")
-        print()
-        print(f"F1 dbn beat: {np.mean(results[dataset]['F-measure']['dbn beat'])}   F1 dbn downbeat: {np.mean(results[dataset]['F-measure']['dbn downbeat'])}")
-        print(f"CMLt dbn  beat: {np.mean(results[dataset]['CMLt']['dbn beat'])}   CMLt dbn downbeat: {np.mean(results[dataset]['CMLt']['dbn downbeat'])}")
-        print(f"AMLt dbn beat: {np.mean(results[dataset]['AMLt']['dbn beat'])}   AMLt dbn downbeat: {np.mean(results[dataset]['AMLt']['dbn downbeat'])}")
-        print()
-
-    results_dir = 'results/test.json'
-    with open(results_dir, 'w+') as json_file:
-        json.dump(results, json_file, sort_keys=True, indent=4) 
-        print(f"Saved results to {results_dir}")
-
-if __name__ == '__main__':
-    main()
+    print(f"F1 beat: {np.mean([result['beat_scores']['F-measure'] for result in results])}")
+    print(f"CMLt beat: {np.mean([result['beat_scores']['Correct Metric Level Total'] for result in results])}")
+    print(f"CMLt beat: {np.mean([result['beat_scores']['Any Metric Level Total'] for result in results])}")
+    print()
+    print(f"F1 downbeat: {np.mean([result['downbeat_scores']['F-measure'] for result in results])}")
+    print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Correct Metric Level Total'] for result in results])}")
+    print(f"CMLt downbeat: {np.mean([result['downbeat_scores']['Any Metric Level Total'] for result in results])}")
+    print()

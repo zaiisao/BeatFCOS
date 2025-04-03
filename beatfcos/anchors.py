@@ -6,10 +6,8 @@ import torch.nn as nn
 
 class Anchors(nn.Module):
     # def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
-    def __init__(self, audio_downsampling_factor, fcos=False): # We use base level 8
+    def __init__(self, audio_downsampling_factor): # We use base level 8
         super(Anchors, self).__init__()
-
-        self.fcos = fcos
 
         #self.pyramid_levels = [8, 9, 10, 11, 12] # Actual strides we use are [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
         #self.pyramid_levels = [1, 2, 3, 4, 5]
@@ -29,11 +27,7 @@ class Anchors(nn.Module):
         # If we represent the target beat location on the raw audio, then the anchor point coordinates are represented on the
         # raw audio as well and the audio_downsampling_factor should be 1
 
-        if self.fcos:            
-            #self.sizes = [0 for x in self.pyramid_levels]
-            self.scales = np.array([1])
-        else:
-            self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
+        self.scales = np.array([1])
 
     #def forward(self, base_image):
     def forward(self, base_image_shape): #MJ: base_image_shape =(16,16,3000) =(B,C,L)
@@ -63,7 +57,7 @@ class Anchors(nn.Module):
 
         for idx, p in enumerate(self.pyramid_levels):
             anchors = generate_anchors(base_size=self.sizes[idx], scales=self.scales)
-            shifted_anchors = shift(idx, feature_map_shapes[idx], self.strides[idx], anchors, fcos=self.fcos)
+            shifted_anchors = shift(idx, feature_map_shapes[idx], self.strides[idx], anchors)
             # np.set_printoptions(edgeitems=1000000, suppress=True)
             # print(f"shifted_anchors for level {idx} ({shifted_anchors.shape}): {shifted_anchors}")
             # np.set_printoptions(edgeitems=3, suppress=False)
@@ -135,7 +129,7 @@ def anchors_for_shape(
     return all_anchors
 
 
-def shift(idx, feature_map_shapes, stride, anchors, fcos=False): # create one anchor point for each location on the feature map i
+def shift(idx, feature_map_shapes, stride, anchors): # create one anchor point for each location on the feature map i
     shift_x = (np.arange(0, feature_map_shapes[0]) + 0.5) * stride # feature_map_shapes[0] is the ith feature map x resolution
     # shift_x is the x resolution of the ith feature map projected back to the base image
 
@@ -156,7 +150,6 @@ def shift(idx, feature_map_shapes, stride, anchors, fcos=False): # create one an
     all_anchors = (anchors.reshape((1, A, 2)) + shifts.reshape((1, K, 2)).transpose((1, 0, 2)))
     all_anchors = all_anchors.reshape((K * A, 2))
 
-    if fcos:
-        all_anchors = (all_anchors[:, 0] + all_anchors[:, 1]) / 2
+    all_anchors = (all_anchors[:, 0] + all_anchors[:, 1]) / 2
 
     return all_anchors
