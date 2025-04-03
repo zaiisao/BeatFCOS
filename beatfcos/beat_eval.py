@@ -405,22 +405,18 @@ def evaluate_beat_ap(
 
     return average_precisions
 
-def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_threshold=0.2, iou_threshold=0.5, max_thresh=1):
-# def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_threshold=0):
+def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_sample_rate,
+                            score_threshold=0.2, iou_threshold=0.5, max_thresh=1):
     model.eval()
     
     with torch.no_grad():
         # start collecting results
         results = []
-        #image_ids = []
 
         all_beat_ious = []
         all_downbeat_ious = []
 
         for index, data in enumerate(dataloader):
-            # if index >= 10:
-            #     break # Temporary code by JA to test only ten songs
-
             audio, target, metadata = data #MJ: audio: shape =(1,1,3000,81) =(B,C,H,W); target: shape=(1,56,3) =(B,L,C)
 
             # if we have metadata, it is only during evaluation where batch size is always 1
@@ -428,30 +424,6 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
         
             predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model, score_threshold=score_threshold, iou_threshold=iou_threshold, max_thresh=max_thresh)
             #MJ: Note that the results predicted_scores, predicted_labels, predicted_boxes have been obtained by applying the nms process
-            
-            #evaluate_ap(target, (predicted_scores, predicted_labels, predicted_boxes))
-
-            # correct boxes for image scale
-            #boxes /= scale
-
-            # append image to list of processed images
-            # image_ids.append(dataset.image_ids[index])
-
-            # print progress
-            #print('{}/{}'.format(index, len(dataset)), end='\r')
-
-            #length = audio.size(dim=2) // 256
-            #length = audio.size(dim=2) // 128
-
-            # wavebeat_format_pred_left = torch.zeros((2, length)).to(audio.device)
-            # wavebeat_format_pred_average = torch.zeros((2, length)).to(audio.device)
-            # wavebeat_format_pred_right = torch.zeros((2, length)).to(audio.device)
-            # wavebeat_format_pred_weighted = torch.zeros((2, length)).to(audio.device)
-
-            # wavebeat_format_target = torch.zeros((2, length)).to(audio.device)
-
-            # box_scores_left = torch.zeros((2, length)).to(audio.device)
-            # box_scores_right = torch.zeros((2, length)).to(audio.device)
 
             beat_pred_left_positions = []
             downbeat_pred_left_positions = []
@@ -487,11 +459,11 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
                 # In order to get the time of that location, we need to divide it by 22050 Hz
 
                 if predicted_label == 0:
-                    downbeat_pred_left_positions.append(left_position_index * audio_downsampling_factor / 22050)
-                    downbeat_pred_right_positions.append(right_position_index * audio_downsampling_factor / 22050)
+                    downbeat_pred_left_positions.append(left_position_index * audio_downsampling_factor / audio_sample_rate)
+                    downbeat_pred_right_positions.append(right_position_index * audio_downsampling_factor / audio_sample_rate)
                 elif predicted_label == 1:
-                    beat_pred_left_positions.append(left_position_index * audio_downsampling_factor / 22050)
-                    beat_pred_right_positions.append(right_position_index * audio_downsampling_factor / 22050)
+                    beat_pred_left_positions.append(left_position_index * audio_downsampling_factor / audio_sample_rate)
+                    beat_pred_right_positions.append(right_position_index * audio_downsampling_factor / audio_sample_rate)
 
                 # wavebeat_format_pred_left[row, min(left_position_index, length - 1)] = 1
                 # wavebeat_format_pred_right[row, min(right_position_index, length - 1)] = 1
@@ -530,41 +502,6 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
                 sorted_downbeat_intervals = downbeat_intervals[downbeat_intervals[:, 0].sort()[1]]
             downbeat_ious = torch.zeros(1, 0).to(downbeat_intervals.device)
 
-            # # start mAP file generation
-            # gt_beat_intervals = target[0, target[0, :, 2] == 1, :2]
-            # gt_downbeat_intervals = target[0, target[0, :, 2] == 0, :2]
-
-            # gt_interval_filename = metadata['Filename'].replace('/data/', '/gt_intervals/').replace('.wav', '.txt')
-            # os.makedirs(os.path.dirname(gt_interval_filename), exist_ok=True)
-            # gt_interval_file = open(gt_interval_filename, "w+")
-
-            # for gt_beat_interval_index in range(gt_beat_intervals.size(dim=0)):
-            #     gt_beat_interval = gt_beat_intervals[gt_beat_interval_index]
-            #     gt_interval_file.write(f"beat {int(gt_beat_interval[0])} 0 {int(gt_beat_interval[1])} 1\n")
-
-            # for gt_downbeat_interval_index in range(gt_downbeat_intervals.size(dim=0)):
-            #     gt_downbeat_interval = gt_downbeat_intervals[gt_downbeat_interval_index]
-            #     gt_interval_file.write(f"downbeat {int(gt_downbeat_interval[0])} 0 {int(gt_downbeat_interval[1])} 1\n")
-
-            # gt_interval_file.close()
-            
-            # pred_interval_filename = metadata['Filename'].replace('/data/', '/pred_intervals/').replace('.wav', '.txt')
-            # os.makedirs(os.path.dirname(pred_interval_filename), exist_ok=True)
-            # pred_interval_file = open(pred_interval_filename, "w+")
-
-            # for pred_beat_interval_index in range(sorted_beat_intervals.size(dim=0)):
-            #     pred_beat_interval = sorted_beat_intervals[pred_beat_interval_index]
-            #     pred_beat_score = float(predicted_scores[predicted_labels == 1][beat_intervals[:, 0].sort()[1]][pred_beat_interval_index])
-            #     pred_interval_file.write(f"beat {pred_beat_score} {int(pred_beat_interval[0])} 0 {int(pred_beat_interval[1])} 1\n")
-
-            # for pred_downbeat_interval_index in range(sorted_downbeat_intervals.size(dim=0)):
-            #     pred_downbeat_interval = sorted_downbeat_intervals[pred_downbeat_interval_index]
-            #     pred_downbeat_score = float(predicted_scores[predicted_labels == 0][downbeat_intervals[:, 0].sort()[1]][pred_downbeat_interval_index])
-            #     pred_interval_file.write(f"downbeat {pred_downbeat_score} {int(pred_downbeat_interval[0])} 0 {int(pred_downbeat_interval[1])} 1\n")
-
-            # pred_interval_file.close()
-            # # end mAP file generation
-
             for beat_index, beat_interval in enumerate(sorted_beat_intervals[:-1]):
                 next_beat_interval = sorted_beat_intervals[beat_index + 1]
 
@@ -583,52 +520,14 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
                 downbeat_iou = calc_iou(downbeat_interval[None], next_downbeat_interval[None])
                 downbeat_ious = torch.cat((downbeat_ious, downbeat_iou), dim=1)
 
-            # print(f"Beat IoUs: {beat_ious}")
-            # print(f"Downbeat IoUs: {downbeat_ious}")
-
             all_beat_ious += beat_ious.tolist()[0]
             all_downbeat_ious += downbeat_ious.tolist()[0]
 
             if last_pred_beat_index is not None:
-                #wavebeat_format_pred_left[0, min(last_pred_beat_index, length - 1)] = 1
-                beat_pred_left_positions.append(last_pred_beat_index * audio_downsampling_factor / 22050)
+                beat_pred_left_positions.append(last_pred_beat_index * audio_downsampling_factor / audio_sample_rate)
 
             if last_pred_downbeat_index is not None:
-                #wavebeat_format_pred_left[1, min(last_pred_downbeat_index, length - 1)] = 1
-                downbeat_pred_left_positions.append(last_pred_downbeat_index * audio_downsampling_factor / 22050)
-
-            # if first_pred_beat_index is not None:
-            #     wavebeat_format_pred_right[0, min(first_pred_beat_index, length - 1)] = 1
-
-            # if first_pred_downbeat_index is not None:
-            #     wavebeat_format_pred_right[1, min(first_pred_downbeat_index, length - 1)] = 1
-
-            # box_scores_left = torch.nn.functional.pad(box_scores_left[box_scores_left != 0], (1, 1), "constant", 1)
-            # box_scores_right = torch.nn.functional.pad(box_scores_right[box_scores_right != 0], (1, 1), "constant", 1)
-
-            # positive_bbox_indices_left = wavebeat_format_pred_left.nonzero()
-            # positive_bbox_indices_right = wavebeat_format_pred_right.nonzero()
-
-            # left_weights = torch.clamp(positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] / (
-            #     positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] +
-            #     positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()]
-            # ), min=0.0, max=0.5)
-
-            # right_weights = torch.clamp(positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()] / (
-            #     positive_bbox_indices_left * box_scores_left[box_scores_left.nonzero()] +
-            #     positive_bbox_indices_right * box_scores_right[box_scores_right.nonzero()]
-            # ), min=0.0, max=0.5)
-
-            # average_indices = torch.round(positive_bbox_indices_left * 0.5 + positive_bbox_indices_right * 0.5)
-            # for index_pair in average_indices:
-            #     wavebeat_format_pred_average[index_pair[0].long(), index_pair[1].long()] = 1
-
-            # weighted_indices = torch.round(positive_bbox_indices_left * left_weights + positive_bbox_indices_right * right_weights)
-            # for index_pair in weighted_indices:
-            #     index_pair[0] = 0 if torch.isnan(index_pair[0]) else 1
-            #     index_pair[1] = torch.nan_to_num(index_pair[1], nan=0.5)
-            #     wavebeat_format_pred_weighted[index_pair[0].long(), index_pair[1].long()] = 1
-
+                downbeat_pred_left_positions.append(last_pred_downbeat_index * audio_downsampling_factor / audio_sample_rate)
 
             beat_target_left_positions = []
             downbeat_target_left_positions = []
@@ -642,9 +541,9 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
 
                 # wavebeat_format_target[row, min(left_position_index, length - 1)] = 1
                 if label == 0:
-                    downbeat_target_left_positions.append(left_position_index * audio_downsampling_factor / 22050)
+                    downbeat_target_left_positions.append(left_position_index * audio_downsampling_factor / audio_sample_rate)
                 elif label == 1:
-                    beat_target_left_positions.append(left_position_index * audio_downsampling_factor / 22050)
+                    beat_target_left_positions.append(left_position_index * audio_downsampling_factor / audio_sample_rate)
 
                 if label == 0 and (last_target_downbeat_index is None or right_position_index > last_target_downbeat_index):
                     last_target_downbeat_index = right_position_index
@@ -654,11 +553,8 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, score_
             
             #wavebeat_format_target[0, min(last_target_beat_index, length - 1)] = 1
             #wavebeat_format_target[1, min(last_target_downbeat_index, length - 1)] = 1
-            beat_target_left_positions.append(last_target_beat_index * audio_downsampling_factor / 22050)
-            downbeat_target_left_positions.append(last_target_downbeat_index * audio_downsampling_factor / 22050)
-
-            #target_sample_rate = 22050 // 256
-            # target_sample_rate = 22050 // 128
+            beat_target_left_positions.append(last_target_beat_index * audio_downsampling_factor / audio_sample_rate)
+            downbeat_target_left_positions.append(last_target_downbeat_index * audio_downsampling_factor / audio_sample_rate)
 
             predicted_scores = predicted_scores.cpu()
             predicted_labels = predicted_labels.cpu()

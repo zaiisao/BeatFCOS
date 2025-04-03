@@ -5,8 +5,9 @@ from beatfcos.utils import calc_iou, calc_giou, AnchorPointTransform
 
 INF = 100000000
 
-def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor, centerness=False, beat_radius=2.5, downbeat_radius=4.5):
-    audio_target_rate = 22050 / audio_downsampling_factor
+def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor, audio_sample_rate,
+                       centerness=False, beat_radius=2.5, downbeat_radius=4.5):
+    audio_target_rate = audio_sample_rate / audio_downsampling_factor
 
     sizes = [
         [-1, 0.546471750],
@@ -436,7 +437,7 @@ class AdjacencyConstraintLoss(nn.Module):
         return all_adjacency_constraint_losses.mean()
 
 class CombinedLoss(nn.Module):
-    def __init__(self, audio_downsampling_factor, centerness=False):
+    def __init__(self, audio_downsampling_factor, audio_sample_rate, centerness=False):
         super(CombinedLoss, self).__init__()
 
         self.classification_loss = FocalLoss()
@@ -445,6 +446,7 @@ class CombinedLoss(nn.Module):
         self.adjacency_constraint_loss = AdjacencyConstraintLoss()
         
         self.audio_downsampling_factor = audio_downsampling_factor
+        self.audio_sample_rate = audio_sample_rate
         self.centerness = centerness
 
     def get_jth_targets(
@@ -503,7 +505,10 @@ class CombinedLoss(nn.Module):
 
             positive_anchor_indices, assigned_annotations_for_anchors, normalized_annotations_for_anchors, \
             l_star_for_anchors, r_star_for_anchors, normalized_l_star_for_anchors, \
-            normalized_r_star_for_anchors, levels_for_anchors = get_fcos_positives(jth_annotations, anchors_list, self.audio_downsampling_factor, self.centerness)
+            normalized_r_star_for_anchors, levels_for_anchors = get_fcos_positives(
+                jth_annotations, anchors_list,
+                self.audio_downsampling_factor, self.audio_sample_rate, self.centerness
+            )
 
             all_anchor_points = torch.cat(anchors_list, dim=0)
             num_positive_anchors = positive_anchor_indices.sum()

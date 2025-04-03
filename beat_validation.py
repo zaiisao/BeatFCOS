@@ -134,7 +134,7 @@ start_epoch = 0
 checkpoint_path = None
 if len(state_dicts) > 0:
     checkpoint_path = state_dicts[-1]
-    start_epoch = int(re.search("beatfcos_(.*).pt", checkpoint_path).group(1)) + 1
+    start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
     print("loaded:" + checkpoint_path)
 else:
     print("no checkpoint found")
@@ -252,7 +252,7 @@ if __name__ == '__main__':
 
     print('Evaluating dataset')
 
-    _, _, results = evaluate_beat_f_measure(test_dataloader, beatfcos, args.audio_downsampling_factor, score_threshold=0.2)
+    _, _, results = evaluate_beat_f_measure(test_dataloader, beatfcos, args.audio_downsampling_factor, args.audio_sample_rate, score_threshold=0.2)
 
     # for iou_thresh in [0.3, 0.4]:
     #     score_thresh = 0.05

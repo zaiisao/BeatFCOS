@@ -6,7 +6,7 @@ import torch.nn as nn
 
 class Anchors(nn.Module):
     # def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
-    def __init__(self, audio_downsampling_factor): # We use base level 8
+    def __init__(self, audio_downsampling_factor, audio_sample_rate): # We use base level 8
         super(Anchors, self).__init__()
 
         #self.pyramid_levels = [8, 9, 10, 11, 12] # Actual strides we use are [2 ** 0, 2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4]
@@ -15,14 +15,12 @@ class Anchors(nn.Module):
         
         # # (1, 2, 3, 4, 5) with base_level=0. Actual strides are [2 ** 1, 2 ** 2, 2 ** 3, 2 ** 4, 2 ** 5]
         self.strides = [2 ** x for x in self.pyramid_levels]
-        # self.strides = [2 ** x for x in self.pyramid_levels]
         
         #MJ: When using spectrogram:  self.strides = [2**x for x in self.pyramid_levels] * spectrogram_downsampling_factor
         #Here spectrogram_downsampling_factor is such that the resolution of the spectrogram * spectrogram_downsampling_factor = the resolution of the raw audio
         # spectrogram_downsampling_factor = 1 / hop_length_in_samples (which is used to convert raw audio to spectrogram)
 
-        self.sizes = [x * 22050 / audio_downsampling_factor for x in [0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922]]
-        # self.sizes = [x * 22050 / audio_downsampling_factor for x in [0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922]]
+        self.sizes = [x * audio_sample_rate / audio_downsampling_factor for x in [0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922]]
         # audio_downsampling_factor represents the level of C6 from the raw audio in our implementation
         # If we represent the target beat location on the raw audio, then the anchor point coordinates are represented on the
         # raw audio as well and the audio_downsampling_factor should be 1
