@@ -128,7 +128,7 @@ checkpoint_path = None
 
 if len(state_dicts) > 0:
     checkpoint_path = state_dicts[-1]
-    start_epoch = int(re.search("beatfcos_(.*).pt", checkpoint_path).group(1)) + 1
+    start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
     print("loaded:" + checkpoint_path)
 else:
     print("no checkpoint found")
@@ -309,7 +309,7 @@ if __name__ == '__main__':
         # Evaluate the evaluation dataset in each epoch
         print('Evaluating dataset')
         beat_mean_f_measure, downbeat_mean_f_measure, _ = evaluate_beat_f_measure(
-            val_dataloader, beatfcos, args.audio_downsampling_factor, score_threshold=0.20)
+            val_dataloader, beatfcos, args.audio_downsampling_factor, args.audio_sample_rate, score_threshold=0.20)
         
         joint_f_measure = (beat_mean_f_measure + downbeat_mean_f_measure)/2
 
@@ -325,7 +325,7 @@ if __name__ == '__main__':
 
         #should_save_checkpoint = True # FOR DEBUGGING
         if should_save_checkpoint:
-            new_checkpoint_path = './checkpoints/beatfcos_{}.pt'.format(epoch_num)
+            new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
             print(f"Saving checkpoint at {new_checkpoint_path}")
             torch.save(beatfcos.state_dict(), new_checkpoint_path)
 

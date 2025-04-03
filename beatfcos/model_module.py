@@ -77,7 +77,7 @@ class PyramidFeatures(nn.Module):
 
 
 class RegressionModel(nn.Module):
-    def __init__(self, num_features_in, num_anchors=3, feature_size=256):
+    def __init__(self, num_features_in, feature_size=256):
         super(RegressionModel, self).__init__()
 
         self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
@@ -88,7 +88,7 @@ class RegressionModel(nn.Module):
         self.norm2 = nn.GroupNorm(32, feature_size)
         self.act2 = nn.ReLU()
 
-        self.regression = nn.Conv1d(feature_size, num_anchors * 2, kernel_size=3, padding=1)
+        self.regression = nn.Conv1d(feature_size, 2, kernel_size=3, padding=1)
         self.leftness = nn.Conv1d(feature_size, 1, kernel_size=3, padding=1)
         self.leftness_act = nn.Sigmoid()
 
@@ -117,11 +117,10 @@ class RegressionModel(nn.Module):
         return regression, leftness
 
 class ClassificationModel(nn.Module):
-    def __init__(self, num_features_in, num_anchors=3, num_classes=2, prior=0.01, feature_size=256):
+    def __init__(self, num_features_in, num_classes=2, prior=0.01, feature_size=256):
         super(ClassificationModel, self).__init__()
 
         self.num_classes = num_classes
-        self.num_anchors = num_anchors
 
         self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.norm1 = nn.GroupNorm(32, feature_size)
@@ -131,7 +130,7 @@ class ClassificationModel(nn.Module):
         self.norm2 = nn.GroupNorm(32, feature_size)
         self.act2 = nn.ReLU()
 
-        self.output = nn.Conv1d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
+        self.output = nn.Conv1d(feature_size, num_classes, kernel_size=3, padding=1)
         self.output_act = nn.Sigmoid()
 
     def forward(self, x):
@@ -152,8 +151,7 @@ class ClassificationModel(nn.Module):
         #batch_size, width, height, channels = out1.shape
         batch_size, length, channels = out1.shape
 
-        #out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
-        out2 = out1.view(batch_size, length, self.num_anchors, self.num_classes)
+        out2 = out1.view(batch_size, length, 1, self.num_classes)
 
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
@@ -167,6 +165,7 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
         centerness=False,
         postprocessing_type="soft_nms",
         backbone_type="wavebeat",
+        audio_sample_rate=22050,
         **kwargs
     ):
         self.inplanes = 256
@@ -195,12 +194,10 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
 
         self.fpn = PyramidFeatures(C4_size, C5_size)
 
-        num_anchors = 1
+        self.classificationModel = ClassificationModel(256, num_classes=num_classes)
+        self.regressionModel = RegressionModel(256)
 
-        self.classificationModel = ClassificationModel(256, num_anchors=num_anchors, num_classes=num_classes)
-        self.regressionModel = RegressionModel(256, num_anchors=num_anchors)
-
-        self.anchors = Anchors(audio_downsampling_factor=audio_downsampling_factor)
+        self.anchors = Anchors(audio_downsampling_factor, audio_sample_rate)
          #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
          #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
 
@@ -208,7 +205,7 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
 
         self.clipBoxes = ClipBoxes()
 
-        self.combined_loss = CombinedLoss(audio_downsampling_factor, centerness=centerness)
+        self.combined_loss = CombinedLoss(audio_downsampling_factor, audio_sample_rate, centerness=centerness)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
