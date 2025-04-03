@@ -62,13 +62,13 @@ def _compute_ap(recall, precision):
     return ap
 
 
-def _get_detections(dataset, retinanet, score_threshold=0.05, max_detections=100, save_path=None):
-    """ Get the detections from the retinanet using the generator.
+def _get_detections(dataset, beatfcos, score_threshold=0.05, max_detections=100, save_path=None):
+    """ Get the detections from the beatfcos using the generator.
     The result is a list of lists such that the size is:
         all_detections[num_images][num_classes] = detections[num_detections, 4 + num_classes]
     # Arguments
-        dataset         : The generator used to run images through the retinanet.
-        retinanet           : The retinanet to run on the images.
+        dataset         : The generator used to run images through the beatfcos.
+        beatfcos           : The beatfcos to run on the images.
         score_threshold : The score confidence threshold to use.
         max_detections  : The maximum number of detections to use per image.
         save_path       : The path to save the images with visualized detections to.
@@ -77,7 +77,7 @@ def _get_detections(dataset, retinanet, score_threshold=0.05, max_detections=100
     """
     all_detections = [[None for i in range(dataset.num_classes())] for j in range(len(dataset))]
 
-    retinanet.eval()
+    beatfcos.eval()
     
     with torch.no_grad():
 
@@ -87,9 +87,9 @@ def _get_detections(dataset, retinanet, score_threshold=0.05, max_detections=100
 
             # run network
             if torch.cuda.is_available():
-                scores, labels, boxes = retinanet(data['img'].permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
+                scores, labels, boxes = beatfcos(data['img'].permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
             else:
-                scores, labels, boxes = retinanet(data['img'].permute(2, 0, 1).float().unsqueeze(dim=0))
+                scores, labels, boxes = beatfcos(data['img'].permute(2, 0, 1).float().unsqueeze(dim=0))
             scores = scores.cpu().numpy()
             labels = labels.cpu().numpy()
             boxes  = boxes.cpu().numpy()
@@ -151,16 +151,16 @@ def _get_annotations(generator):
 
 def evaluate(
     generator,
-    retinanet,
+    beatfcos,
     iou_threshold=0.5,
     score_threshold=0.05,
     max_detections=100,
     save_path=None
 ):
-    """ Evaluate a given dataset using a given retinanet.
+    """ Evaluate a given dataset using a given beatfcos.
     # Arguments
         generator       : The generator that represents the dataset to evaluate.
-        retinanet           : The retinanet to evaluate.
+        beatfcos           : The beatfcos to evaluate.
         iou_threshold   : The threshold used to consider when a detection is positive or negative.
         score_threshold : The score confidence threshold to use for detections.
         max_detections  : The maximum number of detections to use per image.
@@ -173,7 +173,7 @@ def evaluate(
 
     # gather all detections and annotations
 
-    all_detections     = _get_detections(generator, retinanet, score_threshold=score_threshold, max_detections=max_detections, save_path=save_path)
+    all_detections     = _get_detections(generator, beatfcos, score_threshold=score_threshold, max_detections=max_detections, save_path=save_path)
     all_annotations    = _get_annotations(generator)
 
     average_precisions = {}

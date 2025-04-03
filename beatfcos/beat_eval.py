@@ -4,7 +4,7 @@ import numpy as np
 import scipy.signal
 import torch
 import os
-from retinanet.utils import calc_iou
+from beatfcos.utils import calc_iou
 
 def find_beats(t, p, 
                 smoothing=127, 
@@ -213,11 +213,11 @@ def get_results_from_model(audio, target, model, iou_threshold=0.5, score_thresh
     return predicted_scores, predicted_labels, predicted_boxes, losses
 
 def get_detections(dataloader, model, num_classes, score_threshold=0.05, max_detections=10000000):
-    """ Get the detections from the retinanet using the generator.
+    """ Get the detections from the beatfcos using the generator.
     The result is a list of lists such that the size is:
         all_detections[num_images][num_classes] = detections[num_detections, 4 + num_classes]
     # Arguments
-        dataset         : The generator used to run images through the retinanet.
+        dataset         : The generator used to run images through the beatfcos.
         model           : The model to run on the images.
         score_threshold : The score confidence threshold to use.
         max_detections  : The maximum number of detections to use per image.
@@ -241,9 +241,9 @@ def get_detections(dataloader, model, num_classes, score_threshold=0.05, max_det
 
             # # run network
             # if torch.cuda.is_available():
-            #     scores, labels, boxes = retinanet(data['img'].permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
+            #     scores, labels, boxes = beatfcos(data['img'].permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
             # else:
-            #     scores, labels, boxes = retinanet(data['img'].permute(2, 0, 1).float().unsqueeze(dim=0))
+            #     scores, labels, boxes = beatfcos(data['img'].permute(2, 0, 1).float().unsqueeze(dim=0))
             # scores = scores.cpu().numpy()
             # labels = labels.cpu().numpy()
             # boxes  = boxes.cpu().numpy()

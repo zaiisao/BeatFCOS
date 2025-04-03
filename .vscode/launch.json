@@ -24,13 +24,11 @@
                 "--augment", "--batch_size", "8",
                 "--audio_sample_rate", "22050",
                 "--num_workers", "0",
-                "--reg_loss_type", "giou",
                 "--fcos",
                 "--lr", "1e-3",
                 "--postprocessing_type", "soft_nms",
                 "--validation_fold", "0",
                 "--pretrained",
-                "--freeze_bn",
                 "--backbone_type", "wavebeat"
                 //"--backbone_type", "tcn2019"
                 // "--checkpoints_dir", "checkpoints"
@@ -62,7 +60,6 @@
                 "--augment", "--batch_size", "16",
                 "--audio_sample_rate", "22050",
                 "--num_workers", "0",
-                "--reg_loss_type", "giou",
                 "--fcos",
                 "--lr", "1e-3",
                 "--postprocessing_type", "soft_nms",
@@ -104,9 +101,7 @@
                 "--batch_size", "16",
                 "--audio_sample_rate", "22050",
                 "--num_workers", "24",
-                //"--max_epochs", "100",   
-                "--epochs", "100",          
-                "--reg_loss_type", "giou",
+                "--epochs", "100",
                 "--fcos",
                 "--dist-url", "tcp://163.239.103.144:8888",
                 "--dist-backend", "nccl",
@@ -114,9 +109,6 @@
                 "--world-size",  "1",
                 "--rank",  "0",
                 "--pretrained",
-                "--freeze_bn"
-                // "--freeze_backbone"
-                // "--checkpoints_dir", "checkpoints"
             ],
             "console": "integratedTerminal",
             "justMyCode": false
