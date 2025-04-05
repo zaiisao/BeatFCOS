@@ -233,14 +233,8 @@ dict_args = vars(args)
 if __name__ == '__main__':
     beatfcos = model_module.create_beatfcos_model(num_classes=2, args=args, **dict_args)
 
-    use_gpu = True
-
-    if use_gpu:
-        if torch.cuda.is_available():
-            beatfcos = beatfcos.cuda()
-
     if torch.cuda.is_available():
-        beatfcos = torch.nn.DataParallel(beatfcos).cuda()
+        beatfcos = torch.nn.DataParallel(beatfcos.cuda())
     else:
         beatfcos = torch.nn.DataParallel(beatfcos)
 
