@@ -5,48 +5,37 @@ from beatfcos.utils import calc_iou, calc_giou, AnchorPointTransform
 
 INF = 100000000
 
-def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor, audio_sample_rate,
+def clusters_to_interval_length_ranges(clusters: torch.Tensor):
+    """
+    Given a tensor of sorted cluster centers (durations in seconds),
+    returns a list of (min, max) size ranges for FCOS levels.
+    """
+    assert clusters.ndim == 1 and torch.all(clusters[:-1] <= clusters[1:]), "Clusters must be a sorted 1D tensor"
+
+    sizes = []
+
+    # Compute midpoints between adjacent clusters
+    midpoints = (clusters[1:] - clusters[:-1]) / 2
+
+    # Compute edges for each size range
+    edges = clusters[:-1] + midpoints
+
+    # First range
+    sizes.append([-1.0, edges[0].item()])
+
+    # Middle ranges
+    for i in range(1, len(edges)):
+        sizes.append([edges[i - 1].item(), edges[i].item()])
+
+    # Last range
+    sizes.append([edges[-1].item(), 1000.0])
+
+    return sizes
+
+def get_fcos_positives(jth_annotations, anchors_list, interval_length_ranges,
+                       audio_downsampling_factor, audio_sample_rate,
                        centerness=False, beat_radius=2.5, downbeat_radius=4.5):
     audio_target_rate = audio_sample_rate / audio_downsampling_factor
-
-    sizes = [
-        [-1, 0.546471750],
-        [0.546471750, 0.954826620],
-        [0.954826620, 1.587662385],
-        [1.587662385, 2.359228750],
-        [2.359228750, 1000],
-    ]
-
-    # Sizes were calculated as follows:
-    # b_k where k = [1, 2]: beat k-means values when calculating all beat interval lengths (2 in total)
-    #
-    # b_1 = 0.42574675, b_2 = 0.66719675
-    #
-    # b_k where k = [3, 4, 5]: downbeat k-means values when calculating all downbeat interval lengths (3 in total)
-    #
-    # b_3 = 1.24245649, b_4 = 1.93286828, b_5 = 2.78558922
-    #
-    # Why 3 for downbeat and 2 for regular beat?
-    # There is much more size variation for downbeat interval lengths, requiring more sizes dedicated to downbeats.
-    #
-    # K-means values were calculated using Ballroom and Hainsworth datasets.
-    #
-    # We don't want to choose the k-means values themselves as the cutoff points, but instead between clusters.
-    # Objects centered around the cluster are expected to be similar to one another, so it is unproductive to set
-    # the limits to the center, splitting each side to be trained on different levels despite all being similar.
-    # Thus, m_k is the the middle of two clusters and calculated as follows:
-    #
-    # m_i = b_(i + 1)/2 - b_i/2
-    # m_1 = 0.66719675/2 - 0.42574675/2 = 0.120725
-    # m_2 = 1.24245649/2 - 0.66719675/2 = 0.28762987
-    # m_3 = 1.93286828/2 - 1.24245649/2 = 0.345205895
-    # m_4 = 2.78558922/2 - 1.93286828/2 = 0.42636047
-    #
-    # [-1, b_1 + m_1]           = [-1, 0.42574675 + 0.120725000]                       = [-1, 0.546471750]
-    # [b_1 + m_1, b_2 + m_2]    = [0.42574675 + 0.120725000, 0.66719675 + 0.287629870] = [0.546471750, 0.954826620]
-    # [b_2 + m_2, b_3 + m_3]    = [0.66719675 + 0.287629870, 1.24245649 + 0.345205895] = [0.954826620, 1.587662385]
-    # [b_3 + m_3, b_4 + m_4]    = [1.24245649 + 0.345205895, 1.93286828 + 0.426360470] = [1.587662385, 2.359228750]
-    # [b_4 + m_4, 1000]         = [1.93286828 + 0.426360470, 1000]                     = [2.359228750, 1000]
 
     boolean_indices_to_bboxes_for_positive_anchors = torch.zeros(0, dtype=torch.bool).to(jth_annotations.device)
     assigned_annotations_for_anchors = torch.zeros(0, 3).to(jth_annotations.device)
@@ -86,7 +75,11 @@ def get_fcos_positives(jth_annotations, anchors_list, audio_downsampling_factor,
         l_stars_to_bboxes_for_anchors_per_level =  anchor_points_per_level_nx1 - l_annotations_1xm
         r_stars_to_bboxes_for_anchors_per_level =  r_annotations_1xm - anchor_points_per_level_nx1
 
-        size_of_interest_per_level = anchor_points_per_level.new_tensor([sizes[i][0] * audio_target_rate, sizes[i][1] * audio_target_rate])
+        size_of_interest_per_level = anchor_points_per_level.new_tensor([
+            interval_length_ranges[i][0] * audio_target_rate,
+            interval_length_ranges[i][1] * audio_target_rate
+        ])
+
         size_of_interest_for_anchors_per_level = size_of_interest_per_level[None].expand(anchor_points_per_level.size(dim=0), -1)
 
         # Put L and R stars into a single tensor so that we can calculate max
@@ -437,7 +430,7 @@ class AdjacencyConstraintLoss(nn.Module):
         return all_adjacency_constraint_losses.mean()
 
 class CombinedLoss(nn.Module):
-    def __init__(self, audio_downsampling_factor, audio_sample_rate, centerness=False):
+    def __init__(self, clusters, audio_downsampling_factor, audio_sample_rate, centerness=False):
         super(CombinedLoss, self).__init__()
 
         self.classification_loss = FocalLoss()
@@ -445,6 +438,7 @@ class CombinedLoss(nn.Module):
         self.leftness_loss = LeftnessLoss()
         self.adjacency_constraint_loss = AdjacencyConstraintLoss()
         
+        self.clusters = clusters
         self.audio_downsampling_factor = audio_downsampling_factor
         self.audio_sample_rate = audio_sample_rate
         self.centerness = centerness
@@ -503,10 +497,12 @@ class CombinedLoss(nn.Module):
             if jth_annotations.size(dim=0) == 0:
                 continue
 
+            interval_length_ranges = clusters_to_interval_length_ranges(self.clusters)
+
             positive_anchor_indices, assigned_annotations_for_anchors, normalized_annotations_for_anchors, \
             l_star_for_anchors, r_star_for_anchors, normalized_l_star_for_anchors, \
             normalized_r_star_for_anchors, levels_for_anchors = get_fcos_positives(
-                jth_annotations, anchors_list,
+                jth_annotations, anchors_list, interval_length_ranges,
                 self.audio_downsampling_factor, self.audio_sample_rate, self.centerness
             )
 

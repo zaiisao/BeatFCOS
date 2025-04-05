@@ -160,6 +160,7 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
     def __init__(
         self,
         num_classes,
+        clusters,
         downbeat_weight=0.6,
         audio_downsampling_factor=32,
         centerness=False,
@@ -197,7 +198,7 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
         self.classificationModel = ClassificationModel(256, num_classes=num_classes)
         self.regressionModel = RegressionModel(256)
 
-        self.anchors = Anchors(audio_downsampling_factor, audio_sample_rate)
+        self.anchors = Anchors(clusters, audio_downsampling_factor, audio_sample_rate)
          #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
          #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
 
@@ -205,7 +206,7 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
 
         self.clipBoxes = ClipBoxes()
 
-        self.combined_loss = CombinedLoss(audio_downsampling_factor, audio_sample_rate, centerness=centerness)
+        self.combined_loss = CombinedLoss(clusters, audio_downsampling_factor, audio_sample_rate, centerness=centerness)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
@@ -397,8 +398,8 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
 
             return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates, eval_losses]
 
-def create_beatfcos_model(num_classes, args, **kwargs):
-    model = BeatFCOS(num_classes, **kwargs)
+def create_beatfcos_model(num_classes, clusters, args, **kwargs):
+    model = BeatFCOS(num_classes, clusters, **kwargs)
 
     if args.pretrained:
         if args.backbone_type == "wavebeat":

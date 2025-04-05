@@ -12,6 +12,7 @@ from argparse import ArgumentParser
 import traceback
 import sys
 from os.path import join as ospj
+from kmeans_pytorch import kmeans, kmeans_predict
 
 from beatfcos import model_module
 from beatfcos.dataloader import BeatDataset, collater
@@ -104,7 +105,8 @@ temp_args, _ = parser.parse_known_args()
 # parse them args
 args = parser.parse_args()
 
-datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
+# datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
+datasets = ["ballroom"]
 #MJ: for testing: datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 
 # set the seed
@@ -208,22 +210,54 @@ val_dataloader = torch.utils.data.DataLoader(val_dataset_list,
                                             pin_memory=False,
                                             collate_fn=collater)
 
+def get_training_data_clusters():
+    all_beat_lengths = torch.tensor([])
+    all_downbeat_lengths = torch.tensor([])
+
+    for data in train_dataset_list:
+        audio, annotations = data
+
+        downbeat_annotations = annotations[annotations[:, 2] == 0]
+        beat_annotations = annotations[annotations[:, 2] == 1]
+
+        downbeat_lengths = downbeat_annotations[:, 1] - downbeat_annotations[:, 0]
+        beat_lengths = beat_annotations[:, 1] - beat_annotations[:, 0]
+
+        all_downbeat_lengths = torch.cat((all_downbeat_lengths, downbeat_lengths))
+        all_beat_lengths = torch.cat((all_beat_lengths, beat_lengths))
+    
+    all_downbeat_lengths_in_secs = all_downbeat_lengths * args.audio_downsampling_factor / args.audio_sample_rate
+    all_beat_lengths_in_secs = all_beat_lengths * args.audio_downsampling_factor / args.audio_sample_rate
+
+    _, beat_cluster_centers = kmeans(X=all_beat_lengths_in_secs[:, None], num_clusters=2, device=torch.device('cuda:0'))
+    _, downbeat_cluster_centers = kmeans(X=all_downbeat_lengths_in_secs[:, None], num_clusters=3, device=torch.device('cuda:0'))
+
+    all_cluster_centers_Cx1 = torch.cat((beat_cluster_centers, downbeat_cluster_centers), dim=0)
+    all_cluster_centers_C = all_cluster_centers_Cx1[:, 0]
+
+    sorted_cluster_centers, _ = torch.sort(all_cluster_centers_C, dim=0)
+
+    return sorted_cluster_centers
+
 dict_args = vars(args)
 
 if __name__ == '__main__':
     # Create the model
-    beatfcos = model_module.create_beatfcos_model(num_classes=2, args=args, **dict_args)
+    training_data_clusters = get_training_data_clusters()
+    # training_data_clusters = torch.tensor([0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922])
+
+    beatfcos = model_module.create_beatfcos_model(num_classes=2, clusters=training_data_clusters, args=args, **dict_args)
 
     if torch.cuda.is_available():
-        beatfcos = torch.nn.DataParallel(beatfcos.cuda())
+        beatfcos = beatfcos.cuda()
+        beatfcos = torch.nn.DataParallel(beatfcos).cuda()
     else:
         beatfcos = torch.nn.DataParallel(beatfcos)
 
+    device = next(beatfcos.module.parameters()).device
+
     if checkpoint_path:
-        beatfcos.load_state_dict(torch.load(
-            checkpoint_path,
-            torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        ))
+        beatfcos.load_state_dict(torch.load(checkpoint_path, device))
 
     beatfcos.training = True
 
