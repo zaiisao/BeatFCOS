@@ -7,7 +7,8 @@ import torchaudio
 import numpy as np
 import scipy.signal
 from tqdm import tqdm
-import soxbindings as sox 
+# import soxbindings as sox 
+import sox
 
 torchaudio.set_audio_backend("sox_io")
 
