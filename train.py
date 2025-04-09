@@ -105,8 +105,8 @@ temp_args, _ = parser.parse_known_args()
 # parse them args
 args = parser.parse_args()
 
-# datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
-datasets = ["ballroom"]
+datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
+# datasets = ["ballroom"]
 #MJ: for testing: datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 
 # set the seed
@@ -211,31 +211,104 @@ val_dataloader = torch.utils.data.DataLoader(val_dataset_list,
                                             collate_fn=collater)
 
 def get_training_data_clusters():
-    all_beat_lengths = torch.tensor([])
-    all_downbeat_lengths = torch.tensor([])
+    all_beat_lengths = []     # Interval lengths for beats (in frames)
+    all_downbeat_lengths = [] # Interval lengths for downbeats (in frames)
 
-    for data in train_dataset_list:
-        audio, annotations = data
+    # Define the conversion factor: each “frame” in the target tensor corresponds to:
+    conversion = args.audio_downsampling_factor / args.audio_sample_rate
 
-        downbeat_annotations = annotations[annotations[:, 2] == 0]
-        beat_annotations = annotations[annotations[:, 2] == 1]
+    # Process each annotation file without loading the audio.
+    for dataset in train_dataset_list.datasets:
+        for annot_file in dataset.annot_files:
+            # Load annotation data: beat_samples are in terms of audio samples
+            beat_samples, downbeat_samples, _, _ = dataset.load_annot(annot_file)
 
-        downbeat_lengths = downbeat_annotations[:, 1] - downbeat_annotations[:, 0]
-        beat_lengths = beat_annotations[:, 1] - beat_annotations[:, 0]
+            # Convert beat sample positions to target-domain indices by dividing by the downsampling factor.
+            # (This mimics the processing in your full pipeline.)
+            if len(beat_samples) > 0:
+                beat_target = (np.array(beat_samples) / args.audio_downsampling_factor).astype(int)
+            else:
+                beat_target = np.array([])
 
-        all_downbeat_lengths = torch.cat((all_downbeat_lengths, downbeat_lengths))
-        all_beat_lengths = torch.cat((all_beat_lengths, beat_lengths))
-    
-    all_downbeat_lengths_in_secs = all_downbeat_lengths * args.audio_downsampling_factor / args.audio_sample_rate
-    all_beat_lengths_in_secs = all_beat_lengths * args.audio_downsampling_factor / args.audio_sample_rate
+            if len(downbeat_samples) > 0:
+                downbeat_target = (np.array(downbeat_samples) / args.audio_downsampling_factor).astype(int)
+            else:
+                downbeat_target = np.array([])
 
-    _, beat_cluster_centers = kmeans(X=all_beat_lengths_in_secs[:, None], num_clusters=2, device=torch.device('cuda:0'))
-    _, downbeat_cluster_centers = kmeans(X=all_downbeat_lengths_in_secs[:, None], num_clusters=3, device=torch.device('cuda:0'))
+            # Skip files with no annotations
+            if beat_target.size == 0 and downbeat_target.size == 0:
+                continue
 
-    all_cluster_centers_Cx1 = torch.cat((beat_cluster_centers, downbeat_cluster_centers), dim=0)
-    all_cluster_centers_C = all_cluster_centers_Cx1[:, 0]
+            # Determine target length N based solely on the annotations.
+            max_idx = 0
+            if beat_target.size > 0:
+                max_idx = max(max_idx, beat_target.max())
+            if downbeat_target.size > 0:
+                max_idx = max(max_idx, downbeat_target.max())
+            N = int(max_idx) + 1
 
-    sorted_cluster_centers, _ = torch.sort(all_cluster_centers_C, dim=0)
+            # Create a target tensor (2 rows: first for beats, second for downbeats).
+            target = torch.zeros(2, N)
+            if beat_target.size > 0:
+                target[0, torch.tensor(beat_target, dtype=torch.long)] = 1
+            if downbeat_target.size > 0:
+                target[1, torch.tensor(downbeat_target, dtype=torch.long)] = 1
+
+            # Compute intervals using the dataset's make_intervals.
+            intervals = dataset.make_intervals(target)  # intervals shape: (M, 3)
+
+            # Skip if no intervals were produced (insufficient annotations).
+            if intervals.shape[0] == 0:
+                continue
+
+            # Separate intervals by class (assuming convention: class 0 = downbeat, class 1 = beat)
+            downbeat_intervals = intervals[intervals[:, 2] == 0]
+            beat_intervals = intervals[intervals[:, 2] == 1]
+
+            # Compute interval lengths (difference between end and start indices) if intervals exist.
+            if downbeat_intervals.shape[0] > 0:
+                lengths = downbeat_intervals[:, 1] - downbeat_intervals[:, 0]
+                all_downbeat_lengths.append(lengths)
+            if beat_intervals.shape[0] > 0:
+                lengths = beat_intervals[:, 1] - beat_intervals[:, 0]
+                all_beat_lengths.append(lengths)
+
+    # Concatenate all collected interval lengths.
+    if all_downbeat_lengths:
+        all_downbeat_lengths = torch.cat(all_downbeat_lengths)
+    else:
+        all_downbeat_lengths = torch.tensor([])
+    if all_beat_lengths:
+        all_beat_lengths = torch.cat(all_beat_lengths)
+    else:
+        all_beat_lengths = torch.tensor([])
+
+    # Convert the lengths (currently in target "frames") into seconds.
+    beat_lengths_secs = all_beat_lengths * conversion
+    downbeat_lengths_secs = all_downbeat_lengths * conversion
+
+    # Clustering using k-means.
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    if beat_lengths_secs.numel() > 0:
+        _, beat_cluster_centers = kmeans(X=beat_lengths_secs.unsqueeze(1), num_clusters=2, device=device)
+    else:
+        beat_cluster_centers = torch.tensor([]).to(device)
+        
+    if downbeat_lengths_secs.numel() > 0:
+        _, downbeat_cluster_centers = kmeans(X=downbeat_lengths_secs.unsqueeze(1), num_clusters=3, device=device)
+    else:
+        downbeat_cluster_centers = torch.tensor([]).to(device)
+
+    # Merge and sort the cluster centers.
+    if beat_cluster_centers.numel() > 0 and downbeat_cluster_centers.numel() > 0:
+        combined = torch.cat((beat_cluster_centers, downbeat_cluster_centers), dim=0)
+        sorted_cluster_centers, _ = torch.sort(combined[:, 0])
+    elif beat_cluster_centers.numel() > 0:
+        sorted_cluster_centers, _ = torch.sort(beat_cluster_centers[:, 0])
+    elif downbeat_cluster_centers.numel() > 0:
+        sorted_cluster_centers, _ = torch.sort(downbeat_cluster_centers[:, 0])
+    else:
+        sorted_cluster_centers = torch.tensor([])
 
     return sorted_cluster_centers
 
@@ -299,14 +372,17 @@ if __name__ == '__main__':
                 classification_loss = classification_loss.mean()
                 regression_loss = regression_loss.mean()
                 leftness_loss = leftness_loss.mean()
-                adjacency_constraint_loss = torch.zeros(1).to(adjacency_constraint_loss.device) if args.no_adj else adjacency_constraint_loss.mean()
+                adjacency_constraint_loss = adjacency_constraint_loss.mean()
 
                 cls_losses.append(classification_loss.item())
                 reg_losses.append(regression_loss.item())
                 lft_losses.append(leftness_loss.item())
                 adj_losses.append(adjacency_constraint_loss.item())
 
-                loss = classification_loss + regression_loss + leftness_loss + adjacency_constraint_loss
+                loss = classification_loss + regression_loss + leftness_loss
+
+                if args.no_adj:
+                    loss += adjacency_constraint_loss
 
                 if bool(loss == 0):
                     continue
@@ -321,10 +397,12 @@ if __name__ == '__main__':
                 epoch_loss.append(float(loss))
 
                 print(
-                    'Epoch: {} | Iteration: {} | CLS: {:1.5f} | REG: {:1.5f} | LFT: {:1.5f} | ADJ: {:1.5f} | Running loss: {:1.5f}'.format(
-                        epoch_num, iter_num,
-                        float(classification_loss), float(regression_loss),
-                        float(leftness_loss), float(adjacency_constraint_loss), np.mean(loss_hist))
+                    f"Epoch: {epoch_num} | Iteration: {iter_num} | " +
+                    f"CLS: {float(classification_loss):1.5f} | " +
+                    f"REG: {float(regression_loss):1.5f} | " +
+                    f"LFT: {float(leftness_loss):1.5f} | " +
+                    f"ADJ{('(OFF)' if args.no_adj else '')}: {float(adjacency_constraint_loss):1.5f} | " +
+                    f"Running loss: {np.mean(loss_hist):1.5f}"
                 )
 
                 del classification_loss
