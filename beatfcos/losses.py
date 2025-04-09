@@ -196,8 +196,7 @@ class FocalLoss(nn.Module):
         else:
             cls_loss = torch.where(torch.ne(jth_classification_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape))
 
-        return cls_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0)
-        #return cls_loss.sum()
+        return cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0)
 
 class RegressionLoss(nn.Module):
     def __init__(self, weight=1):
@@ -259,33 +258,45 @@ class AdjacencyConstraintLoss(nn.Module):
         self,
         transformed_target_regression_boxes,
         transformed_pred_regression_boxes,
-        boolean_indices_to_downbeats_for_positive_anchors,
-        boolean_indices_to_beats_for_positive_anchors,
-        effective_audio_length
+        positive_downbeat_anchor_mask, #boolean_indices_to_downbeats_for_positive_anchors,
+        positive_beat_anchor_mask #boolean_indices_to_beats_for_positive_anchors
     ):
-        # N1 = num_of_downbeats_for_positive_anchors
-        # N2 = num_of_beats_for_positive_anchors
-        num_of_downbeats_for_positive_anchors = torch.sum(boolean_indices_to_downbeats_for_positive_anchors, dtype=torch.int32).item()
-        num_of_beats_for_positive_anchors = torch.sum(boolean_indices_to_beats_for_positive_anchors, dtype=torch.int32).item()
+        # N1 = num_positive_anchor_downbeats
+        # N2 = num_positive_anchor_beats
+        num_positive_anchor_downbeats = torch.sum(positive_downbeat_anchor_mask, dtype=torch.int32).item()
+        num_positive_anchor_beats = torch.sum(positive_beat_anchor_mask, dtype=torch.int32).item()
 
-        downbeat_target_x1s_for_anchors = transformed_target_regression_boxes[boolean_indices_to_downbeats_for_positive_anchors, 0]
-        downbeat_pred_x1s_for_anchors = transformed_pred_regression_boxes[boolean_indices_to_downbeats_for_positive_anchors, 0]
+        anchor_downbeat_targets_x1 = transformed_target_regression_boxes[positive_downbeat_anchor_mask, 0]
+        anchor_downbeat_targets_x2 = transformed_target_regression_boxes[positive_downbeat_anchor_mask, 1]
+        anchor_beat_targets_x1 = transformed_target_regression_boxes[positive_beat_anchor_mask, 0]
+        anchor_beat_targets_x2 = transformed_target_regression_boxes[positive_beat_anchor_mask, 1]
 
-        beat_target_x1s_for_anchors = transformed_target_regression_boxes[boolean_indices_to_beats_for_positive_anchors, 0]
-        beat_pred_x1s_for_anchors = transformed_pred_regression_boxes[boolean_indices_to_beats_for_positive_anchors, 0]
+        anchor_downbeat_preds_x1 = transformed_pred_regression_boxes[positive_downbeat_anchor_mask, 0]
+        anchor_beat_preds_x1 = transformed_pred_regression_boxes[positive_beat_anchor_mask, 0]
+
+        anchor_downbeat_target_lengths = anchor_downbeat_targets_x2 - anchor_downbeat_targets_x1
+        anchor_beat_target_lengths = anchor_beat_targets_x2 - anchor_beat_targets_x1
 
         # A matrix with the dimensions (D, B) where D is downbeat count and B is beat count is created
         # We repeat the beat and downbeat positions so that we can do elementwise comparison to match
         # the downbeats with their corresponding first beat objects; they will share the same regression
         # box x1 position value.
         # For downbeats, the column is repeated; for beats, the row is repeated
-        downbeat_target_x1s_for_anchors_N1x1 = downbeat_target_x1s_for_anchors[:, None]
-        beat_target_x1s_for_anchors_1xN2 = beat_target_x1s_for_anchors[None, :]
-        downbeat_pred_x1s_for_anchors_N1x1 = downbeat_pred_x1s_for_anchors[:, None]
-        beat_pred_x1s_for_anchors_1xN2 = beat_pred_x1s_for_anchors[None, :]
+        anchor_downbeat_targets_x1_N1x1 = anchor_downbeat_targets_x1[:, None]
+        anchor_beat_targets_x1_1xN2 = anchor_beat_targets_x1[None, :]
+        anchor_downbeat_preds_x1_N1x1 = anchor_downbeat_preds_x1[:, None]
+        anchor_beat_preds_x1_1xN2 = anchor_beat_preds_x1[None, :]
 
-        downbeat_position_repeated_N1xN2 = downbeat_target_x1s_for_anchors_N1x1.repeat(1, num_of_beats_for_positive_anchors)
-        beat_position_repeated_N1xN2 = beat_target_x1s_for_anchors_1xN2.repeat(num_of_downbeats_for_positive_anchors, 1)
+        anchor_downbeat_target_lengths_N1x1 = anchor_downbeat_target_lengths[:, None]
+        anchor_beat_target_lengths_1xN2 = anchor_beat_target_lengths[None, :]
+
+        downbeat_position_repeated_N1xN2 = anchor_downbeat_targets_x1_N1x1.repeat(1, num_positive_anchor_beats)
+        beat_position_repeated_N1xN2 = anchor_beat_targets_x1_1xN2.repeat(num_positive_anchor_downbeats, 1)
+
+        downbeat_length_repeated_N1xN2 = anchor_downbeat_target_lengths_N1x1.repeat(1, num_positive_anchor_beats)
+        beat_length_repeated_N1xN2 = anchor_beat_target_lengths_1xN2.repeat(num_positive_anchor_downbeats, 1)
+
+        max_length_matrix_N1xN2 = torch.max(downbeat_length_repeated_N1xN2, beat_length_repeated_N1xN2)
 
         downbeat_and_beat_x1_incidence_matrix_N1xN2 = downbeat_position_repeated_N1xN2 == beat_position_repeated_N1xN2
         num_incidences_between_downbeats_and_beats = downbeat_and_beat_x1_incidence_matrix_N1xN2.sum()
@@ -297,12 +308,12 @@ class AdjacencyConstraintLoss(nn.Module):
         # and multiply this (D, B) result matrix with the incidence matrix to remove all values where
         # the downbeat does not correspond with the beat
         downbeat_and_beat_x1_discrepancy_error_N1xN2 = torch.square(
-            (downbeat_pred_x1s_for_anchors_N1x1 - beat_pred_x1s_for_anchors_1xN2) / torch.clamp(effective_audio_length, min=1.0)
-        ) 
+            anchor_downbeat_preds_x1_N1x1 - anchor_beat_preds_x1_1xN2
+        )
 
-        downbeat_and_beat_x1_discrepancy_error_N1xN2 *= downbeat_and_beat_x1_incidence_matrix_N1xN2
-
-        downbeat_and_beat_x1_loss = downbeat_and_beat_x1_discrepancy_error_N1xN2.sum()
+        downbeat_and_beat_x1_loss = ((
+            downbeat_and_beat_x1_discrepancy_error_N1xN2 * downbeat_and_beat_x1_incidence_matrix_N1xN2
+        ) / max_length_matrix_N1xN2).sum()
 
         return downbeat_and_beat_x1_loss
 
@@ -310,39 +321,49 @@ class AdjacencyConstraintLoss(nn.Module):
         self,
         transformed_target_regression_boxes,
         transformed_pred_regression_boxes,
-        boolean_indices_to_classes_for_positive_anchors,
-        effective_audio_length
+        positive_class_anchor_mask  # previously: boolean_indices_to_classes_for_positive_anchors
     ):
-        num_of_classes_for_positive_anchors = torch.sum(boolean_indices_to_classes_for_positive_anchors, dtype=torch.int32).item()
+        num_positive_class_anchors = torch.sum(positive_class_anchor_mask, dtype=torch.int32).item()
 
-        class_target_x2s_for_anchors = transformed_target_regression_boxes[boolean_indices_to_classes_for_positive_anchors, 1]
-        class_pred_x2s_for_anchors = transformed_pred_regression_boxes[boolean_indices_to_classes_for_positive_anchors, 1]
+        anchor_class_targets_x2 = transformed_target_regression_boxes[positive_class_anchor_mask, 1]
+        anchor_class_preds_x2 = transformed_pred_regression_boxes[positive_class_anchor_mask, 1]
 
-        class_target_x1s_for_anchors = transformed_target_regression_boxes[boolean_indices_to_classes_for_positive_anchors, 0]
-        class_pred_x1s_for_anchors = transformed_pred_regression_boxes[boolean_indices_to_classes_for_positive_anchors, 0]
+        anchor_class_targets_x1 = transformed_target_regression_boxes[positive_class_anchor_mask, 0]
+        anchor_class_preds_x1 = transformed_pred_regression_boxes[positive_class_anchor_mask, 0]
 
-        class_target_x2s_for_anchors_nx1 = class_target_x2s_for_anchors[:, None]
-        class_target_x1s_for_anchors_1xn = class_target_x1s_for_anchors[None, :]
-        class_pred_x2s_for_anchors_nx1 = class_pred_x2s_for_anchors[:, None]
-        class_pred_x1s_for_anchors_1xn = class_pred_x1s_for_anchors[None, :]
+        anchor_class_target_lengths = anchor_class_targets_x2 - anchor_class_targets_x1
 
-        class_position_x2s_repeated_nxn = class_target_x2s_for_anchors_nx1.repeat(1, num_of_classes_for_positive_anchors)
-        class_position_x1s_repeated_nxn = class_target_x1s_for_anchors_1xn.repeat(num_of_classes_for_positive_anchors, 1)
+        anchor_class_targets_x2_nx1 = anchor_class_targets_x2[:, None]
+        anchor_class_targets_x1_1xn = anchor_class_targets_x1[None, :]
 
-        class_x2_and_x1_incidence_matrix_nxn = class_position_x2s_repeated_nxn == class_position_x1s_repeated_nxn
+        anchor_class_preds_x2_nx1 = anchor_class_preds_x2[:, None]
+        anchor_class_preds_x1_1xn = anchor_class_preds_x1[None, :]
 
-        num_incidences_between_beats = class_x2_and_x1_incidence_matrix_nxn.sum() # These can also be downbeats
+        anchor_class_target_lengths_nx1 = anchor_class_target_lengths[:, None]
+        anchor_class_target_lengths_1xn = anchor_class_target_lengths[None, :]
 
-        if num_incidences_between_beats == 0:
-            return torch.tensor(0).float().to(num_incidences_between_beats.device)
+        repeated_class_targets_x2 = anchor_class_targets_x2_nx1.repeat(1, num_positive_class_anchors)
+        repeated_class_targets_x1 = anchor_class_targets_x1_1xn.repeat(num_positive_class_anchors, 1)
 
-        class_x2_and_x1_discrepancy_error_nxn = torch.square(
-            (class_pred_x2s_for_anchors_nx1 - class_pred_x1s_for_anchors_1xn) / torch.clamp(effective_audio_length, min=1.0)
+        repeated_class_target_lengths_x2 = anchor_class_target_lengths_nx1.repeat(1, num_positive_class_anchors)
+        repeated_class_target_lengths_x1 = anchor_class_target_lengths_1xn.repeat(num_positive_class_anchors, 1)
+
+        max_class_length_matrix = torch.max(repeated_class_target_lengths_x2, repeated_class_target_lengths_x1)
+
+        class_x2_and_x1_incidence_matrix = repeated_class_targets_x2 == repeated_class_targets_x1
+
+        num_incidences = class_x2_and_x1_incidence_matrix.sum()
+
+        if num_incidences == 0:
+            return torch.tensor(0).float().to(num_incidences.device)
+
+        class_discrepancy_error = torch.square(
+            anchor_class_preds_x2_nx1 - anchor_class_preds_x1_1xn
         )
 
-        class_x2_and_x1_discrepancy_error_nxn *= class_x2_and_x1_incidence_matrix_nxn
+        class_discrepancy_error *= class_x2_and_x1_incidence_matrix
 
-        class_x2_and_x1_loss = class_x2_and_x1_discrepancy_error_nxn.sum()
+        class_x2_and_x1_loss = (class_discrepancy_error / max_class_length_matrix).sum()
 
         return class_x2_and_x1_loss
 
@@ -353,7 +374,8 @@ class AdjacencyConstraintLoss(nn.Module):
         jth_regression_targets,
         jth_positive_anchor_points,
         jth_positive_anchor_strides,
-        jth_annotations
+        jth_annotations,
+        num_positive_anchors
     ):
         # With the classification targets, we can easily figure out what anchor corresponds to what box type
         # If jth_classification_targets[:, 0] is 1, the corresponding anchor is associated with a downbeat
@@ -361,21 +383,6 @@ class AdjacencyConstraintLoss(nn.Module):
 
         boolean_indices_to_downbeats_for_positive_anchors = jth_classification_targets[:, 0] == 1
         boolean_indices_to_beats_for_positive_anchors = jth_classification_targets[:, 1] == 1
-
-        downbeat_lengths = jth_annotations[jth_annotations[:, 2] == 0, 1] - jth_annotations[jth_annotations[:, 2] == 0, 0]
-        beat_lengths = jth_annotations[jth_annotations[:, 2] == 1, 1] - jth_annotations[jth_annotations[:, 2] == 1, 0]
-
-        max_downbeat_length = torch.max(downbeat_lengths)
-        max_beat_length = torch.max(beat_lengths)
-
-        first_downbeat = torch.min(jth_annotations[jth_annotations[:, 2] == 0, 0])
-        last_downbeat = torch.max(jth_annotations[jth_annotations[:, 2] == 0, 1])
-        first_beat = torch.min(jth_annotations[jth_annotations[:, 2] == 1, 0])
-        last_beat = torch.max(jth_annotations[jth_annotations[:, 2] == 1, 1])
-
-        downbeat_and_beat_x1_loss_divisor = torch.max(last_beat, last_downbeat) - torch.min(first_beat, first_downbeat)
-        downbeat_x2_and_x1_loss_divisor = last_downbeat - first_downbeat
-        beat_x2_and_x1_loss_divisor = last_beat - first_beat
 
         jth_regression_targets_1xm = jth_regression_targets[None]
         jth_regression_pred_1xn = jth_regression_pred[None]
@@ -403,22 +410,19 @@ class AdjacencyConstraintLoss(nn.Module):
             transformed_target_regression_boxes,
             transformed_pred_regression_boxes,
             boolean_indices_to_downbeats_for_positive_anchors,
-            boolean_indices_to_beats_for_positive_anchors,
-            downbeat_and_beat_x1_loss_divisor,
+            boolean_indices_to_beats_for_positive_anchors
         )
 
         downbeat_x2_and_x1_loss = self.calculate_x2_and_x1_loss(
             transformed_target_regression_boxes,
             transformed_pred_regression_boxes,
-            boolean_indices_to_downbeats_for_positive_anchors,
-            downbeat_x2_and_x1_loss_divisor
+            boolean_indices_to_downbeats_for_positive_anchors
         )
 
         beat_x2_and_x1_loss = self.calculate_x2_and_x1_loss(
             transformed_target_regression_boxes,
             transformed_pred_regression_boxes,
-            boolean_indices_to_beats_for_positive_anchors,
-            beat_x2_and_x1_loss_divisor
+            boolean_indices_to_beats_for_positive_anchors
         )
 
         all_adjacency_constraint_losses = torch.stack((
@@ -427,7 +431,7 @@ class AdjacencyConstraintLoss(nn.Module):
             beat_x2_and_x1_loss
         ))
 
-        return all_adjacency_constraint_losses.mean()
+        return all_adjacency_constraint_losses.sum() / torch.clamp(num_positive_anchors.float(), min=1.0)
 
 class CombinedLoss(nn.Module):
     def __init__(self, clusters, audio_downsampling_factor, audio_sample_rate, centerness=False):
@@ -550,7 +554,8 @@ class CombinedLoss(nn.Module):
                 jth_regression_targets[positive_anchor_indices],
                 all_anchor_points[positive_anchor_indices],
                 strides_for_all_anchors[positive_anchor_indices],
-                jth_annotations
+                jth_annotations,
+                num_positive_anchors
             )
 
             classification_losses_batch.append(jth_classification_loss)
