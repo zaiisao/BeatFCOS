@@ -38,7 +38,7 @@ def configure_log():
 
 configure_log()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -171,7 +171,7 @@ for dataset in datasets:
                                     subset="train",
                                     fraction=args.train_fraction,
                                     augment=args.augment,
-                                    half=True,
+                                    half=False,
                                     preload=args.preload,
                                     length=args.train_length,
                                     dry_run=args.dry_run,
@@ -186,7 +186,7 @@ for dataset in datasets:
                                  audio_downsampling_factor=args.audio_downsampling_factor,
                                  subset="val",
                                  augment=False,
-                                 half=True,
+                                 half=False,
                                  preload=args.preload,
                                  length=args.eval_length,
                                  dry_run=args.dry_run,
