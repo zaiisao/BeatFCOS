@@ -130,7 +130,7 @@ checkpoint_path = None
 
 if len(state_dicts) > 0:
     checkpoint_path = state_dicts[-1]
-    start_epoch = int(re.search("retinanet_(.*).pt", checkpoint_path).group(1)) + 1
+    start_epoch = int(re.search("beatfcos_(.*).pt", checkpoint_path).group(1)) + 1
     print("loaded:" + checkpoint_path)
 else:
     print("no checkpoint found")
@@ -315,22 +315,25 @@ def get_training_data_clusters():
 dict_args = vars(args)
 
 if __name__ == '__main__':
-    # Create the model
-    training_data_clusters = get_training_data_clusters()
-    # training_data_clusters = torch.tensor([0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922])
-
-    beatfcos = model_module.create_beatfcos_model(num_classes=2, clusters=training_data_clusters, args=args, **dict_args)
-
-    if torch.cuda.is_available():
-        beatfcos = beatfcos.cuda()
-        beatfcos = torch.nn.DataParallel(beatfcos).cuda()
-    else:
-        beatfcos = torch.nn.DataParallel(beatfcos)
-
-    device = next(beatfcos.module.parameters()).device
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    checkpoint = None
     if checkpoint_path:
-        beatfcos.load_state_dict(torch.load(checkpoint_path, device))
+        checkpoint = torch.load(checkpoint_path, device)
+
+    # Create the model
+    if checkpoint is None or "clusters" not in checkpoint:
+        clusters = get_training_data_clusters()
+    else:
+        clusters = checkpoint["clusters"]
+    # clusters = torch.tensor([0.42574675, 0.66719675, 1.24245649, 1.93286828, 2.78558922])
+
+    beatfcos = model_module.create_beatfcos_model(num_classes=2, clusters=clusters, args=args, **dict_args)
+
+    beatfcos = beatfcos.to(device)
+    beatfcos = torch.nn.DataParallel(beatfcos)
+
+    if checkpoint:
+        beatfcos.load_state_dict(checkpoint['model_state_dict'])
 
     beatfcos.training = True
 
@@ -437,9 +440,12 @@ if __name__ == '__main__':
 
         #should_save_checkpoint = True # FOR DEBUGGING
         if should_save_checkpoint:
-            new_checkpoint_path = './checkpoints/retinanet_{}.pt'.format(epoch_num)
+            new_checkpoint_path = './checkpoints/beatfcos_{}.pt'.format(epoch_num)
             print(f"Saving checkpoint at {new_checkpoint_path}")
-            torch.save(beatfcos.state_dict(), new_checkpoint_path)
+            torch.save({
+                'model_state_dict': beatfcos.state_dict(),
+                'clusters': clusters,
+            }, new_checkpoint_path)
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
