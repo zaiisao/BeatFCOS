@@ -306,12 +306,8 @@ class BeatDataset(torch.utils.data.Dataset):
            
             target = target[:, :to_w].float() # target: shape = (2,3000); cf. target = torch.zeros(2,N)
         else:
-            # do all processing in float32 not float16
-            audio_old = audio.float()  #MJ: audio: shape =(1,N)
-            target = target.float() #MJ: target: shape =(2,N)
-
             if self.augment:
-                audio, target = self.apply_augmentations(audio_old, target)
+                audio, target = self.apply_augmentations(audio, target)
 
             N_audio = audio.shape[-1]   # audio: shape =(1,N)
             N_target = target.shape[-1] # target: shape =(2,N)
