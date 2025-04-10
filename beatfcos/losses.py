@@ -354,11 +354,16 @@ class AdjacencyConstraintLoss(nn.Module):
             positive_beat_anchor_mask
         )
 
-        print(f"DEBUG | ADJ_DB: {downbeat_and_beat_loss} | ADJ_DD: {downbeat_x2_and_x1_loss} | ADJ_BB: {beat_x2_and_x1_loss}")
         total_loss = downbeat_and_beat_loss + downbeat_x2_and_x1_loss + beat_x2_and_x1_loss
+        individual_losses = {
+            'db': downbeat_and_beat_loss / torch.clamp(num_positive_anchors.float(), min=1.0),
+            'dd': downbeat_x2_and_x1_loss / torch.clamp(num_positive_anchors.float(), min=1.0),
+            'bb': beat_x2_and_x1_loss / torch.clamp(num_positive_anchors.float(), min=1.0)
+        }
 
         # Return the loss normalized by the number of positive anchors (clamped to a minimum of 1)
-        return total_loss / torch.clamp(num_positive_anchors.float(), min=1.0)
+        normalized_total_loss = total_loss / torch.clamp(num_positive_anchors.float(), min=1.0)
+        return normalized_total_loss, individual_losses
 
     def _normalized_incidence_loss(
         self,
@@ -507,6 +512,8 @@ class CombinedLoss(nn.Module):
         leftness_losses_batch = []
         adjacency_constraint_losses_batch = []
 
+        adj_db_batch, adj_bb_batch, adj_dd_batch = [], [], []
+
         for j in range(batch_size):
             jth_classification_pred = classifications[j, :, :]   # (B, A, 2)
             jth_regression_pred = regressions[j, :, :]           # (B, A, 2)
@@ -569,7 +576,7 @@ class CombinedLoss(nn.Module):
                 stride_for_anchors_per_level = stride_per_level[None].expand(anchors_per_level.size(dim=0))
                 strides_for_all_anchors = torch.cat((strides_for_all_anchors, stride_for_anchors_per_level), dim=0)
 
-            jth_adjacency_constraint_loss = self.adjacency_constraint_loss(
+            jth_adjacency_constraint_loss, jth_individual_constraint_losses = self.adjacency_constraint_loss(
                 jth_classification_targets[positive_anchor_indices],
                 jth_regression_pred[positive_anchor_indices],
                 jth_regression_targets[positive_anchor_indices],
@@ -583,6 +590,10 @@ class CombinedLoss(nn.Module):
             regression_losses_batch.append(jth_regression_loss)
             leftness_losses_batch.append(jth_leftness_loss)
             adjacency_constraint_losses_batch.append(jth_adjacency_constraint_loss)
+
+            adj_db_batch.append(jth_individual_constraint_losses["db"])
+            adj_bb_batch.append(jth_individual_constraint_losses["bb"])
+            adj_dd_batch.append(jth_individual_constraint_losses["dd"])
         # END for j in range(batch_size)
 
         if len(classification_losses_batch) == 0:
@@ -596,6 +607,11 @@ class CombinedLoss(nn.Module):
             
         if len(adjacency_constraint_losses_batch) == 0:
             adjacency_constraint_losses_batch.append(0)
+
+        adj_db = torch.stack(adj_db_batch).mean(dim=0, keepdim=True).item()
+        adj_bb = torch.stack(adj_bb_batch).mean(dim=0, keepdim=True).item()
+        adj_dd = torch.stack(adj_dd_batch).mean(dim=0, keepdim=True).item()
+        print(f"DEBUG | ADJ_DB: {adj_db} | ADJ_DD: {adj_bb} | ADJ_BB: {adj_dd}")
 
         return \
             torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
