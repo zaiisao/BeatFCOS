@@ -751,9 +751,9 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_
         # print(f"(DBN) Average beat score: {dbn_beat_mean_f_measure:0.3f}")
         # print(f"(DBN) Average downbeat score: {dbn_downbeat_mean_f_measure:0.3f}")
 
-        import matplotlib.pyplot as plt
-
         def create_histogram(data, path, title):
+            import matplotlib.pyplot as plt
+
             total = len(data)
 
             # Create histogram and capture the counts, bin edges, and patches
@@ -788,15 +788,15 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_
         #End def create_histogram(data, path, title):
         
 
-        create_histogram(
-            all_beat_ious, f"beat_histogram_{score_threshold}.png",
-            f"Beat Histogram Before NMS (threshold = {score_threshold}~{max_thresh})"
-        )
+        # create_histogram(
+        #     all_beat_ious, f"beat_histogram_{score_threshold}.png",
+        #     f"Beat Histogram Before NMS (threshold = {score_threshold}~{max_thresh})"
+        # )
 
-        create_histogram(
-            all_downbeat_ious, f"downbeat_histogram_{score_threshold}.png",
-            f"Downbeat Histogram Before NMS (threshold = {score_threshold}~{max_thresh})"
-        )
+        # create_histogram(
+        #     all_downbeat_ious, f"downbeat_histogram_{score_threshold}.png",
+        #     f"Downbeat Histogram Before NMS (threshold = {score_threshold}~{max_thresh})"
+        # )
 
         model.train()
 
