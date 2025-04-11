@@ -130,7 +130,7 @@ class BeatDataset(torch.utils.data.Dataset):
         # if self.dataset in ["rwc_popular"]:
         #     file_ext = "*L+R.wav"
         # elif self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "beatles", "carnatic"]:
-        if self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "beatles", "carnatic", "rwc_popular"]:
+        if self.dataset in ["ballroom", "hainsworth", "hains", "gtzan", "smc", "beatles", "carnatic", "rwc_popular"]:
             file_ext = "*.wav"
         else:
             raise ValueError(f"Invalid dataset: {self.dataset}")
@@ -226,7 +226,7 @@ class BeatDataset(torch.utils.data.Dataset):
 
             if self.dataset == "ballroom":
                 self.annot_files.append(os.path.join(self.annot_dir, f"{filename}.beats"))
-            elif self.dataset == "hainsworth":
+            elif self.dataset == "hainsworth" or self.dataset == "hains":
                 self.annot_files.append(os.path.join(self.annot_dir, f"{filename}.txt"))
             elif self.dataset == "beatles":
                 #album_dir = os.path.basename(os.path.dirname(audio_file))
@@ -439,7 +439,7 @@ class BeatDataset(torch.utils.data.Dataset):
                 line = line.replace('\t', ' ')
                 line = line.replace('  ', ' ')
                 time_sec, beat = line.split(' ')
-            elif self.dataset == "hainsworth":
+            elif self.dataset == "hainsworth" or self.dataset == "hains":
                 line = line.strip('\n')
                 time_sec, beat = line.split(' ')
             elif self.dataset == "rwc_popular":

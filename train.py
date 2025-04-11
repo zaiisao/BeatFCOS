@@ -13,6 +13,7 @@ import traceback
 import sys
 from os.path import join as ospj
 from kmeans_pytorch import kmeans, kmeans_predict
+import wandb
 
 from beatfcos import model_module
 from beatfcos.dataloader import BeatDataset, collater
@@ -105,7 +106,7 @@ temp_args, _ = parser.parse_known_args()
 # parse them args
 args = parser.parse_args()
 
-datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
+datasets = ["ballroom", "hains", "rwc_popular", "beatles"]
 # datasets = ["ballroom"]
 #MJ: for testing: datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 
@@ -318,6 +319,11 @@ def get_training_data_clusters():
 
 dict_args = vars(args)
 
+run = wandb.init(
+    project="beatfcos",
+    config=vars(args),
+)
+
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = None
@@ -412,12 +418,20 @@ if __name__ == '__main__':
                     f"Running loss: {np.mean(loss_hist):1.5f}"
                 )
 
+                run.log({
+                    "cls": classification_loss,
+                    "reg": regression_loss,
+                    "lft": leftness_loss,
+                    "adj": adjacency_constraint_loss
+                })
+
                 del classification_loss
                 del regression_loss
                 del leftness_loss
                 del adjacency_constraint_loss
             except KeyboardInterrupt:
                 sys.exit()
+                run.finish()
             except Exception as e:
                 print(e)
                 traceback.print_exc()
@@ -457,3 +471,4 @@ if __name__ == '__main__':
     beatfcos.eval()
 
     torch.save(beatfcos, './checkpoints/model_final.pt')
+    run.finish()
