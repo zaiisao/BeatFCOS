@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from beatfcos.utils import calc_iou, calc_giou, AnchorPointTransform
+import wandb
 
 INF = 100000000
 
@@ -612,6 +613,7 @@ class CombinedLoss(nn.Module):
         adj_bb = torch.stack(adj_bb_batch).mean(dim=0, keepdim=True).item()
         adj_dd = torch.stack(adj_dd_batch).mean(dim=0, keepdim=True).item()
         print(f"DEBUG | ADJ_DB: {adj_db} | ADJ_DD: {adj_bb} | ADJ_BB: {adj_dd}")
+        wandb.log({"adj_db": adj_db, "adj_bb": adj_bb, "adj_dd": adj_dd})
 
         return \
             torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
