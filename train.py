@@ -48,6 +48,7 @@ parser = ArgumentParser()
 
 # add PROGRAM level args
 parser.add_argument('--dataset', type=str, default='ballroom')
+parser.add_argument('--dataset_dir', type=str, default=None)
 parser.add_argument('--beatles_audio_dir', type=str, default=None)
 parser.add_argument('--beatles_annot_dir', type=str, default=None)
 parser.add_argument('--ballroom_audio_dir', type=str, default=None)
@@ -58,30 +59,29 @@ parser.add_argument('--rwc_popular_audio_dir', type=str, default=None)
 parser.add_argument('--rwc_popular_annot_dir', type=str, default=None)
 parser.add_argument('--carnatic_audio_dir', type=str, default=None)
 parser.add_argument('--carnatic_annot_dir', type=str, default=None)
-parser.add_argument('--preload', action="store_true")
+parser.add_argument('--preload', default=True, action="store_true")
 parser.add_argument('--audio_sample_rate', type=int, default=22050)
 parser.add_argument('--audio_downsampling_factor', type=int, default=128) # block 하나당 곱하기 2
 parser.add_argument('--shuffle', type=bool, default=True)
 parser.add_argument('--train_subset', type=str, default='train')
 parser.add_argument('--val_subset', type=str, default='val')
-parser.add_argument('--train_length', type=int, default=65536)
+parser.add_argument('--train_length', type=int, default=2097152)
 parser.add_argument('--train_fraction', type=float, default=1.0)
-parser.add_argument('--eval_length', type=int, default=131072)
+parser.add_argument('--eval_length', type=int, default=2097152)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--num_workers', type=int, default=0)
-parser.add_argument('--augment', action='store_true')
+parser.add_argument('--augment', default=True, action='store_true')
 parser.add_argument('--dry_run', action='store_true')
 parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
-parser.add_argument('--lr', type=float, default=1e-2)
-parser.add_argument('--patience', type=int, default=10)
-# --- tcn model related ---
+parser.add_argument('--lr', type=float, default=1e-3)
+parser.add_argument('--patience', type=int, default=3)
 parser.add_argument('--ninputs', type=int, default=1)
 parser.add_argument('--noutputs', type=int, default=2)
 parser.add_argument('--nblocks', type=int, default=8)
 parser.add_argument('--kernel_size', type=int, default=15)
 parser.add_argument('--stride', type=int, default=2)
 parser.add_argument('--dilation_growth', type=int, default=8)
-parser.add_argument('--channel_growth', type=int, default=1)
+parser.add_argument('--channel_growth', type=int, default=32)
 parser.add_argument('--channel_width', type=int, default=32)
 parser.add_argument('--stack_size', type=int, default=4)
 parser.add_argument('--grouped', default=False, action='store_true')
@@ -90,7 +90,7 @@ parser.add_argument('--skip_connections', default=False, action="store_true")
 parser.add_argument('--norm_type', type=str, default='BatchNorm')
 parser.add_argument('--act_type', type=str, default='PReLU')
 parser.add_argument('--downbeat_weight', type=float, default=0.6)
-parser.add_argument('--pretrained', default=False, action="store_true")
+parser.add_argument('--pretrained', default=True, action="store_true")
 parser.add_argument('--freeze_backbone', default=False, action="store_true")
 parser.add_argument('--centerness', default=False, action="store_true")
 parser.add_argument('--postprocessing_type', type=str, default='soft_nms')
@@ -140,21 +140,25 @@ train_datasets = []
 val_datasets = []
 
 for dataset in datasets:
-    if dataset == "beatles":
-        audio_dir = args.beatles_audio_dir
-        annot_dir = args.beatles_annot_dir
-    elif dataset == "ballroom":
-        audio_dir = args.ballroom_audio_dir
-        annot_dir = args.ballroom_annot_dir
-    elif dataset == "hainsworth":
-        audio_dir = args.hainsworth_audio_dir
-        annot_dir = args.hainsworth_annot_dir
-    elif dataset == "rwc_popular":
-        audio_dir = args.rwc_popular_audio_dir
-        annot_dir = args.rwc_popular_annot_dir
-    elif dataset == "carnatic":
-        audio_dir = args.carnatic_audio_dir
-        annot_dir = args.carnatic_annot_dir
+    if args.dataset_dir is not None:
+        audio_dir = os.path.join(args.dataset_dir, dataset, "data")
+        annot_dir = os.path.join(args.dataset_dir, dataset, "label")
+    else:
+        if dataset == "beatles":
+            audio_dir = args.beatles_audio_dir
+            annot_dir = args.beatles_annot_dir
+        elif dataset == "ballroom":
+            audio_dir = args.ballroom_audio_dir
+            annot_dir = args.ballroom_annot_dir
+        elif dataset == "hainsworth" or dataset == "hains":
+            audio_dir = args.hainsworth_audio_dir
+            annot_dir = args.hainsworth_annot_dir
+        elif dataset == "rwc_popular":
+            audio_dir = args.rwc_popular_audio_dir
+            annot_dir = args.rwc_popular_annot_dir
+        elif dataset == "carnatic":
+            audio_dir = args.carnatic_audio_dir
+            annot_dir = args.carnatic_annot_dir
 
     if not audio_dir or not annot_dir:
         continue
