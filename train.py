@@ -75,7 +75,6 @@ parser.add_argument('--dry_run', action='store_true')
 parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--patience', type=int, default=3)
-# --- tcn model related ---
 parser.add_argument('--ninputs', type=int, default=1)
 parser.add_argument('--noutputs', type=int, default=2)
 parser.add_argument('--nblocks', type=int, default=8)
