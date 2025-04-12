@@ -169,7 +169,6 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
         audio_sample_rate=22050,
         **kwargs
     ):
-        self.step = None
         self.inplanes = 256
 
         super(BeatFCOS, self).__init__()
@@ -297,12 +296,12 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
         class_one_positive_indicators, class_two_positive_indicators = None, None
 
         # This combined loss will eventually replace the legacy losses we have been using
-        classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss = self.combined_loss(
-            classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations, step=self.step
+        classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss, adjacency_dict = self.combined_loss(
+            classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
         )
 
         if self.training:
-            return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss
+            return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss, adjacency_dict
         else:
             # Start of evaluation mode
 

@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from beatfcos.utils import calc_iou, calc_giou, AnchorPointTransform
-import wandb
 
 INF = 100000000
 
@@ -257,52 +256,45 @@ class AdjacencyConstraintLoss(nn.Module):
 
     def calculate_downbeat_and_beat_x1_loss(
         self,
-        transformed_target_regression_boxes,
-        transformed_pred_regression_boxes,
+        transformed_target_regression_boxes,  # shape: [N, 2]
+        transformed_pred_regression_boxes,      # shape: [N, 2]
         positive_downbeat_anchor_mask,
         positive_beat_anchor_mask
     ):
-        downbeat_targets_x1 = transformed_target_regression_boxes[positive_downbeat_anchor_mask, 0]
-        downbeat_targets_x2 = transformed_target_regression_boxes[positive_downbeat_anchor_mask, 1]
-        downbeat_preds_x1   = transformed_pred_regression_boxes[positive_downbeat_anchor_mask, 0]
+        # For the downbeat-beat constraint we align the left sides.
+        downbeat_target_boxes = transformed_target_regression_boxes[positive_downbeat_anchor_mask, :]
+        downbeat_pred_boxes   = transformed_pred_regression_boxes[positive_downbeat_anchor_mask, :]
+        beat_target_boxes     = transformed_target_regression_boxes[positive_beat_anchor_mask, :]
+        beat_pred_boxes       = transformed_pred_regression_boxes[positive_beat_anchor_mask, :]
 
-        beat_targets_x1 = transformed_target_regression_boxes[positive_beat_anchor_mask, 0]
-        beat_targets_x2 = transformed_target_regression_boxes[positive_beat_anchor_mask, 1]
-        beat_preds_x1   = transformed_pred_regression_boxes[positive_beat_anchor_mask, 0]
-
-        downbeat_lengths = downbeat_targets_x2 - downbeat_targets_x1
-        beat_lengths     = beat_targets_x2 - beat_targets_x1
-
-        loss = self._normalized_incidence_loss(
-            target_a=downbeat_targets_x1,
-            target_b=beat_targets_x1,
-            pred_a=downbeat_preds_x1,
-            pred_b=beat_preds_x1,
-            length_a=downbeat_lengths,
-            length_b=beat_lengths
+        loss = self._gdoU_loss(
+            target_a=downbeat_target_boxes,
+            target_b=beat_target_boxes,
+            pred_a=downbeat_pred_boxes,
+            pred_b=beat_pred_boxes,
+            side_a='left',
+            side_b='left'
         )
         return loss
 
     def calculate_x2_and_x1_loss(
         self,
-        transformed_target_regression_boxes,
-        transformed_pred_regression_boxes,
+        transformed_target_regression_boxes,  # shape: [N, 2]
+        transformed_pred_regression_boxes,      # shape: [N, 2]
         positive_class_anchor_mask
     ):
-        class_targets_x2 = transformed_target_regression_boxes[positive_class_anchor_mask, 1]
-        class_targets_x1 = transformed_target_regression_boxes[positive_class_anchor_mask, 0]
-        class_preds_x2   = transformed_pred_regression_boxes[positive_class_anchor_mask, 1]
-        class_preds_x1   = transformed_pred_regression_boxes[positive_class_anchor_mask, 0]
+        # For the x2-x1 constraint we enforce that the right side (x2) and left side (x1)
+        # are aligned for these boxes (for example, forcing some boxes to become points).
+        class_target_boxes = transformed_target_regression_boxes[positive_class_anchor_mask, :]
+        class_pred_boxes   = transformed_pred_regression_boxes[positive_class_anchor_mask, :]
 
-        class_lengths = class_targets_x2 - class_targets_x1
-
-        loss = self._normalized_incidence_loss(
-            target_a=class_targets_x2,
-            target_b=class_targets_x1,
-            pred_a=class_preds_x2,
-            pred_b=class_preds_x1,
-            length_a=class_lengths,
-            length_b=class_lengths
+        loss = self._gdoU_loss(
+            target_a=class_target_boxes,
+            target_b=class_target_boxes,
+            pred_a=class_pred_boxes,
+            pred_b=class_pred_boxes,
+            side_a='right',  # use right side from one copy
+            side_b='left'    # and left side from the other
         )
         return loss
 
@@ -312,7 +304,7 @@ class AdjacencyConstraintLoss(nn.Module):
         jth_positive_anchor_points, jth_positive_anchor_strides,
         jth_annotations, num_positive_anchors
     ):
-        # JA: Of all positive anchors, create a boolean mask for both downbeats and beats
+        # Create boolean masks for downbeats and beats.
         positive_downbeat_anchor_mask = jth_classification_targets[:, 0] == 1
         positive_beat_anchor_mask = jth_classification_targets[:, 1] == 1
 
@@ -325,7 +317,6 @@ class AdjacencyConstraintLoss(nn.Module):
             jth_regression_targets_1xm,
             jth_positive_anchor_strides
         )
-
         transformed_target_regression_boxes = transformed_target_regression_boxes_batch[0, :, :]
 
         transformed_pred_regression_boxes_batch = self.anchor_point_transform(
@@ -333,7 +324,6 @@ class AdjacencyConstraintLoss(nn.Module):
             jth_regression_pred_1xn,
             jth_positive_anchor_strides
         )
-
         transformed_pred_regression_boxes = transformed_pred_regression_boxes_batch[0, :, :]
 
         downbeat_and_beat_loss = self.calculate_downbeat_and_beat_x1_loss(
@@ -362,103 +352,102 @@ class AdjacencyConstraintLoss(nn.Module):
             'bb': beat_x2_and_x1_loss / torch.clamp(num_positive_anchors.float(), min=1.0)
         }
 
-        # Return the loss normalized by the number of positive anchors (clamped to a minimum of 1)
         normalized_total_loss = total_loss / torch.clamp(num_positive_anchors.float(), min=1.0)
         return normalized_total_loss, individual_losses
 
-    def _normalized_incidence_loss(
+    def _gdoU_loss(
         self,
-        target_a: torch.Tensor, target_b: torch.Tensor,
-        pred_a: torch.Tensor, pred_b: torch.Tensor,
-        length_a: torch.Tensor, length_b: torch.Tensor
+        target_a: torch.Tensor,  # shape: [N1, 2]
+        target_b: torch.Tensor,  # shape: [N2, 2]
+        pred_a: torch.Tensor,    # shape: [N1, 2]
+        pred_b: torch.Tensor,    # shape: [N2, 2]
+        side_a: str,
+        side_b: str
     ):
         """
-        Computes the normalized discrepancy loss between two sets of anchor predictions based on their targets.
+        Computes a GDoU-based loss between two groups of boxes. For each pair,
+        the loss is computed as:
         
-        In our application, this helper function is used to compute a loss for pairs of anchors where the 
-        corresponding target anchor positions are expected to match (e.g. the x1 coordinate for downbeats should
-        match the x1 coordinate for the corresponding beats, or the class anchor's x2 should equal its x1 in some cases).
+            loss = (|pred_sideA - pred_sideB| / union) - ((C - union) / C)
         
-        The function works as follows:
-        - It takes two groups (A and B) of anchors, each represented by a target scalar (e.g. a coordinate value)
-            and a predicted scalar, plus a length computed from the regression targets (typically the difference 
-            between the x2 and x1 coordinates).
-        - The tensors for the targets and lengths are broadcasted (by reshaping and repeating) into matrices
-            so that every target from group A is paired with every target from group B.
-        - An incidence mask is generated using the provided equality incidence matrix to indicate which anchor pairs
-            are supposed to correspond.
-        - For each pair, the squared difference between their two predictions is computed.
-        - This squared error is normalized by the maximum of the two corresponding target lengths. Normalizing by 
-            the max length means that errors are scaled relative to the size of the underlying regression boxes, which
-            is crucial when target boxes vary in size.
-        - Finally, the function sums up these normalized errors over all pairs that satisfy the incidence condition.
+        where:
+          - pred_sideX is the coordinate from the predicted box chosen by `side_x` ('left' or 'right'),
+          - union = width_A + width_B - intersection (calculated from the predicted boxes),
+          - C is the length of the smallest enclosing interval covering both predicted boxes.
         
-        Parameters
-        ----------
-        target_a : torch.Tensor
-            A 1D tensor (shape: [N1]) containing the target coordinate (e.g. x1 value) for anchor group A 
-            (e.g. downbeat anchors or class anchors' x2 values).
-        target_b : torch.Tensor
-            A 1D tensor (shape: [N2]) containing the target coordinate for anchor group B 
-            (e.g. beat anchors or class anchors' x1 values).
-        pred_a : torch.Tensor
-            A 1D tensor (shape: [N1]) of predicted coordinate values corresponding to target_a.
-        pred_b : torch.Tensor
-            A 1D tensor (shape: [N2]) of predicted coordinate values corresponding to target_b.
-        length_a : torch.Tensor
-            A 1D tensor (shape: [N1]) representing a measure of scale for group A anchors (typically computed 
-            as x2 - x1 from the target regression box), used for normalizing the error.
-        length_b : torch.Tensor
-            A 1D tensor (shape: [N2]) representing the analogous scale for group B anchors.
-
-        Returns
-        -------
-        torch.Tensor
-            A scalar tensor representing the summed normalized loss over all pairs where the targets are incident.
-            If no incident pairs are found, returns a tensor with value 0.0.
+        The incidence (i.e. which pairs to compare) is determined based on the target box coordinates—
+        the corresponding target side values must be equal.
         """
-        # target_a: shape (N1,), target_b: shape (N2,)
         N1 = target_a.shape[0]
         N2 = target_b.shape[0]
 
-        # JA: To compare every anchor in group A with every anchor in group B, we first reshape the 1D tensors
-        # to 2D by adding a new axis. This will enable proper broadcasting when we later repeat them, which is
-        # done for the purpose of creating a N1xN2 incidence matrix
-        target_a_n1x1 = target_a[:, None]
-        target_b_1xn2 = target_b[None, :]
-        pred_a_n1x1 = pred_a[:, None]
-        pred_b_1xn2 = pred_b[None, :]
-        length_a_n1x1 = length_a[:, None]
-        length_b_1xn2 = length_b[None, :]
+        # Select target constraint coordinates based on the side
+        if side_a == "left":
+            target_cons_a = target_a[:, 0]
+        elif side_a == "right":
+            target_cons_a = target_a[:, 1]
+        else:
+            raise ValueError("side_a must be 'left' or 'right'")
 
-        # Repeat to create matrices (N1, N2)
-        repeated_target_a = target_a_n1x1.repeat(1, N2)
-        repeated_target_b = target_b_1xn2.repeat(N1, 1)
-        repeated_length_a = length_a_n1x1.repeat(1, N2)
-        repeated_length_b = length_b_1xn2.repeat(N1, 1)
+        if side_b == "left":
+            target_cons_b = target_b[:, 0]
+        elif side_b == "right":
+            target_cons_b = target_b[:, 1]
+        else:
+            raise ValueError("side_b must be 'left' or 'right'")
 
-        # JA: max_length_matrix which is also of shape N1xN2 is made to normalize the results of the error
-        # terms by whichever box is longer. This is necessary to prevent the adjacency constraint loss from
-        # becoming too large
-        max_length_matrix = torch.max(repeated_length_a, repeated_length_b)
-
-        # JA: Compute the incidence matrix using the repeated target tensors by setting equal values to True
-        # and non-equal values to False. This behaves as a mask, as values set to True are values whose indices
-        # correspond to values in the broadcasted matrix will be counted in the final loss value. For example,
-        # in the beat-beat constraint, this incidence matrix matches each target box with other target boxes if
-        # their left coordinate matches its right coordinate.
-        incidence_matrix = repeated_target_a == repeated_target_b
-
-        # If there are no incidences, return zero loss (avoid division-by-zero issues)
+        # Create incidence matrix from targets (only pairs with matching target side coordinates will contribute)
+        target_cons_a_exp = target_cons_a[:, None].repeat(1, N2)
+        target_cons_b_exp = target_cons_b[None, :].repeat(N1, 1)
+        incidence_matrix = (target_cons_a_exp == target_cons_b_exp)
         if incidence_matrix.sum() == 0:
-            return torch.tensor(0.0, dtype=torch.float32, device=incidence_matrix.device)
+            return torch.tensor(0.0, dtype=pred_a.dtype, device=pred_a.device)
 
-        # Compute the squared error between predictions (using broadcasting)
-        sq_error = torch.square(pred_a_n1x1 - pred_b_1xn2)
+        # Select predicted constraint coordinates
+        if side_a == "left":
+            pred_cons_a = pred_a[:, 0]
+        else:  # "right"
+            pred_cons_a = pred_a[:, 1]
 
-        # Apply the incidence mask and normalize by the maximum length, then sum all errors
-        loss = (sq_error * incidence_matrix) / max_length_matrix
-        return loss.sum()
+        if side_b == "left":
+            pred_cons_b = pred_b[:, 0]
+        else:  # "right"
+            pred_cons_b = pred_b[:, 1]
+
+        pred_cons_a_exp = pred_cons_a[:, None].repeat(1, N2)
+        pred_cons_b_exp = pred_cons_b[None, :].repeat(N1, 1)
+        difference = torch.abs(pred_cons_a_exp - pred_cons_b_exp)
+
+        # Compute widths for each predicted box
+        # width_a = (pred_a[:, 1] - pred_a[:, 0])[:, None].repeat(1, N2)
+        # width_b = (pred_b[:, 1] - pred_b[:, 0])[None, :].repeat(N1, 1)
+        width_a = (target_a[:, 1] - target_a[:, 0])[:, None].repeat(1, N2)
+        width_b = (target_b[:, 1] - target_b[:, 0])[None, :].repeat(N1, 1)
+
+        # Compute pairwise intersection
+        # box_left = torch.max(pred_a[:, 0][:, None].repeat(1, N2), pred_b[:, 0][None, :].repeat(N1, 1))
+        # box_right = torch.min(pred_a[:, 1][:, None].repeat(1, N2), pred_b[:, 1][None, :].repeat(N1, 1))
+        box_left = torch.max(target_a[:, 0][:, None].repeat(1, N2), target_b[:, 0][None, :].repeat(N1, 1))
+        box_right = torch.min(target_a[:, 1][:, None].repeat(1, N2), target_b[:, 1][None, :].repeat(N1, 1))
+        intersection = torch.clamp(box_right - box_left, min=0)
+
+        # Compute the union of the two boxes
+        union = width_a + width_b - intersection
+
+        # Compute smallest enclosing interval (C)
+        enc_left = torch.min(pred_a[:, 0][:, None].repeat(1, N2), pred_b[:, 0][None, :].repeat(N1, 1))
+        enc_right = torch.max(pred_a[:, 1][:, None].repeat(1, N2), pred_b[:, 1][None, :].repeat(N1, 1))
+        eps = 1e-7
+        bbox_coordinate = enc_right - enc_left + eps
+
+        # Calculate the base term and the penalty
+        base = difference / union
+        penalty = (bbox_coordinate - union) / bbox_coordinate
+        gdou = base - penalty
+
+        # Sum the loss only over incident pairs
+        loss = (gdou * incidence_matrix.to(gdou.dtype)).sum()
+        return loss
 
 class CombinedLoss(nn.Module):
     def __init__(self, clusters, audio_downsampling_factor, audio_sample_rate, centerness=False):
@@ -503,7 +492,7 @@ class CombinedLoss(nn.Module):
 
         return jth_classification_targets, jth_regression_targets, jth_leftness_targets
 
-    def forward(self, classifications, regressions, leftnesses, anchors_list, annotations, step=None):
+    def forward(self, classifications, regressions, leftnesses, anchors_list, annotations):
         # Classification, regression, and leftness should all have the same number of items in the batch
         assert classifications.shape[0] == regressions.shape[0] and regressions.shape[0] == leftnesses.shape[0]
         batch_size = classifications.shape[0]
@@ -613,11 +602,11 @@ class CombinedLoss(nn.Module):
         adj_bb = torch.stack(adj_bb_batch).mean(dim=0, keepdim=True).item()
         adj_dd = torch.stack(adj_dd_batch).mean(dim=0, keepdim=True).item()
 
-        print(f"DEBUG | ADJ_DB: {adj_db} | ADJ_DD: {adj_bb} | ADJ_BB: {adj_dd}")
-        wandb.log({"adj_db": adj_db, "adj_bb": adj_bb, "adj_dd": adj_dd}, step=step)
+        adjacency_dict = {"adj_db": adj_db, "adj_bb": adj_bb, "adj_dd": adj_dd}
 
         return \
             torch.stack(classification_losses_batch).mean(dim=0, keepdim=True), \
             torch.stack(regression_losses_batch).mean(dim=0, keepdim=True), \
             torch.stack(leftness_losses_batch).mean(dim=0, keepdim=True), \
-            torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True)
+            torch.stack(adjacency_constraint_losses_batch).mean(dim=0, keepdim=True), \
+            adjacency_dict

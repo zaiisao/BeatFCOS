@@ -106,7 +106,7 @@ temp_args, _ = parser.parse_known_args()
 # parse them args
 args = parser.parse_args()
 
-datasets = ["ballroom", "hains", "rwc_popular", "beatles"]
+datasets = ["ballroom"]#, "hains", "rwc_popular", "beatles"]
 # datasets = ["ballroom"]
 #MJ: for testing: datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 
@@ -371,7 +371,6 @@ if __name__ == '__main__':
 
         for iter_num, data in enumerate(train_dataloader): #target[:,:,0:2]=interval, target[:,:,2]=class
             audio, target = data  #MJ: audio:shape =(16,1,3000,81); target:shape=(16,128,3)
-            beatfcos.step = iter_num
 
             if torch.cuda.is_available():
                 audio = audio.cuda()
@@ -381,7 +380,7 @@ if __name__ == '__main__':
                 optimizer.zero_grad()
 
                 classification_loss, regression_loss,\
-                leftness_loss, adjacency_constraint_loss =\
+                leftness_loss, adjacency_constraint_loss, adjacency_dict =\
                     beatfcos((audio, target))
     
                 classification_loss = classification_loss.mean()
@@ -413,6 +412,8 @@ if __name__ == '__main__':
 
                 running_loss = np.mean(loss_hist)
 
+                print(f"DEBUG | ADJ_DB: {adjacency_dict['adj_db']} | ADJ_DD: {adjacency_dict['adj_bb']} | ADJ_BB: {adjacency_dict['adj_dd']}")
+
                 print(
                     f"{epoch_num} | {iter_num} | " +
                     f"CLS: {float(classification_loss):1.5f} | " +
@@ -428,9 +429,12 @@ if __name__ == '__main__':
                     "reg": regression_loss,
                     "lft": leftness_loss,
                     "adj": adjacency_constraint_loss,
+                    "adj_db": adjacency_dict["adj_db"],
+                    "adj_dd": adjacency_dict["adj_bb"],
+                    "adj_bb": adjacency_dict["adj_dd"],
                     "total": loss,
                     "running": running_loss,
-                }, step=iter_num)
+                })
 
                 del classification_loss
                 del regression_loss
