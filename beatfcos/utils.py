@@ -69,6 +69,53 @@ def calc_giou(a, b):
 
     #print(regression_loss.mean(), torch.exp(regression_loss.mean() * self.weight))
 
+def calc_gdou(a, b, a_side, b_side):
+    a_constrain_value = None
+    b_constrain_value = None
+
+    if a_side == "left":
+        a_constrain_value = a[:, 0]
+    elif a_side == "right":
+        a_constrain_value = a[:, 1]
+    else:
+        raise ValueError("a_side must be 'left' or 'right'")
+
+    if b_side == "left":
+        b_constrain_value = b[:, 0]
+    elif b_side == "right":
+        b_constrain_value = b[:, 1]
+    else:
+        raise ValueError("b_side must be 'left' or 'right'")
+
+    a_lengths = a[:, 1] - a[:, 0]
+    b_lengths = b[:, 1] - b[:, 0]
+
+    # Calculate intersection I between B_p and B_g
+    intersection_x1 = torch.max(a[:, 0], b[:, 0])
+    intersection_x2 = torch.min(a[:, 1], b[:, 1])
+    intersection = torch.where(
+        intersection_x2 > intersection_x1,
+        intersection_x2 - intersection_x1,
+        torch.zeros(a.size(dim=0)).to(a.device)
+    )
+
+    difference = torch.abs(b_constrain_value - a_constrain_value)
+
+    # JA: Calculate the length of B_c, which is the convex hull, by first getting the min and max values of both boxes
+    coordinate_x1 = torch.min(a[:, 0], b[:, 0])
+    coordinate_x2 = torch.max(a[:, 1], b[:, 1])
+
+    bbox_coordinate = coordinate_x2 - coordinate_x1 + 1e-7
+
+    # IoU (I / U), where U = L_p + L_g - I
+    union = b_lengths + a_lengths - intersection
+
+    # JA: Difference over union
+    dou = difference / union
+    gdou = dou - (bbox_coordinate - union) / bbox_coordinate
+
+    return gdou
+
 class BasicBlock(nn.Module):
     expansion = 1
 
