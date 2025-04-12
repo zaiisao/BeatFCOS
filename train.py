@@ -106,7 +106,7 @@ temp_args, _ = parser.parse_known_args()
 # parse them args
 args = parser.parse_args()
 
-datasets = ["ballroom"]#, "hains", "rwc_popular", "beatles"]
+datasets = ["ballroom", "hains", "rwc_popular", "beatles"]
 # datasets = ["ballroom"]
 #MJ: for testing: datasets = ["ballroom", "hainsworth", "rwc_popular", "beatles"]
 
