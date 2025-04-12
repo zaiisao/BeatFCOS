@@ -319,7 +319,7 @@ def get_training_data_clusters():
 
 dict_args = vars(args)
 
-run = wandb.init(
+wandb_run = wandb.init(
     project="beatfcos",
     config=vars(args),
 )
@@ -371,6 +371,8 @@ if __name__ == '__main__':
 
         for iter_num, data in enumerate(train_dataloader): #target[:,:,0:2]=interval, target[:,:,2]=class
             audio, target = data  #MJ: audio:shape =(16,1,3000,81); target:shape=(16,128,3)
+            beatfcos.step = iter_num
+
             if torch.cuda.is_available():
                 audio = audio.cuda()
                 target = target.cuda()
@@ -394,7 +396,7 @@ if __name__ == '__main__':
 
                 loss = classification_loss + regression_loss + leftness_loss
 
-                if args.no_adj:
+                if not args.no_adj:
                     loss += adjacency_constraint_loss
 
                 if bool(loss == 0):
@@ -409,21 +411,26 @@ if __name__ == '__main__':
                 loss_hist.append(float(loss))
                 epoch_loss.append(float(loss))
 
+                running_loss = np.mean(loss_hist)
+
                 print(
-                    f"Epoch: {epoch_num} | Iteration: {iter_num} | " +
+                    f"{epoch_num} | {iter_num} | " +
                     f"CLS: {float(classification_loss):1.5f} | " +
                     f"REG: {float(regression_loss):1.5f} | " +
                     f"LFT: {float(leftness_loss):1.5f} | " +
                     f"ADJ{('(OFF)' if args.no_adj else '')}: {float(adjacency_constraint_loss):1.5f} | " +
-                    f"Running loss: {np.mean(loss_hist):1.5f}"
+                    f"TOTAL: {float(loss):1.5f} | " +
+                    f"Running loss: {float(running_loss):1.5f}"
                 )
 
-                run.log({
+                wandb_run.log({
                     "cls": classification_loss,
                     "reg": regression_loss,
                     "lft": leftness_loss,
-                    "adj": adjacency_constraint_loss
-                })
+                    "adj": adjacency_constraint_loss,
+                    "total": loss,
+                    "running": running_loss,
+                }, step=iter_num)
 
                 del classification_loss
                 del regression_loss
@@ -431,7 +438,7 @@ if __name__ == '__main__':
                 del adjacency_constraint_loss
             except KeyboardInterrupt:
                 sys.exit()
-                run.finish()
+                wandb_run.finish()
             except Exception as e:
                 print(e)
                 traceback.print_exc()
@@ -471,4 +478,4 @@ if __name__ == '__main__':
     beatfcos.eval()
 
     torch.save(beatfcos, './checkpoints/model_final.pt')
-    run.finish()
+    wandb_run.finish()
