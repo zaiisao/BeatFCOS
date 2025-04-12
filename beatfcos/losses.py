@@ -355,7 +355,7 @@ class AdjacencyConstraintLoss(nn.Module):
         normalized_total_loss = total_loss / torch.clamp(num_positive_anchors.float(), min=1.0)
         return normalized_total_loss, individual_losses
 
-    def _gdoU_loss(
+    def _doc_loss(
         self,
         target_a: torch.Tensor,  # shape: [N1, 2]
         target_b: torch.Tensor,  # shape: [N2, 2]
@@ -365,16 +365,11 @@ class AdjacencyConstraintLoss(nn.Module):
         side_b: str
     ):
         """
-        Computes a GDoU-based loss between two groups of boxes. For each pair,
-        the loss is computed as:
+        Computes a DoC(Difference over Convex hull)-based loss between two groups of boxes. For each
+        pair, the loss is computed as:
         
-            loss = (|pred_sideA - pred_sideB| / union) - ((C - union) / C)
-        
-        where:
-          - pred_sideX is the coordinate from the predicted box chosen by `side_x` ('left' or 'right'),
-          - union = width_A + width_B - intersection (calculated from the predicted boxes),
-          - C is the length of the smallest enclosing interval covering both predicted boxes.
-        
+            loss = (difference / C)
+
         The incidence (i.e. which pairs to compare) is determined based on the target box coordinates—
         the corresponding target side values must be equal.
         """
@@ -418,35 +413,21 @@ class AdjacencyConstraintLoss(nn.Module):
         pred_cons_b_exp = pred_cons_b[None, :].repeat(N1, 1)
         difference = torch.abs(pred_cons_a_exp - pred_cons_b_exp)
 
-        # Compute widths for each predicted box
-        # width_a = (pred_a[:, 1] - pred_a[:, 0])[:, None].repeat(1, N2)
-        # width_b = (pred_b[:, 1] - pred_b[:, 0])[None, :].repeat(N1, 1)
-        width_a = (target_a[:, 1] - target_a[:, 0])[:, None].repeat(1, N2)
-        width_b = (target_b[:, 1] - target_b[:, 0])[None, :].repeat(N1, 1)
-
         # Compute pairwise intersection
-        # box_left = torch.max(pred_a[:, 0][:, None].repeat(1, N2), pred_b[:, 0][None, :].repeat(N1, 1))
-        # box_right = torch.min(pred_a[:, 1][:, None].repeat(1, N2), pred_b[:, 1][None, :].repeat(N1, 1))
-        box_left = torch.max(target_a[:, 0][:, None].repeat(1, N2), target_b[:, 0][None, :].repeat(N1, 1))
-        box_right = torch.min(target_a[:, 1][:, None].repeat(1, N2), target_b[:, 1][None, :].repeat(N1, 1))
+        box_left = torch.max(pred_a[:, 0][:, None].repeat(1, N2), pred_b[:, 0][None, :].repeat(N1, 1))
+        box_right = torch.min(pred_a[:, 1][:, None].repeat(1, N2), pred_b[:, 1][None, :].repeat(N1, 1))
         intersection = torch.clamp(box_right - box_left, min=0)
 
-        # Compute the union of the two boxes
-        union = width_a + width_b - intersection
-
         # Compute smallest enclosing interval (C)
-        enc_left = torch.min(pred_a[:, 0][:, None].repeat(1, N2), pred_b[:, 0][None, :].repeat(N1, 1))
-        enc_right = torch.max(pred_a[:, 1][:, None].repeat(1, N2), pred_b[:, 1][None, :].repeat(N1, 1))
+        min_left = torch.min(pred_a[:, 0][:, None].repeat(1, N2), pred_b[:, 0][None, :].repeat(N1, 1))
+        max_right = torch.max(pred_a[:, 1][:, None].repeat(1, N2), pred_b[:, 1][None, :].repeat(N1, 1))
         eps = 1e-7
-        bbox_coordinate = enc_right - enc_left + eps
 
-        # Calculate the base term and the penalty
-        base = difference / union
-        penalty = (bbox_coordinate - union) / bbox_coordinate
-        gdou = base - penalty
+        convex_hull = max_right - min_left
+        convex_hull = torch.where(convex_hull < eps, 1, convex_hull)
 
-        # Sum the loss only over incident pairs
-        loss = (gdou * incidence_matrix.to(gdou.dtype)).sum()
+        doc = difference / convex_hull # JA: DoC = difference over convex hull
+        loss = (doc * incidence_matrix).sum()
         return loss
 
 class CombinedLoss(nn.Module):
