@@ -267,7 +267,7 @@ class AdjacencyConstraintLoss(nn.Module):
         beat_target_boxes     = transformed_target_regression_boxes[positive_beat_anchor_mask, :]
         beat_pred_boxes       = transformed_pred_regression_boxes[positive_beat_anchor_mask, :]
 
-        loss = self._gdoU_loss(
+        loss = self._doc_loss(
             target_a=downbeat_target_boxes,
             target_b=beat_target_boxes,
             pred_a=downbeat_pred_boxes,
@@ -288,7 +288,7 @@ class AdjacencyConstraintLoss(nn.Module):
         class_target_boxes = transformed_target_regression_boxes[positive_class_anchor_mask, :]
         class_pred_boxes   = transformed_pred_regression_boxes[positive_class_anchor_mask, :]
 
-        loss = self._gdoU_loss(
+        loss = self._doc_loss(
             target_a=class_target_boxes,
             target_b=class_target_boxes,
             pred_a=class_pred_boxes,
