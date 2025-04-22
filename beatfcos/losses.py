@@ -141,62 +141,80 @@ def get_fcos_positives(jth_annotations, anchors_list, interval_length_ranges,
         l_star_for_anchors, r_star_for_anchors,\
         normalized_l_star_for_anchors, normalized_r_star_for_anchors, levels_for_all_anchors#,\
 
-class FocalLoss(nn.Module):
+# class FocalLoss(nn.Module):
+#     def __init__(self):
+#         super(FocalLoss, self).__init__()
+
+#     def forward(self, jth_classification_pred, jth_classification_targets, jth_annotations, num_positive_anchors):
+#         alpha = 0.25
+#         gamma = 2.0
+
+#         jth_classification_pred = torch.clamp(jth_classification_pred, 1e-4, 1.0 - 1e-4)
+
+#         if jth_annotations.shape[0] == 0: # if there are no annotation boxes on the jth image
+#             # the same focal loss is used by both retinanet and fcos
+#             if torch.cuda.is_available():
+#                 alpha_factor = torch.ones(jth_classification_pred.shape).cuda() * alpha
+
+#                 alpha_factor = 1. - alpha_factor
+#                 focal_weight = jth_classification_pred
+#                 focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
+
+#                 bce = -(torch.log(1.0 - jth_classification_pred))
+
+#                 cls_loss = focal_weight * bce
+#                 return cls_loss.sum()
+#             else:
+#                 alpha_factor = torch.ones(jth_classification_pred.shape) * alpha
+
+#                 alpha_factor = 1. - alpha_factor
+#                 focal_weight = jth_classification_pred
+#                 focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
+
+#                 bce = -(torch.log(1.0 - jth_classification_pred))
+
+#                 cls_loss = focal_weight * bce
+#                 return cls_loss.sum()
+
+#         # num_positive_anchors = positive_anchor_indices.sum() # We will do this outside in the new implementation
+
+#         if torch.cuda.is_available():
+#             alpha_factor = torch.ones(jth_classification_targets.shape).cuda() * alpha
+#         else:
+#             alpha_factor = torch.ones(jth_classification_targets.shape) * alpha
+
+#         alpha_factor = torch.where(torch.eq(jth_classification_targets, 1.), alpha_factor, 1. - alpha_factor)
+#         focal_weight = torch.where(torch.eq(jth_classification_targets, 1.), 1. - jth_classification_pred, jth_classification_pred)
+#         focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
+
+#         bce = -(jth_classification_targets * torch.log(jth_classification_pred) + (1.0 - jth_classification_targets) * torch.log(1.0 - jth_classification_pred))
+
+#         cls_loss = focal_weight * bce
+
+#         if torch.cuda.is_available(): #MJ: 
+#             cls_loss = torch.where(torch.ne(jth_classification_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).cuda())
+#         else:
+#             cls_loss = torch.where(torch.ne(jth_classification_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape))
+
+#         return cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0)
+
+class BCELossWithIgnore(nn.Module):
     def __init__(self):
-        super(FocalLoss, self).__init__()
+        super().__init__()
 
-    def forward(self, jth_classification_pred, jth_classification_targets, jth_annotations, num_positive_anchors):
-        alpha = 0.25
-        gamma = 2.0
-
-        jth_classification_pred = torch.clamp(jth_classification_pred, 1e-4, 1.0 - 1e-4)
-
-        if jth_annotations.shape[0] == 0: # if there are no annotation boxes on the jth image
-            # the same focal loss is used by both retinanet and fcos
-            if torch.cuda.is_available():
-                alpha_factor = torch.ones(jth_classification_pred.shape).cuda() * alpha
-
-                alpha_factor = 1. - alpha_factor
-                focal_weight = jth_classification_pred
-                focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
-
-                bce = -(torch.log(1.0 - jth_classification_pred))
-
-                cls_loss = focal_weight * bce
-                return cls_loss.sum()
-            else:
-                alpha_factor = torch.ones(jth_classification_pred.shape) * alpha
-
-                alpha_factor = 1. - alpha_factor
-                focal_weight = jth_classification_pred
-                focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
-
-                bce = -(torch.log(1.0 - jth_classification_pred))
-
-                cls_loss = focal_weight * bce
-                return cls_loss.sum()
-
-        # num_positive_anchors = positive_anchor_indices.sum() # We will do this outside in the new implementation
-
-        if torch.cuda.is_available():
-            alpha_factor = torch.ones(jth_classification_targets.shape).cuda() * alpha
-        else:
-            alpha_factor = torch.ones(jth_classification_targets.shape) * alpha
-
-        alpha_factor = torch.where(torch.eq(jth_classification_targets, 1.), alpha_factor, 1. - alpha_factor)
-        focal_weight = torch.where(torch.eq(jth_classification_targets, 1.), 1. - jth_classification_pred, jth_classification_pred)
-        focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
-
-        bce = -(jth_classification_targets * torch.log(jth_classification_pred) + (1.0 - jth_classification_targets) * torch.log(1.0 - jth_classification_pred))
-
-        cls_loss = focal_weight * bce
-
-        if torch.cuda.is_available(): #MJ: 
-            cls_loss = torch.where(torch.ne(jth_classification_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).cuda())
-        else:
-            cls_loss = torch.where(torch.ne(jth_classification_targets, -1.0), cls_loss, torch.zeros(cls_loss.shape))
-
-        return cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0)
+    def forward(self, preds, targets, num_positive_anchors):
+        # preds: (N, 2), targets: (N, 2) with values {0,1} for positives or –1 for ignore
+        preds = torch.clamp(preds, 1e-4, 1.0-1e-4)
+        
+        # mask out any ignored entries
+        valid = targets != -1      # (N,2) boolean
+        # compute elementwise BCE
+        bce = -( targets * torch.log(preds)
+               + (1.0-targets) * torch.log(1.0-preds) )
+        bce = bce * valid.float()  # zero out ignored
+        
+        loss = bce.sum()           # sum over all anchors & both classes
+        return loss / torch.clamp(num_positive_anchors.float(), min=1.0)
 
 class RegressionLoss(nn.Module):
     def __init__(self, weight=1):
@@ -434,7 +452,7 @@ class CombinedLoss(nn.Module):
     def __init__(self, clusters, audio_downsampling_factor, audio_sample_rate, centerness=False):
         super(CombinedLoss, self).__init__()
 
-        self.classification_loss = FocalLoss()
+        self.classification_loss = BCELossWithIgnore() #FocalLoss()
         self.regression_loss = RegressionLoss()
         self.leftness_loss = LeftnessLoss()
         self.adjacency_constraint_loss = AdjacencyConstraintLoss()
@@ -455,13 +473,16 @@ class CombinedLoss(nn.Module):
         normalized_l_star,
         normalized_r_star
     ):
-        jth_classification_targets = torch.zeros(jth_classification_pred.shape).to(jth_classification_pred.device)
+        # jth_classification_targets = torch.zeros(jth_classification_pred.shape).to(jth_classification_pred.device)
+        jth_classification_targets = torch.full_like(
+            jth_classification_pred, -1, device=jth_classification_pred.device
+        )
         jth_regression_targets = torch.zeros(jth_regression_pred.shape).to(jth_regression_pred.device)
         jth_leftness_targets = torch.zeros(jth_leftness_pred.shape).to(jth_leftness_pred.device)
 
         class_ids_of_positive_anchors = normalized_annotations[positive_anchor_indices, 2].long()
 
-        jth_classification_targets[positive_anchor_indices, :] = 0
+        # jth_classification_targets[positive_anchor_indices, :] = 0
         jth_classification_targets[positive_anchor_indices, class_ids_of_positive_anchors] = 1
 
         jth_regression_targets = torch.stack((normalized_l_star, normalized_r_star), dim=1)
@@ -522,7 +543,7 @@ class CombinedLoss(nn.Module):
             jth_classification_loss = self.classification_loss(
                 jth_classification_pred,
                 jth_classification_targets,
-                jth_annotations,
+                # jth_annotations,
                 num_positive_anchors
             )
 
