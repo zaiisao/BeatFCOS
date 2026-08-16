@@ -178,7 +178,7 @@ def compute_ap(recall, precision):
     ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     return ap
 
-def get_results_from_model(audio, target, model, iou_threshold=0.5, score_threshold=0.05, max_thresh=1):
+def get_results_from_model(audio, target, model, iou_threshold=0.5, score_threshold=0.05, max_thresh=1, downbeat_score_threshold=None, downbeat_sigma=None, downbeat_phase_reweight=False):
     #data = dataset[index]
     #scale = data['scale']
     #audio, target = data
@@ -188,23 +188,17 @@ def get_results_from_model(audio, target, model, iou_threshold=0.5, score_thresh
         audio = audio.to('cuda')
         target = target.to('cuda')
 
-    if model.module.dstcn is not None:
-        nblocks = len(model.module.dstcn.blocks)
-
-        target_length = -(audio.size(dim=2) // -2**nblocks) * 2**nblocks
-        audio_pad = (0, target_length - audio.size(dim=2))
-        audio = torch.nn.functional.pad(audio, audio_pad, "constant", 0)
-
     # run network
-    # scores, labels, boxes = model(audio.permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
-    # predicted_scores, predicted_labels, predicted_boxes = model((audio, target))
-
-    predicted_scores, predicted_labels, predicted_boxes, losses = model( #MJ: shape =(15,) (15,) (15,2)
-        (audio, target),
-        iou_threshold=iou_threshold,
-        score_threshold=score_threshold,
-        max_thresh=max_thresh
-    ) #MJ: The results of model() has been obtained by applying the nms process
+    with torch.no_grad():
+        predicted_scores, predicted_labels, predicted_boxes, losses = model( #MJ: shape =(15,) (15,) (15,2)
+            (audio, target),
+            iou_threshold=iou_threshold,
+            score_threshold=score_threshold,
+            max_thresh=max_thresh,
+            downbeat_score_threshold=downbeat_score_threshold,
+            downbeat_sigma=downbeat_sigma,
+            downbeat_phase_reweight=downbeat_phase_reweight
+        ) #MJ: The results of model() has been obtained by applying the nms process
 
     predicted_scores = predicted_scores.cpu()
     predicted_labels = predicted_labels.cpu()
@@ -406,8 +400,12 @@ def evaluate_beat_ap(
     return average_precisions
 
 def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_sample_rate,
-                            score_threshold=0.2, iou_threshold=0.5, max_thresh=1):
+                            score_threshold=0.2, iou_threshold=0.5, max_thresh=1, downbeat_score_threshold=None, downbeat_sigma=None, downbeat_phase_reweight=False):
     model.eval()
+    # beat와 downbeat은 confidence 분포가 달라서 최적 threshold도 다름(실측:
+    # beat=0.2, downbeat=0.05가 최적). downbeat_score_threshold를 안 주면
+    # score_threshold 하나로 기존처럼 beat/downbeat 둘 다에 동일 적용됨.
+    effective_downbeat_threshold = downbeat_score_threshold if downbeat_score_threshold is not None else score_threshold
     
     with torch.no_grad():
         # start collecting results
@@ -422,7 +420,18 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_
             # if we have metadata, it is only during evaluation where batch size is always 1
             metadata = metadata[0] #MJ: predicted_labels[] = all 0 = all downbeats?
         
-            predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model, score_threshold=score_threshold, iou_threshold=iou_threshold, max_thresh=max_thresh)
+            # CombinedLoss.forward()가 jth_classification_loss에 NaN이 뜨면 (특정
+            # 곡에서 모델 예측이 극단적으로 나빠질 때 발생 가능) 무조건 raise
+            # ValueError를 던져서, 이 곡 하나 때문에 eval 전체가 죽어버리는 문제가
+            # 있었음(harmonix 학습 중 실제로 발생, 프로세스 통째로 크래시). 학습
+            # 루프(train.py)는 이미 이런 NaN을 skip-and-continue로 처리하는데 eval
+            # 쪽엔 그 방어가 없었던 것 - 곡 하나를 스킵하고 나머지 val set은 계속
+            # 평가하도록 함.
+            try:
+                predicted_scores, predicted_labels, predicted_boxes, losses = get_results_from_model(audio, target, model, score_threshold=score_threshold, iou_threshold=iou_threshold, max_thresh=max_thresh, downbeat_score_threshold=downbeat_score_threshold, downbeat_sigma=downbeat_sigma, downbeat_phase_reweight=downbeat_phase_reweight)
+            except ValueError:
+                print(f"[eval] NaN loss로 스킵됨: index={index}, metadata={metadata}", flush=True)
+                continue
             #MJ: Note that the results predicted_scores, predicted_labels, predicted_boxes have been obtained by applying the nms process
 
             beat_pred_left_positions = []
@@ -443,7 +452,8 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_
 
                 # scores are sorted, so we can break
                 # but this filtering is redundant, as the filtering is done within the evaluation part of the model
-                if predicted_score < score_threshold:
+                effective_threshold = effective_downbeat_threshold if predicted_label == 0 else score_threshold
+                if predicted_score < effective_threshold:
                     continue
 
                 # if beat (label 1), first row (index 0)
@@ -495,7 +505,7 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_
             beat_ious = torch.zeros(1, 0).to(sorted_beat_intervals.device) #MJ: Shape (1, 0) means it is a tensor with one row and zero columns.
 
             downbeat_scores = predicted_scores[predicted_labels == 0]
-            downbeat_intervals = predicted_boxes[predicted_labels == 0][downbeat_scores >= score_threshold]
+            downbeat_intervals = predicted_boxes[predicted_labels == 0][downbeat_scores >= effective_downbeat_threshold]
             if downbeat_scores.size(dim=0) == 0:
                 sorted_downbeat_intervals = downbeat_intervals
             else:
@@ -651,7 +661,13 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_
 
 
             print(f"{index}/{len(dataloader)} {metadata['Filename']}")
-            print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f} | CLS: {losses[0]:0.3f} | REG: {losses[1]:0.3f} | LFT: {losses[2]:0.3f} | ADJ: {losses[3]:0.3f}")
+            # head_type="hungarian"에는 leftness/adjacency 개념이 없음(anchor 기반
+            # FCOS 전용) - losses[1]/losses[2]는 실제로 bbox L1 / GIoU, losses[3](ADJ)은
+            # 항상 0이라 헷갈리지 않게 라벨을 다르게 출력한다.
+            if getattr(model, 'module', model).head_type == "hungarian":
+                print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f} | CLS: {losses[0]:0.3f} | BBOX(L1): {losses[1]:0.3f} | GIOU: {losses[2]:0.3f}")
+            else:
+                print(f"BEAT (F-measure): {beat_scores['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores['F-measure']:0.3f} | CLS: {losses[0]:0.3f} | REG: {losses[1]:0.3f} | LFT: {losses[2]:0.3f} | ADJ: {losses[3]:0.3f}")
             #print("LEFT")
             # print(f"BEAT (F-measure): {beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {downbeat_scores_left['F-measure']:0.3f}")
             # print(f"(DBN)  BEAT (F-measure): {dbn_beat_scores_left['F-measure']:0.3f} | DOWNBEAT (F-measure): {dbn_downbeat_scores_left['F-measure']:0.3f}")
@@ -738,7 +754,10 @@ def evaluate_beat_f_measure(dataloader, model, audio_downsampling_factor, audio_
 
         print(f"Average beat F-measure: {beat_mean_f_measure:0.3f}")
         print(f"Average downbeat F-measure: {downbeat_mean_f_measure:0.3f}")
-        print(f"Average losses | CLS: {cls_loss_mean:0.3f} | REG: {reg_loss_mean:0.3f} | LFT: {lft_loss_mean:0.3f} | ADJ: {adj_loss_mean:0.3f}")
+        if getattr(model, 'module', model).head_type == "hungarian":
+            print(f"Average losses | CLS: {cls_loss_mean:0.3f} | BBOX(L1): {reg_loss_mean:0.3f} | GIOU: {lft_loss_mean:0.3f}")
+        else:
+            print(f"Average losses | CLS: {cls_loss_mean:0.3f} | REG: {reg_loss_mean:0.3f} | LFT: {lft_loss_mean:0.3f} | ADJ: {adj_loss_mean:0.3f}")
         # print(f"Average left beat F-measure: {left_beat_mean_f_measure:0.3f}")
         # print(f"Average left downbeat F-measure: {left_downbeat_mean_f_measure:0.3f}")
         #print(f"Average right beat F-measure: {right_beat_mean_f_measure:0.3f}")

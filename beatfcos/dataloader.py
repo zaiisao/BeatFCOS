@@ -115,13 +115,7 @@ class BeatDataset(torch.utils.data.Dataset):
         self.trim_size = trim_size
         self.validation_fold = validation_fold
 
-        #MJ: ADDED: If the spectrogram used as the input data, self.target_length is set to 3000 frames:
-        if self.spectral:
-             self.target_length = length
-        else:      
-        # if length = 2097152 and audio_downsampling_factor is 256, target_length = 8192
-        # downsampling tcn's output tensor dimension is (b, 256, 8192) (b, channel, width/length)
-            self.target_length = int(self.length / self.audio_downsampling_factor)
+        self.target_length = int(self.length / self.audio_downsampling_factor)
         #print(f"Audio length: {self.length}")
         #print(f"Target length: {self.target_length}")
 
@@ -130,12 +124,17 @@ class BeatDataset(torch.utils.data.Dataset):
         # if self.dataset in ["rwc_popular"]:
         #     file_ext = "*L+R.wav"
         # elif self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "beatles", "carnatic"]:
-        if self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "beatles", "carnatic", "rwc_popular"]:
+        if self.dataset in ["ballroom", "hainsworth", "gtzan", "smc", "beatles", "carnatic", "rwc_popular", "harmonix"]:
             file_ext = "*.wav"
         else:
             raise ValueError(f"Invalid dataset: {self.dataset}")
 
-        fold_files = glob.glob(os.path.join(self.annot_dir, "*.folds"))  #MJ: /mount/beat-tracking/ballroom/label/???.folds etc
+        # 각 annot_dir에 "*_8-fold_cv_*.folds"와 "*_80_10_10.folds"가 둘 다
+        # 있어서, 예전처럼 "*.folds"로 다 긁으면 glob 순서에 따라 8-fold CV용
+        # 파일 대신 80/10/10용 파일이 잘못 선택될 수 있었음(둘 다 있을 때
+        # 어느 게 먼저 나올지 보장이 안 됨). validation_fold를 실제 8-fold CV로
+        # 쓰려는 것이므로 "8-fold"가 파일명에 들어간 것만 명시적으로 찾음.
+        fold_files = glob.glob(os.path.join(self.annot_dir, "*8-fold*.folds"))  #MJ: /mount/beat-tracking/ballroom/label/???.folds etc
         if self.validation_fold is not None and len(fold_files) > 0 and self.subset in ["train", "val", "test"]:
             fold_file = fold_files[0]  #MJ: len(fold_files) = 1
             self.audio_files = []
@@ -250,6 +249,8 @@ class BeatDataset(torch.utils.data.Dataset):
                 self.annot_files.append(annot_file)
             elif self.dataset == "carnatic":
                 self.annot_files.append(os.path.join(self.annot_dir, f"{filename}.beats"))
+            elif self.dataset == "harmonix":
+                self.annot_files.append(os.path.join(self.annot_dir, f"{filename}.txt"))
 
         self.data = [] # when preloading store audio data and metadata
         if self.preload:
@@ -266,7 +267,10 @@ class BeatDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         if self.spectral:
-            return len(self.audio_files)
+            if self.subset in ["test", "val", "full-val", "full-test", "train_with_metadata"]:
+                return len(self.audio_files)
+            else:
+                return self.examples_per_epoch
 
         if self.subset in ["test", "val", "full-val", "full-test", "train_with_metadata"]:
             length = len(self.audio_files)
@@ -287,61 +291,52 @@ class BeatDataset(torch.utils.data.Dataset):
 
         # apply augmentations 
         if self.spectral:
-            """Overload square bracket indexing on object"""
-            raw_spec = audio #MJ: spectrogram = (81, 3187) 
-            trimmed_spec = np.zeros(self.trim_size) # JA: trim_size is (H, W) = (81, 3000) 
+            T = audio.shape[0]
+            target_len = self.target_length  # = train_length / audio_downsampling_factor = 2097152/512 = 4096
 
-            to_h = self.trim_size[0]
-            to_w = min(self.trim_size[1], raw_spec.shape[1])
+            if T > target_len:
+                if self.subset in ['train', 'full-train']:
+                    start = np.random.randint(0, T - target_len)
+                    audio = audio[start:start + target_len, :]
+                    target = target[:, start:start + target_len].float()
+                else:
+                    audio = audio[:target_len, :]
+                    target = target[:, :target_len].float()
+            else:
+                pad_size = target_len - T
+                audio = torch.nn.functional.pad(audio, (0, 0, 0, pad_size))
+                target = torch.nn.functional.pad(target.float(), (0, pad_size))
 
-            trimmed_spec[:to_h, :to_w] = raw_spec[:, :to_w] # trimmed_spec: shape =(81,3000)
-          
-            #MJ: Do conversion in order to transform a tensor of shape (3000,81) into a single channel 2D tensor of shape
-            # (1, 3000, 81). This is the required input shape for BeatNet from SpectralTCN:
-            
-            audio = torch.from_numpy(np.expand_dims( trimmed_spec.T, axis=0)).float()
-            
-            # audio =  trimmed_spec  #audio: shape = (1, 3000, 81)
-            
-           
-            target = target[:, :to_w].float() # target: shape = (2,3000); cf. target = torch.zeros(2,N)
+
         else:
-            # do all processing in float32 not float16
-            audio_old = audio.float()  #MJ: audio: shape =(1,N)
-            target = target.float() #MJ: target: shape =(2,N)
+            audio_old = audio.float()
+            target = target.float()
 
             if self.augment:
                 audio, target = self.apply_augmentations(audio_old, target)
 
-            N_audio = audio.shape[-1]   # audio: shape =(1,N)
-            N_target = target.shape[-1] # target: shape =(2,N)
+            N_audio = audio.shape[-1]
+            N_target = target.shape[-1]
 
-            # random crop of the audio and target if larger than desired
             if (N_audio > self.length or N_target > self.target_length) and self.subset not in ['val', 'test', 'full-val']:
                 audio_start = np.random.randint(0, N_audio - self.length - 1)
                 audio_stop  = audio_start + self.length
                 target_start = int(audio_start / self.audio_downsampling_factor)
                 target_stop = int(audio_stop / self.audio_downsampling_factor)
-                audio = audio[:,audio_start:audio_stop]
-                target = target[:,target_start:target_stop]
+                audio = audio[:, audio_start:audio_stop]
+                target = target[:, target_start:target_stop]
 
-            # pad the audio and target is shorter than desired
-            if audio.shape[-1] < self.length and self.subset not in ['val', 'test', 'full-val']: 
+            if audio.shape[-1] < self.length and self.subset not in ['val', 'test', 'full-val']:
                 pad_size = self.length - audio.shape[-1]
                 padl = pad_size - (pad_size // 2)
                 padr = pad_size // 2
-                audio = torch.nn.functional.pad(audio, 
-                                                (padl, padr), 
-                                                mode=self.pad_mode)
+                audio = torch.nn.functional.pad(audio, (padl, padr), mode=self.pad_mode)
 
-            if target.shape[-1] < self.target_length and self.subset not in ['val', 'test', 'full-val']: 
+            if target.shape[-1] < self.target_length and self.subset not in ['val', 'test', 'full-val']:
                 pad_size = self.target_length - target.shape[-1]
                 padl = pad_size - (pad_size // 2)
                 padr = pad_size // 2
-                target = torch.nn.functional.pad(target, 
-                                                (padl, padr), 
-                                                mode=self.pad_mode)
-        #END else of  if self.spectral
+                target = torch.nn.functional.pad(target, (padl, padr), mode=self.pad_mode)
         
         annot = self.make_intervals(target)  ##MJ: # target: shape =(2,3000)2402; annot: shape =(M,3)=(57,3)
 
@@ -417,9 +412,17 @@ class BeatDataset(torch.utils.data.Dataset):
             "Time signature" : time_signature
         }
 
-        if self.spectral:
-            spectrogram_filename = audio_filename.replace('/data/', '/spectrogram_dir/').replace('.wav', '.npy')
-            audio  = np.load(spectrogram_filename) # The shape of spectrogram = (81, 3187) for example; will be trimmed to (81, 3000) later on
+        mel_transform = torchaudio.transforms.MelSpectrogram(
+            sample_rate = self.audio_sample_rate,
+            n_fft = 2048,
+            hop_length = 512,
+            n_mels = 128,
+            f_min = 30.0,
+            f_max = 11000.0
+        )
+
+        mel= mel_transform(audio)
+        audio = torch.log1p(mel.squeeze(0).T)
         
         return audio, target, metadata  #MJ: audio may be raw audio or its spectrogram
 
@@ -461,6 +464,12 @@ class BeatDataset(torch.utils.data.Dataset):
             elif self.dataset == "carnatic":
                 line = line.strip('\n')
                 time_sec, beat = line.split(',')
+            elif self.dataset == "harmonix":
+                # 형식: "time\tbeat_number\tbar_number" (beat_number가 1일 때
+                # 마디 시작=downbeat, 다른 데이터셋과 동일 컨벤션). bar_number는
+                # 안 씀.
+                line = line.strip('\n')
+                time_sec, beat, _bar = line.split('\t')
 
             # convert beat to one-hot
             beat = int(beat)

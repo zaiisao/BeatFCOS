@@ -8,7 +8,8 @@ from beatfcos.utils import AnchorPointTransform, ClipBoxes, nms_2d, soft_nms
 from beatfcos.anchors import Anchors
 from beatfcos import losses
 from beatfcos.losses import CombinedLoss
-from beatfcos.dstcn import dsTCNModel
+from beatfcos.beat_transformer_encoder import BeatTransformerEncoder
+
 
 model_urls = {
     'wavebeat8': './backbone/wavebeat8.pth',
@@ -29,51 +30,51 @@ class PyramidFeatures(nn.Module):
     # >256 => 288 =>  320: C3=256, C=288, C5 = 320
 
     #def __init__(self, C3_size, C4_size, C5_size, feature_size=256):
-    def __init__(self, C4_size, C5_size, feature_size=256):
+    def __init__(self, C1_size, C2_size, C3_size, feature_size=256, no_fusion=False):
         super(PyramidFeatures, self).__init__()
-        # upsample C5 to get P5 from the FPN paper
-        self.P5_1 = nn.Conv1d(C5_size, feature_size, kernel_size=1, stride=1, padding=0)
-        self.P5_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
-        self.P5_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
+        # no_fusion=True: FPN의 top-down cross-scale fusion(덧셈)을 끄고 각 레벨을
+        # 순수 단일 스케일 feature로만 씀 - head_type="fcos_no_fpn" ablation용
+        # (박사님 제안: "FPN을 아예 제거하고 head를 encoder에 직결"). P1만 있어도
+        # fusion이 켜져 있으면 P2/P3의 정보를 여전히 받으므로, "진짜 FPN 없음"을
+        # 검증하려면 이 덧셈 자체를 꺼야 함.
+        self.no_fusion = no_fusion
+        # C3 (coarsest, T/4) → P3
+        self.P3_1 = nn.Conv1d(C3_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P3_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.P3_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
 
-        # add P5 elementwise to C4
-        self.P4_1 = nn.Conv1d(C4_size, feature_size, kernel_size=1, stride=1, padding=0)
-        self.P4_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
-        self.P4_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
+        # C2 (T/2) + P3_upsampled → P2
+        self.P2_1 = nn.Conv1d(C2_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P2_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.P2_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
 
-        # "P6 is obtained via a 3x3 stride-2 conv on C5"
-        self.P6 = nn.Conv1d(C5_size, feature_size, kernel_size=3, stride=2, padding=1)
+        # C1 (finest, T) + P2_upsampled → P1
+        self.P1_1 = nn.Conv1d(C1_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P1_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=1, padding=1)
 
-        # "P7 is computed by applying ReLU followed by a 3x3 stride-2 conv on P6"
-        self.P7_1 = nn.ReLU()
-        self.P7_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=2, padding=1)
-        
-        self.P8_1 = nn.ReLU()
-        self.P8_2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, stride=2, padding=1)
 
-    def forward(self, inputs): #MJ: called by feature_maps = self.fpn([x2, x3])
-        # C3, C4, C5 = inputs
-        C4, C5 = inputs
 
-        P5_x = self.P5_1(C5)
-        P5_upsampled_x = self.P5_upsampled(P5_x)
-        P5_x = self.P5_2(P5_x)
+    def forward(self, inputs):
+        C1, C2, C3 = inputs  # C1=finest(T), C2=(T/2), C3=coarsest(T/4)
 
-        P4_x = self.P4_1(C4)
-        P4_x = P5_upsampled_x + P4_x
-        P4_upsampled_x = self.P4_upsampled(P4_x)
-        P4_x = self.P4_2(P4_x)
+        P3_x = self.P3_1(C3)
+        P3_upsampled_x = self.P3_upsampled(P3_x)
+        P3_x = self.P3_2(P3_x)
 
-        P6_x = self.P6(C5)
+        P2_x = self.P2_1(C2)
+        if not self.no_fusion:
+            P2_x = P3_upsampled_x + P2_x
+        P2_upsampled_x = self.P2_upsampled(P2_x)
+        P2_x = self.P2_2(P2_x)
 
-        P7_x = self.P7_1(P6_x)
-        P7_x = self.P7_2(P7_x)
+        P1_x = self.P1_1(C1)
+        if not self.no_fusion:
+            P1_x = P2_upsampled_x + P1_x
+        P1_x = self.P1_2(P1_x)
 
-        P8_x = self.P8_1(P7_x)
-        P8_x = self.P8_2(P8_x)
+        return [P1_x, P2_x, P3_x]
 
-        # return [P3_x, P4_x, P5_x, P6_x, P7_x]
-        return [P4_x, P5_x, P6_x, P7_x, P8_x]
+
 
 
 class RegressionModel(nn.Module):
@@ -91,6 +92,15 @@ class RegressionModel(nn.Module):
         self.regression = nn.Conv1d(feature_size, 2, kernel_size=3, padding=1)
         self.leftness = nn.Conv1d(feature_size, 1, kernel_size=3, padding=1)
         self.leftness_act = nn.Sigmoid()
+
+        # phase/주기성 auxiliary target: downbeat 박스끼리 겹치는 문제
+        # (final_boxes.png, 평균 IoU 0.101 vs beat 0.015)가 모델이 마디 내
+        # 위상을 명시적으로 학습하지 못해서라는 가설을 검증하려고 추가함.
+        # 각 anchor가 속한 downbeat 구간(마디) 안에서의 위상을 (sin, cos) 단위원
+        # 좌표로 예측하게 함 - 자세한 배경은 losses.py의
+        # get_phase_targets/PhaseLoss 참고. tanh로 [-1,1] 범위로 bound.
+        self.phase = nn.Conv1d(feature_size, 2, kernel_size=3, padding=1)
+        self.phase_act = nn.Tanh()
 
     def forward(self, x):
         out = self.conv1(x)
@@ -114,7 +124,12 @@ class RegressionModel(nn.Module):
         leftness = leftness.permute(0, 2, 1)
         leftness = leftness.contiguous().view(leftness.shape[0], -1, 1)
 
-        return regression, leftness
+        phase = self.phase(out)
+        phase = self.phase_act(phase)
+        phase = phase.permute(0, 2, 1)
+        phase = phase.contiguous().view(phase.shape[0], -1, 2)
+
+        return regression, leftness, phase
 
 class ClassificationModel(nn.Module):
     def __init__(self, num_features_in, num_classes=2, prior=0.01, feature_size=256):
@@ -155,6 +170,65 @@ class ClassificationModel(nn.Module):
 
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
+# head_type="fcos_lite" 전용: classification과 regression을 하나의 head로 통합
+# (안재훈 박사님 제안 FPN ablation 중 하나 - P1 제거와 함께 적용). RegressionModel과
+# 동일한 conv tower를 공유하고, ClassificationModel의 output/output_act에 해당하는
+# class_output/class_output_act 브랜치만 추가로 붙임.
+class MergedRegressionModel(nn.Module):
+    def __init__(self, num_features_in, num_classes=2, feature_size=256):
+        super(MergedRegressionModel, self).__init__()
+
+        self.conv1 = nn.Conv1d(num_features_in, feature_size, kernel_size=3, padding=1)
+        self.norm1 = nn.GroupNorm(32, feature_size)
+        self.act1 = nn.ReLU()
+
+        self.conv2 = nn.Conv1d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.norm2 = nn.GroupNorm(32, feature_size)
+        self.act2 = nn.ReLU()
+
+        self.regression = nn.Conv1d(feature_size, 2, kernel_size=3, padding=1)
+        self.leftness = nn.Conv1d(feature_size, 1, kernel_size=3, padding=1)
+        self.leftness_act = nn.Sigmoid()
+
+        self.phase = nn.Conv1d(feature_size, 2, kernel_size=3, padding=1)
+        self.phase_act = nn.Tanh()
+
+        self.class_output = nn.Conv1d(feature_size, num_classes, kernel_size=3, padding=1)
+        self.class_output_act = nn.Sigmoid()
+        self.num_classes = num_classes
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.norm1(out)
+        out = self.act1(out)
+
+        out = self.conv2(out)
+        out = self.norm2(out)
+        out = self.act2(out)
+
+        regression = self.regression(out)
+        regression = regression.permute(0, 2, 1)
+        regression = regression.contiguous().view(regression.shape[0], -1, 2)
+
+        leftness = self.leftness(out)
+        leftness = self.leftness_act(leftness)
+        leftness = leftness.permute(0, 2, 1)
+        leftness = leftness.contiguous().view(leftness.shape[0], -1, 1)
+
+        phase = self.phase(out)
+        phase = self.phase_act(phase)
+        phase = phase.permute(0, 2, 1)
+        phase = phase.contiguous().view(phase.shape[0], -1, 2)
+
+        classification = self.class_output(out)
+        classification = self.class_output_act(classification)
+        classification = classification.permute(0, 2, 1)
+        batch_size, length, channels = classification.shape
+        classification = classification.view(batch_size, length, 1, self.num_classes)
+        classification = classification.contiguous().view(x.shape[0], -1, self.num_classes)
+
+        return classification, regression, leftness, phase
+
 #MJ: https://pseudo-lab.github.io/pytorch-guide/docs/ch03-1.html
 class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not defined in our code using tcn
     def __init__(
@@ -162,11 +236,22 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
         num_classes,
         clusters,
         downbeat_weight=0.6,
+        # beat_radius/downbeat_radius: FCOS positive anchor 할당 반경 (그대로
+        # CombinedLoss -> get_fcos_positives로 전달됨). 자세한 배경 설명은
+        # train.py의 --beat_radius/--downbeat_radius 주석 참고.
+        beat_radius=2.5,
+        downbeat_radius=4.5,
+        # phase_weight: 그대로 CombinedLoss -> PhaseLoss로 전달됨. 배경 설명은
+        # train.py의 --phase_weight 주석 참고.
+        phase_weight=1.0,
         audio_downsampling_factor=32,
         centerness=False,
         postprocessing_type="soft_nms",
         backbone_type="wavebeat",
         audio_sample_rate=22050,
+        head_type="fcos",
+        num_queries=300,
+        decoder_layers=3,
         **kwargs
     ):
         self.inplanes = 256
@@ -178,35 +263,77 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
         self.postprocessing_type = postprocessing_type
 
         self.backbone_type = backbone_type
+        self.head_type = head_type
 
-        self.dstcn = None
-        self.tcn2019 = None
+        dmodel = kwargs.get('dmodel', 128)
+        encoder_keys = ['dmodel', 'nhead', 'd_hid', 'nlayers', 'attn_len', 'dropout', 'norm_first']
+        encoder_kwargs = {k: kwargs[k] for k in encoder_keys if k in kwargs}
+        self.encoder = BeatTransformerEncoder(**encoder_kwargs)
 
-        if self.backbone_type == "wavebeat":
-            self.dstcn = dsTCNModel(**kwargs)
-        elif self.backbone_type == "tcn2019":
-            from tcn2019.beat_tracking_tcn.models.beat_net import BeatNet
-            self.tcn2019 = BeatNet(downbeats=True)
 
-        if backbone_type == "wavebeat":
-            C4_size, C5_size = self.dstcn.blocks[-2].out_ch, self.dstcn.blocks[-1].out_ch
-        elif backbone_type == "tcn2019":
-            C4_size, C5_size = self.tcn2019.tcn.blocks[-2].out_ch, self.tcn2019.tcn.blocks[-1].out_ch
+        self.rho1 = nn.Identity()
+        self.rho2 = nn.Conv1d(dmodel, dmodel, kernel_size=3, stride=2, padding=1)
+        self.rho3 = nn.Sequential(
+            nn.Conv1d(dmodel, dmodel, kernel_size=3, stride=2, padding=1),
+            nn.Conv1d(dmodel, dmodel, kernel_size=3, stride=2, padding=1)
+        )
 
-        self.fpn = PyramidFeatures(C4_size, C5_size)
+        self.fpn = PyramidFeatures(dmodel, dmodel, dmodel, no_fusion=(head_type == "fcos_no_fpn"))
 
-        self.classificationModel = ClassificationModel(256, num_classes=num_classes)
-        self.regressionModel = RegressionModel(256)
+        if self.head_type == "hungarian":
+            # [무엇] Soft-NMS 후처리를 없애기 위해 추가한 축소판 RT-DETR 경로.
+            # 조밀한 anchor(Anchors/ClassificationModel/RegressionModel/CombinedLoss)
+            # 대신, 고정 개수 query가 FPN을 보고 (class, interval)을 직접 예측하고
+            # 순서 보존 매칭(OrderedMatcher)으로 학습한다. 자세한 근거는
+            # beatfcos/hungarian_head.py 파일 상단 docstring 참고.
+            # [왜 옵션인가] 기존 head_type="fcos"(기본값) 경로는 전혀 안 건드려서,
+            # 두 방식을 나중에 나란히 비교할 수 있게 남겨둠.
+            from beatfcos.hungarian_head import SetPredictionHead, OrderedMatcher, SetCriterion
+            self.set_prediction_head = SetPredictionHead(
+                feature_size=256, num_classes=num_classes,
+                num_queries=num_queries, decoder_layers=decoder_layers
+            )
+            self.set_criterion = SetCriterion(num_classes, OrderedMatcher())
+        elif self.head_type == "fcos_lite":
+            # P1(레벨 0) 제거 + classification/regression head 통합 (안재훈 박사님
+            # 제안 FPN ablation 중 하나). FPN fusion 자체는 그대로 두고(no_fusion=False),
+            # P2/P3(레벨 [1,2])만 써서 anchor/loss도 그 두 레벨 기준으로 재구성함.
+            self.regressionModel = MergedRegressionModel(256, num_classes=num_classes)
 
-        self.anchors = Anchors(clusters, audio_downsampling_factor, audio_sample_rate)
-         #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
-         #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
+            self.anchors = Anchors(clusters, audio_downsampling_factor, audio_sample_rate, pyramid_levels=[1, 2])
+            self.anchor_point_transform = AnchorPointTransform()
+            self.clipBoxes = ClipBoxes()
+            self.combined_loss = CombinedLoss(clusters, audio_downsampling_factor, audio_sample_rate, centerness=centerness, downbeat_weight=downbeat_weight, beat_radius=beat_radius, downbeat_radius=downbeat_radius, phase_weight=phase_weight, pyramid_levels=[1, 2])
+        elif self.head_type == "fcos_no_fpn":
+            # FPN의 cross-scale fusion 자체를 끄고(PyramidFeatures(no_fusion=True))
+            # P1(레벨 0) 단일 스케일만 사용 - 안재훈 박사님이 제안한 "FPN을 아예
+            # 제거하고 head를 encoder 마지막 레이어에 직결" 버전. head 구조는 표준
+            # 분리형(ClassificationModel/RegressionModel) 그대로 유지.
+            self.classificationModel = ClassificationModel(256, num_classes=num_classes)
+            self.regressionModel = RegressionModel(256)
 
-        self.anchor_point_transform = AnchorPointTransform()
+            self.anchors = Anchors(clusters, audio_downsampling_factor, audio_sample_rate, pyramid_levels=[0])
+            self.anchor_point_transform = AnchorPointTransform()
+            self.clipBoxes = ClipBoxes()
+            self.combined_loss = CombinedLoss(clusters, audio_downsampling_factor, audio_sample_rate, centerness=centerness, downbeat_weight=downbeat_weight, beat_radius=beat_radius, downbeat_radius=downbeat_radius, phase_weight=phase_weight, pyramid_levels=[0])
+        else:
+            self.classificationModel = ClassificationModel(256, num_classes=num_classes)
+            self.regressionModel = RegressionModel(256)
 
-        self.clipBoxes = ClipBoxes()
+            self.anchors = Anchors(clusters, audio_downsampling_factor, audio_sample_rate)
+             #MJ: The audio base level is changed from 8 to 7, allowing a more fine-grained audio input
+             #  => The target sampling level in wavebeat should be changed to 2^7 from 2^8 as well
 
-        self.combined_loss = CombinedLoss(clusters, audio_downsampling_factor, audio_sample_rate, centerness=centerness)
+            self.anchor_point_transform = AnchorPointTransform()
+
+            self.clipBoxes = ClipBoxes()
+
+            # downbeat_weight: 예전엔 self.downbeat_weight로 저장만 되고 실제 loss
+            # 계산에는 전달이 안 되고 있었음(생성자 인자만 있고 미사용 상태) - FocalLoss가
+            # beat/downbeat에 같은 alpha를 쓰다 보니 인스턴스가 훨씬 적은 downbeat
+            # 채널이 상대적으로 약한 신호만 받아 F-measure가 유독 불안정했던 것으로
+            # 관찰되어(자세한 내용은 losses.py의 FocalLoss 참고), 실제로 연결함.
+            self.combined_loss = CombinedLoss(clusters, audio_downsampling_factor, audio_sample_rate, centerness=centerness, downbeat_weight=downbeat_weight, beat_radius=beat_radius, downbeat_radius=downbeat_radius, phase_weight=phase_weight)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
@@ -220,17 +347,37 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
                 m.bias.data.zero_()
         # End of for m in self.modules()
 
-        # The reinitialization of the final layer of the classification head
-        prior = 0.01
+        if self.head_type == "fcos_lite":
+            # fcos_lite는 classification이 self.regressionModel.class_output으로
+            # 통합돼서 classificationModel 자체가 없음.
+            prior = 0.01
 
-        self.classificationModel.output.weight.data.fill_(0)
-        self.classificationModel.output.bias.data.fill_(-math.log((1.0 - prior) / prior))
+            self.regressionModel.class_output.weight.data.fill_(0)
+            self.regressionModel.class_output.bias.data.fill_(-math.log((1.0 - prior) / prior))
 
-        self.regressionModel.regression.weight.data.fill_(0)
-        self.regressionModel.regression.bias.data.fill_(0)
+            self.regressionModel.regression.weight.data.fill_(0)
+            self.regressionModel.regression.bias.data.fill_(0)
 
-        self.regressionModel.leftness.weight.data.fill_(0)
-        self.regressionModel.leftness.bias.data.fill_(0)
+            self.regressionModel.leftness.weight.data.fill_(0)
+            self.regressionModel.leftness.bias.data.fill_(0)
+
+            self.regressionModel.phase.weight.data.fill_(0)
+            self.regressionModel.phase.bias.data.fill_(0)
+        elif self.head_type != "hungarian":
+            # The reinitialization of the final layer of the classification head
+            prior = 0.01
+
+            self.classificationModel.output.weight.data.fill_(0)
+            self.classificationModel.output.bias.data.fill_(-math.log((1.0 - prior) / prior))
+
+            self.regressionModel.regression.weight.data.fill_(0)
+            self.regressionModel.regression.bias.data.fill_(0)
+
+            self.regressionModel.leftness.weight.data.fill_(0)
+            self.regressionModel.leftness.bias.data.fill_(0)
+
+            self.regressionModel.phase.weight.data.fill_(0)
+            self.regressionModel.phase.bias.data.fill_(0)
         # self.freeze_bn() # If we do not freeze the batch normalization layers, the layers will be trained as was done in WaveBeat
 
     def freeze_bn(self):
@@ -239,7 +386,73 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
             if isinstance(layer, nn.BatchNorm1d):
                 layer.eval()
 
-    def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05, max_thresh=1): #:forward_call = forward
+    def _forward_hungarian(self, feature_maps, base_level_image_shape, audio_batch, inputs):
+        # 참고: 함수명은 hungarian_head.py와의 일관성을 위해 유지했지만, 실제
+        # 매칭은 OrderedMatcher(순서 보존 DP)를 쓴다 — 일반 Hungarian 아님.
+        # 자세한 근거는 beatfcos/hungarian_head.py 파일 상단 docstring 참고.
+        class_logits, boxes = self.set_prediction_head(feature_maps)  # boxes normalized (l, r) in [0, 1]
+        T = base_level_image_shape[-1]
+
+        annotations = inputs[1] if len(inputs) == 2 else None
+
+        targets = None
+        if annotations is not None:
+            targets = []
+            for j in range(annotations.shape[0]):
+                jth = annotations[j]
+                jth = jth[jth[:, 2] != -1]
+                targets.append({
+                    "labels": jth[:, 2].long(),
+                    "boxes": (jth[:, 0:2].float() / T).clamp(0, 1),
+                })
+            losses = self.set_criterion(class_logits, boxes, targets)
+
+        if self.training:
+            zero = torch.zeros((), device=class_logits.device)
+            # train.py의 5-tuple 언패킹/출력("CLS/REG/LFT/ADJ/PHA")을 그대로
+            # 재사용하기 위해 같은 모양으로 반환함: CLS<-분류loss, REG<-bbox(L1),
+            # LFT<-giou, ADJ/PHA<-미사용(0). 출력에 찍히는 라벨 이름은 FCOS
+            # 시절 그대로라 의미가 안 맞지만, 값 자체는 실제 set-prediction
+            # loss가 맞다. hungarian head에는 anchor 자체가 없어서 phase/마디
+            # 위상 auxiliary target 개념도 적용 대상이 아님.
+            return (
+                losses["loss_class"].unsqueeze(0),
+                losses["loss_bbox"].unsqueeze(0),
+                losses["loss_giou"].unsqueeze(0),
+                zero.unsqueeze(0),
+                zero.unsqueeze(0),
+            )
+        else:
+            probs = class_logits.softmax(-1)
+            scores, labels = probs[..., :-1].max(-1)  # "no object" 클래스는 제외
+            boxes_raw = boxes * T  # 정규화된 [0,1]을 다시 frame-index 스케일로 (FCOS 경로와 동일한 단위로 맞춤)
+
+            # 참고: eval 시 batch_size==1을 가정함 (위 FCOS 경로에서 beat_eval.py가
+            # 평가를 돌리는 방식과 동일).
+            finalScores = scores[0]
+            finalAnchorBoxesIndexes = labels[0]
+            finalAnchorBoxesCoordinates = boxes_raw[0]
+
+            if annotations is not None:
+                eval_losses = (
+                    losses["loss_class"].item(),
+                    losses["loss_bbox"].item(),
+                    losses["loss_giou"].item(),
+                    0.0,
+                )
+            else:
+                eval_losses = (0.0, 0.0, 0.0, 0.0)
+
+            return [finalScores, finalAnchorBoxesIndexes, finalAnchorBoxesCoordinates, eval_losses]
+
+    # downbeat_score_threshold: 안 주면(None) score_threshold가 beat/downbeat
+    # 둘 다에 적용됨(기존 동작과 동일). 값을 주면 downbeat 클래스만 그 threshold로
+    # 독립적으로 후처리됨 (아래 soft_nms 부분의 class_score_threshold 참고).
+    # return_raw_scores: True면 soft-NMS/threshold를 전부 건너뛰고, anchor별
+    # 원본 점수(leftness 곱한 값)와 위치를 그대로 반환함 - madmom DBN처럼 NMS가
+    # 아닌 다른 디코딩 방식에 넣기 위한 진단용 경로 (beat_eval.py의 DBN 관련
+    # 주석/evaluate_with_dbn.py 참고).
+    def forward(self, inputs, iou_threshold=0.5, score_threshold=0.05, max_thresh=1, downbeat_score_threshold=None, downbeat_sigma=None, downbeat_phase_reweight=False, return_raw_scores=False): #:forward_call = forward
         # inputs = audio, target
         # self.training = len(inputs) == 2
 
@@ -249,42 +462,72 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
             audio_batch = inputs
 
 
-        number_of_backbone_layers = 2 #MJ: now execute the backbone net
+        C1, C2, C3 = self.encoder(audio_batch)
 
-        if self.backbone_type == "wavebeat":
-            # audio_batch is the original audio sampled at 22050 Hz
+        C1 = C1.transpose(1, 2)
+        C2 = C2.transpose(1, 2)
+        C3 = C3.transpose(1, 2)
 
-            # From WaveBeat model
-            # With 8 layers, each with stride 2, we downsample the signal by a factor of 2^8 = 256,
-            # which, given an input sample rate of 22.05 kHz produces an output signal with a
-            # sample rate of 86 Hz
+        C1 = self.rho1(C1)
+        C2 = self.rho2(C2)
+        C3 = self.rho3(C3)
 
-            base_image_level = math.log2(self.audio_downsampling_factor)    # The image at level 7 is the downsampled base on which the regression targets are defined
-                                                                            # and the feature map strides are defined relative to it
-            tcn_layers, base_level_image_shape = self.dstcn(audio_batch, number_of_backbone_layers, base_image_level)
-        elif self.backbone_type == "tcn2019":
-            # JA: here the audio_batch is a batch of spectrograms
-            base_image_level_from_top = 1   #MJ: audio_batch: shape =(1,3000,81)
-            tcn_layers, base_level_image_shape = self.tcn2019(audio_batch, number_of_backbone_layers, base_image_level_from_top)
-            # tcn_layers[-1] = self.tcn2019_last_output_conv(tcn_layers[-1])
+        base_level_image_shape = C1.shape
 
-        x2 = tcn_layers[-2]  #MJ: shape = (16/1,16,3000)
-        x3 = tcn_layers[-1]  #MJ: shape = (16/1,16,1500)
+        feature_maps = self.fpn([C1, C2, C3])
 
-        feature_maps = self.fpn([x2, x3]) #MJ feature_maps[0].shape=(16,256,3000)...feature_maps[4].shape=(16,256,188)=(B,C,L)
+        if self.head_type == "hungarian":
+            return self._forward_hungarian(feature_maps, base_level_image_shape, audio_batch, inputs)
 
-        classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
-        regression_outputs = []
-        leftness_outputs = []
+        if self.head_type == "fcos_lite":
+            # P1 제거: P2/P3(레벨 [1,2])만 사용, classification+regression 통합 head
+            feature_maps = feature_maps[1:]
+            classification_outputs = []
+            regression_outputs = []
+            leftness_outputs = []
+            phase_outputs = []
+            for feature_map in feature_maps:
+                cls_output, bbx_regression_output, leftness_regression_output, phase_output = self.regressionModel(feature_map)
+                classification_outputs.append(cls_output)
+                regression_outputs.append(bbx_regression_output)
+                leftness_outputs.append(leftness_regression_output)
+                phase_outputs.append(phase_output)
+            classification_outputs = torch.cat(classification_outputs, dim=1)
+            regression_outputs = torch.cat(regression_outputs, dim=1)
+            leftness_outputs = torch.cat(leftness_outputs, dim=1)
+            phase_outputs = torch.cat(phase_outputs, dim=1)
+        elif self.head_type == "fcos_no_fpn":
+            # FPN fusion이 이미 self.fpn.no_fusion=True로 꺼져있으므로, P1(레벨 0)
+            # 단일 스케일만 사용. head는 표준 분리 구조.
+            feature_maps = feature_maps[:1]
+            classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
+            regression_outputs = []
+            leftness_outputs = []
+            phase_outputs = []
+            for feature_map in feature_maps:
+                bbx_regression_output, leftness_regression_output, phase_output = self.regressionModel(feature_map)
+                regression_outputs.append(bbx_regression_output)
+                leftness_outputs.append(leftness_regression_output)
+                phase_outputs.append(phase_output)
+            regression_outputs = torch.cat(regression_outputs, dim=1)
+            leftness_outputs = torch.cat(leftness_outputs, dim=1)
+            phase_outputs = torch.cat(phase_outputs, dim=1)
+        else:
+            classification_outputs = torch.cat([self.classificationModel(feature_map) for feature_map in feature_maps], dim=1)
+            regression_outputs = []
+            leftness_outputs = []
+            phase_outputs = []
 
-        for feature_map in feature_maps:
-            bbx_regression_output, leftness_regression_output = self.regressionModel(feature_map)
+            for feature_map in feature_maps:
+                bbx_regression_output, leftness_regression_output, phase_output = self.regressionModel(feature_map)
 
-            regression_outputs.append(bbx_regression_output)
-            leftness_outputs.append(leftness_regression_output)
+                regression_outputs.append(bbx_regression_output)
+                leftness_outputs.append(leftness_regression_output)
+                phase_outputs.append(phase_output)
 
-        regression_outputs = torch.cat(regression_outputs, dim=1)
-        leftness_outputs = torch.cat(leftness_outputs, dim=1)
+            regression_outputs = torch.cat(regression_outputs, dim=1)
+            leftness_outputs = torch.cat(leftness_outputs, dim=1)
+            phase_outputs = torch.cat(phase_outputs, dim=1)
 
         anchors_list = self.anchors(base_level_image_shape)
 
@@ -296,16 +539,24 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
         class_one_positive_indicators, class_two_positive_indicators = None, None
 
         # This combined loss will eventually replace the legacy losses we have been using
-        classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss = self.combined_loss(
-            classification_outputs, regression_outputs, leftness_outputs, anchors_list, annotations
+        classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss, phase_loss = self.combined_loss(
+            classification_outputs, regression_outputs, leftness_outputs, phase_outputs, anchors_list, annotations
         )
 
         if self.training:
-            return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss
+            return classification_loss, regression_loss, leftness_loss, adjacency_constraint_loss, phase_loss
         else:
             # Start of evaluation mode
 
             all_anchors = torch.cat(anchors_list, dim=0)
+
+            if return_raw_scores:
+                # class_id 0 = downbeat, class_id 1 = beat (get_jth_targets 컨벤션과 동일)
+                raw_downbeat_scores = classification_outputs[:, :, 0] * leftness_outputs[:, :, 0]
+                raw_beat_scores = classification_outputs[:, :, 1] * leftness_outputs[:, :, 0]
+                # all_anchors: anchor point 위치 (base-level, audio_downsampling_factor
+                # 단위 - 초 단위 변환은 audio_downsampling_factor / audio_sample_rate 곱하면 됨)
+                return raw_beat_scores, raw_downbeat_scores, all_anchors
 
             finalResult = [[], [], []]
 
@@ -321,17 +572,41 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
                 strides_for_all_anchors = strides_for_all_anchors.cuda()
 
             for i, anchors_per_level in enumerate(anchors_list):    # i ranges over the level of feature maps.
-                stride_per_level = torch.tensor(2**i).to(strides_for_all_anchors.device) #stride_per_level =2**1, 2**2, 2**3, 2**4,2**5
+                # 2**i는 pyramid_levels가 항상 [0,1,2] 연속일 때만 맞음 - fcos_lite([1,2]),
+                # fcos_no_fpn([0])처럼 레벨이 빠지면 실제 stride와 어긋나므로
+                # self.anchors.pyramid_levels[i]로 실제 레벨을 참조함.
+                stride_per_level = torch.tensor(2**self.anchors.pyramid_levels[i]).to(strides_for_all_anchors.device) #stride_per_level =2**1, 2**2, 2**3, 2**4,2**5
                 stride_per_level_for_anchors = stride_per_level[None].expand(anchors_per_level.size(dim=0)) #MJ:anchors_per_level.size(dim=0)=188
                 strides_for_all_anchors = torch.cat((strides_for_all_anchors, stride_per_level_for_anchors), dim=0)
 
             transformed_regression_boxes = self.anchor_point_transform(all_anchors, regression_outputs, strides_for_all_anchors)
-            transformed_regression_boxes = self.clipBoxes(transformed_regression_boxes, audio_batch)
+            transformed_regression_boxes = self.clipBoxes(transformed_regression_boxes, audio_batch.transpose(1, 2))
+
+            # downbeat_phase_reweight: downbeat 후보는 (get_phase_targets 정의상) 위상이
+            # 0이어야 정상 - phase head가 예측한 (sin, cos)를 단위원으로 정규화한 뒤
+            # cos 성분을 [0,1]로 매핑하면(cos=1일 때 1, 즉 phase=0), "이 anchor가
+            # 실제로 마디 시작처럼 보이는 정도"를 나타내는 별도 신호가 된다. 이걸
+            # downbeat 점수에 곱해서, 분류/leftness 점수는 높지만 phase 예측과
+            # 안 맞는(위상이 마디 중간인) 후보를 soft-NMS 전에 미리 깎아 리듬
+            # 연속성(CMLt/AMLt)을 개선해보려는 시도 - 재학습 없이 이미 학습된
+            # phase head를 추론 단계에서 활용하는 것뿐이라 체크포인트는 그대로 씀.
+            if downbeat_phase_reweight:
+                phase_norm = phase_outputs.norm(dim=2, keepdim=True).clamp(min=1e-6)
+                downbeat_phase_agreement = ((phase_outputs[:, :, 1:2] / phase_norm) + 1) / 2
 
             for class_id in range(classification_outputs.shape[2]): # the shape of classification_output is (B, number of anchor points per level, class ID)
                 scores = classification_outputs[:, :, class_id] * leftness_outputs[:, :, 0] # We predict the max number for beats will be less than the num of anchors
 
-                scores_over_thresh = torch.logical_and(scores > score_threshold, scores <= max_thresh)
+                if downbeat_phase_reweight and class_id == 0:
+                    scores = scores * downbeat_phase_agreement[:, :, 0]
+
+                # class_id 0 = downbeat, class_id 1 = beat (see get_jth_targets in losses.py).
+                # beat와 downbeat은 confidence 분포가 달라서 최적 threshold도 다름
+                # (실측: beat=0.2, downbeat=0.05가 최적) - downbeat_score_threshold를
+                # 안 주면 기존처럼 score_threshold 하나로 두 클래스에 동일 적용됨.
+                class_score_threshold = downbeat_score_threshold if (class_id == 0 and downbeat_score_threshold is not None) else score_threshold
+
+                scores_over_thresh = torch.logical_and(scores > class_score_threshold, scores <= max_thresh)
                 if scores_over_thresh.sum() == 0:
                     # no boxes to NMS, just continue
                     continue
@@ -372,7 +647,21 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
                     #MJ: regression_boxes are those obtained by filtering out whose scores are less than score_threshold
                     #    Get all the filtered detections and store them for use in training gnet.
                 elif self.postprocessing_type == 'soft_nms':
-                    anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=0.5, thresh=0.2)  #MJ: = 16
+                    # 원래 여기 thresh=0.2로 하드코딩되어 있어서, score_threshold를
+                    # 밖에서 아무리 낮춰도(0.05, 0.02 등) 최종 결과는 항상 바뀌지
+                    # 않았음 - score_threshold는 soft_nms에 들어갈 후보군만 거르는
+                    # 역할이고, 실제 최종 컷은 이 하드코딩된 값이었기 때문. 이제
+                    # class_score_threshold(클래스별로 다를 수 있음)를 그대로 써서
+                    # 밖에서 지정한 threshold가 실제로 최종 결과에 반영되게 함.
+                    #
+                    # downbeat_sigma: downbeat box가 beat box보다 폭이 훨씬 넓어서
+                    # (박마디 길이) 연속된 두 박스가 겹치는 경우가 많음(final_boxes.png
+                    # 시각화로 확인됨, 평균 IoU 0.101 vs beat 0.015). soft-NMS의
+                    # sigma는 겹치는 이웃 박스의 점수를 얼마나 강하게 깎을지 결정하는
+                    # 파라미터라서, downbeat만 별도로 조정해 겹침을 더 강하게
+                    # 억제할 수 있는지 실험.
+                    class_sigma = downbeat_sigma if (class_id == 0 and downbeat_sigma is not None) else 0.5
+                    anchors_nms_idx = soft_nms(regression_boxes, scores, sigma=class_sigma, thresh=class_score_threshold)
                 elif self.postprocessing_type == 'none':
                     anchors_nms_idx = torch.arange(0, regression_boxes.size(dim=0))
 
@@ -400,43 +689,4 @@ class BeatFCOS(nn.Module): #MJ: blcok, layers = Bottleneck, [3, 4, 6, 3]: not de
 
 def create_beatfcos_model(num_classes, clusters, args, **kwargs):
     model = BeatFCOS(num_classes, clusters, **kwargs)
-
-    if args.pretrained:
-        if args.backbone_type == "wavebeat":
-            model_key = 'wavebeat8'
-        elif args.backbone_type == "tcn2019":
-            model_key = 'tcn2019'
-
-        if args.validation_fold is not None:
-            if args.backbone_type == "wavebeat":
-                model_key = f"wavebeat_fold_{args.validation_fold}"
-
-        if args.backbone_type == "wavebeat":
-            state_dict = torch.load(model_urls[model_key])
-            state_dict = state_dict['state_dict']
-        elif args.backbone_type == "tcn2019":
-            state_dict = torch.load(model_urls[model_key], map_location='cuda:0')
-
-        new_dict = OrderedDict()
-
-        for k, v in state_dict.items():
-            key = k
-            #key = k.replace('module.', '') # The parameter key that starts with "module." means that these parameters are from the parallelized model
-            # For example, if the name of the parallelized module is "model_ddp" then the module_ddp.module refers to the original unwrapped model
-            new_dict[key] = v
-
-        if args.backbone_type == "wavebeat":
-            missing_keys, unexpected_keys = model.dstcn.load_state_dict(new_dict, strict=False)
-        elif args.backbone_type == "tcn2019":
-            missing_keys, unexpected_keys = model.tcn2019.load_state_dict(new_dict, strict=False)
-
-        print(f"Loaded {model_key} backbone. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}")
-
-        print("Freezing batch norm...")
-        model.freeze_bn()
-
-        if args.freeze_backbone:
-            print("Freezing DSTCN...")
-            model.dstcn.freeze()
-
     return model
